@@ -39,6 +39,7 @@ src/orx/
 │
 ├── executors/       # CLI agent adapters
 │   ├── base.py      # Protocol definition
+│   ├── router.py    # Model routing + fallback policy
 │   ├── codex.py     # Codex CLI wrapper
 │   ├── gemini.py    # Gemini CLI wrapper
 │   └── fake.py      # Testing executor
@@ -99,9 +100,9 @@ RUN_LLM_TESTS=1 make smoke-llm
 ### Adding a new executor
 
 1. Create `src/orx/executors/myengine.py`
-2. Implement `Executor` protocol from `base.py`
+2. Implement `Executor` protocol from `base.py` (including `resolve_invocation`)
 3. Add engine type to `config.py` `EngineType` enum
-4. Add creation logic to `runner.py` `_create_executor`
+4. Register in `runner.py:_create_executor()` and `src/orx/executors/router.py:ModelRouter._create_executors()`
 5. Add tests
 
 ### Adding a new gate
@@ -118,7 +119,8 @@ RUN_LLM_TESTS=1 make smoke-llm
 2. Extend `BaseStage` or `TextOutputStage` or `ApplyStage`
 3. Create template in `src/orx/prompts/templates/mystage.md`
 4. Add to `runner.py` stages dict and stage order
-5. Add tests
+5. If it needs model routing, add to `StagesConfig` in `config.py`
+6. Add tests
 
 <!-- ORX:START AGENTS -->
 ## Auto-Updated Learnings
@@ -128,6 +130,7 @@ RUN_LLM_TESTS=1 make smoke-llm
   - `evidence.py` - Collects evidence pack from run artifacts
   - `guardrails.py` - Marker-based scoped updates, change limits
   - `updater.py` - Coordinates AGENTS.md + ARCHITECTURE.md updates
+- **Model Router**: `src/orx/executors/router.py` - Per-stage executor/model selection
 - **Knowledge Stage**: `src/orx/stages/knowledge.py` - KnowledgeUpdateStage
 - **Knowledge Prompts**: `src/orx/prompts/templates/knowledge_*.md`
 

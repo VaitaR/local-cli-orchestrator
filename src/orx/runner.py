@@ -11,7 +11,7 @@ from typing import Any
 
 import structlog
 
-from orx.config import EngineType, OrxConfig
+from orx.config import EngineConfig, EngineType, ModelSelector, OrxConfig
 from orx.context.backlog import Backlog
 from orx.context.pack import ContextPack
 from orx.exceptions import GuardrailError
@@ -19,6 +19,7 @@ from orx.executors.base import Executor
 from orx.executors.codex import CodexExecutor
 from orx.executors.fake import FakeExecutor
 from orx.executors.gemini import GeminiExecutor
+from orx.executors.router import ModelRouter
 from orx.gates.base import Gate
 from orx.gates.docker import DockerGate
 from orx.gates.generic import GenericGate
@@ -44,6 +45,46 @@ logger = structlog.get_logger()
 
 
 @dataclass
+class StageModelInfo:
+    """Model selection info for a stage execution.
+
+    Attributes:
+        stage: Stage name.
+        executor: Executor used.
+        model: Model used (if any).
+        profile: Profile used (if any).
+        reasoning_effort: Reasoning effort (if any).
+        cmd: Full command executed.
+        attempt: Attempt number.
+        fallback_applied: Whether fallback was applied.
+    """
+
+    stage: str
+    executor: str
+    model: str | None = None
+    profile: str | None = None
+    reasoning_effort: str | None = None
+    cmd: list[str] | None = None
+    attempt: int = 1
+    fallback_applied: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "stage": self.stage,
+            "executor": self.executor,
+            "selector": {
+                "model": self.model,
+                "profile": self.profile,
+                "reasoning_effort": self.reasoning_effort,
+            },
+            "cmd": self.cmd,
+            "attempt": self.attempt,
+            "fallback_applied": self.fallback_applied,
+        }
+
+
+@dataclass
 class RunMeta:
     """Metadata for a run.
 
@@ -51,11 +92,12 @@ class RunMeta:
         run_id: The run identifier.
         start_time: When the run started.
         end_time: When the run ended.
-        engine: Engine used.
+        engine: Primary engine used.
         base_branch: Base branch.
         branch_name: Branch name for changes.
         versions: Version information.
         stage_statuses: Status of each stage.
+        stage_models: Model selection info per stage.
     """
 
     run_id: str
@@ -66,6 +108,7 @@ class RunMeta:
     branch_name: str = ""
     versions: dict[str, str] = field(default_factory=dict)
     stage_statuses: dict[str, str] = field(default_factory=dict)
+    stage_models: list[StageModelInfo] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
@@ -78,7 +121,44 @@ class RunMeta:
             "branch_name": self.branch_name,
             "versions": self.versions,
             "stage_statuses": self.stage_statuses,
+            "stage_models": [sm.to_dict() for sm in self.stage_models],
         }
+
+    def record_stage_model(
+        self,
+        stage: str,
+        executor: str,
+        model: str | None = None,
+        profile: str | None = None,
+        reasoning_effort: str | None = None,
+        cmd: list[str] | None = None,
+        attempt: int = 1,
+        fallback_applied: bool = False,
+    ) -> None:
+        """Record model selection for a stage.
+
+        Args:
+            stage: Stage name.
+            executor: Executor used.
+            model: Model used.
+            profile: Profile used.
+            reasoning_effort: Reasoning effort.
+            cmd: Full command executed.
+            attempt: Attempt number.
+            fallback_applied: Whether fallback was applied.
+        """
+        self.stage_models.append(
+            StageModelInfo(
+                stage=stage,
+                executor=executor,
+                model=model,
+                profile=profile,
+                reasoning_effort=reasoning_effort,
+                cmd=cmd,
+                attempt=attempt,
+                fallback_applied=fallback_applied,
+            )
+        )
 
 
 class Runner:
@@ -89,6 +169,7 @@ class Runner:
     - Fix loops
     - State persistence
     - Resume support
+    - Model routing and fallback
 
     Example:
         >>> config = OrxConfig.default()
@@ -130,8 +211,19 @@ class Runner:
         self.renderer = PromptRenderer()
         self.guardrails = Guardrails(config.guardrails)
 
-        # Create executor
+        # Initialize model router for per-stage model selection
+        self.model_router = ModelRouter(
+            engine=config.engine,
+            executors=config.executors,
+            stages=config.stages,
+            fallback=config.fallback,
+            cmd=self.cmd,
+            dry_run=dry_run,
+        )
+
+        # Create executor (legacy - kept for backward compatibility)
         self.executor = self._create_executor()
+        self.stage_executors = self._create_stage_executors()
 
         # Create gates
         self.gates = self._create_gates()
@@ -157,9 +249,9 @@ class Runner:
             base_branch=config.git.base_branch,
         )
 
-    def _create_executor(self) -> Executor:
-        """Create the executor based on config."""
-        engine_config = self.config.engine
+    def _create_executor(self, engine_config: EngineConfig | None = None) -> Executor:
+        """Create an executor from engine config."""
+        engine_config = engine_config or self.config.engine
 
         if engine_config.type == EngineType.CODEX:
             return CodexExecutor(
@@ -167,6 +259,9 @@ class Runner:
                 binary=engine_config.binary,
                 extra_args=engine_config.extra_args,
                 dry_run=self.dry_run,
+                default_model=engine_config.model,
+                default_profile=engine_config.profile,
+                default_reasoning_effort=engine_config.reasoning_effort,
             )
         elif engine_config.type == EngineType.GEMINI:
             return GeminiExecutor(
@@ -174,12 +269,27 @@ class Runner:
                 binary=engine_config.binary,
                 extra_args=engine_config.extra_args,
                 dry_run=self.dry_run,
+                default_model=engine_config.model,
+                output_format=engine_config.output_format or "json",
             )
         elif engine_config.type == EngineType.FAKE:
             return FakeExecutor()
         else:
             msg = f"Unknown engine type: {engine_config.type}"
             raise ValueError(msg)
+
+    def _create_stage_executors(self) -> dict[str, Executor]:
+        """Create executor overrides for specific stages."""
+        executors: dict[str, Executor] = {}
+        for stage_name, engine_cfg in self.config.stage_engines.items():
+            executors[stage_name.lower()] = self._create_executor(engine_cfg)
+        return executors
+
+    def _get_executor_for_stage(self, stage: str | None) -> Executor:
+        """Get the executor for a specific stage."""
+        if not stage:
+            return self.executor
+        return self.stage_executors.get(stage.lower(), self.executor)
 
     def _create_gates(self) -> list[Gate]:
         """Create gates based on config."""
@@ -230,17 +340,47 @@ class Runner:
 
         return gates
 
-    def _get_stage_context(self) -> StageContext:
-        """Build the stage context."""
+    def _get_stage_context(self, stage: str | None = None) -> StageContext:
+        """Build the stage context.
+
+        Args:
+            stage: Optional stage name for model routing.
+
+        Returns:
+            StageContext with executor and model_selector.
+
+        Note:
+            If self.executor has been replaced (e.g., by tests), it takes
+            precedence over the model router's executor selection.
+        """
+        # Check if executor was overridden (for testing)
+        default_executor = self.model_router.get_primary_executor()
+        executor_overridden = self.executor is not default_executor
+
+        # Use model router if stage is specified and executor wasn't overridden
+        if stage and not executor_overridden:
+            executor, model_selector = self.model_router.get_executor_for_stage(stage)
+        elif executor_overridden:
+            # Use the overridden executor (for testing compatibility)
+            executor = self.executor
+            if stage:
+                _, model_selector = self.model_router.get_executor_for_stage(stage)
+            else:
+                model_selector = ModelSelector()
+        else:
+            executor = self.executor
+            model_selector = ModelSelector()
+
         return StageContext(
             paths=self.paths,
             pack=self.pack,
             state=self.state,
             workspace=self.workspace,
-            executor=self.executor,
+            executor=executor,
             gates=self.gates,
             renderer=self.renderer,
             config=self.config.model_dump(),
+            model_selector=model_selector,
         )
 
     def _collect_versions(self) -> dict[str, str]:
@@ -254,10 +394,16 @@ class Runner:
             ("git", ["git", "--version"]),
         ]
 
-        # Add engine version
-        if self.config.engine.type == EngineType.CODEX:
+        # Add engine versions
+        engine_types = {self.config.engine.type}
+        for engine_cfg in self.config.stage_engines.values():
+            engine_types.add(engine_cfg.type)
+        if self.config.fallback_engine:
+            engine_types.add(self.config.fallback_engine.type)
+
+        if EngineType.CODEX in engine_types:
             commands.append(("codex", ["codex", "--version"]))
-        elif self.config.engine.type == EngineType.GEMINI:
+        if EngineType.GEMINI in engine_types:
             commands.append(("gemini", ["gemini", "--version"]))
 
         for name, cmd in commands:
@@ -370,8 +516,6 @@ class Runner:
             True if all stages completed successfully.
         """
         log = logger.bind(run_id=self.paths.run_id)
-        ctx = self._get_stage_context()
-
         # Stage execution order
         stage_order = [
             Stage.PLAN,
@@ -396,19 +540,21 @@ class Runner:
             self.state.transition_to(stage)
 
             if stage == Stage.PLAN:
-                result = self._run_plan(ctx)
+                result = self._run_plan(self._get_stage_context(stage.value))
             elif stage == Stage.SPEC:
-                result = self._run_spec(ctx)
+                result = self._run_spec(self._get_stage_context(stage.value))
             elif stage == Stage.DECOMPOSE:
-                result = self._run_decompose(ctx)
+                result = self._run_decompose(self._get_stage_context(stage.value))
             elif stage == Stage.IMPLEMENT_ITEM:
-                result = self._run_implement_loop(ctx)
+                result = self._run_implement_loop()
             elif stage == Stage.REVIEW:
-                result = self._run_review(ctx)
+                result = self._run_review(self._get_stage_context(stage.value))
             elif stage == Stage.SHIP:
-                result = self._run_ship(ctx)
+                result = self._run_ship(self._get_stage_context(stage.value))
             elif stage == Stage.KNOWLEDGE_UPDATE:
-                result = self._run_knowledge_update(ctx)
+                result = self._run_knowledge_update(
+                    self._get_stage_context(stage.value)
+                )
             else:
                 continue
 
@@ -440,10 +586,15 @@ class Runner:
         """Run the decompose stage."""
         return self.stages["decompose"].execute(ctx)
 
-    def _run_implement_loop(self, ctx: StageContext) -> StageResult:
+    def _run_implement_loop(self) -> StageResult:
         """Run the implementation loop over all work items."""
         log = logger.bind(stage="implement_loop")
         log.info("Starting implementation loop")
+
+        base_ctx = self._get_stage_context()
+        implement_ctx = self._get_stage_context("implement")
+        fix_ctx = self._get_stage_context("fix")
+        verify_ctx = self._get_stage_context("verify")
 
         # Load backlog
         try:
@@ -472,11 +623,13 @@ class Runner:
 
                 # Run implement or fix
                 if attempt == 1:
-                    result = self.stages["implement"].execute_for_item(ctx, item)
+                    result = self.stages["implement"].execute_for_item(
+                        implement_ctx, item
+                    )
                 else:
                     evidence = self.state.state.last_failure_evidence
                     result = self.stages["fix"].execute_fix(
-                        ctx, item, attempt, evidence
+                        fix_ctx, item, attempt, evidence
                     )  # type: ignore[attr-defined]
 
                 if not result.success:
@@ -484,17 +637,17 @@ class Runner:
                     continue
 
                 # Capture diff
-                ctx.workspace.diff_to(ctx.paths.patch_diff)
+                base_ctx.workspace.diff_to(base_ctx.paths.patch_diff)
 
                 # Check for empty diff
-                if ctx.workspace.diff_empty():
+                if base_ctx.workspace.diff_empty():
                     log.warning("No changes produced")
                     self.state.set_failure_evidence({"diff_empty": True})
                     continue
 
                 # Check guardrails
                 try:
-                    changed_files = ctx.workspace.get_changed_files()
+                    changed_files = base_ctx.workspace.get_changed_files()
                     self.guardrails.check_files(changed_files)
                 except GuardrailError as e:
                     log.error("Guardrail violation", error=str(e))
@@ -503,7 +656,7 @@ class Runner:
                     return StageResult(success=False, message=str(e))
 
                 # Run verification
-                verify_result = self.stages["verify"].execute(ctx)
+                verify_result = self.stages["verify"].execute(verify_ctx)
 
                 if verify_result.success:
                     log.info("Verification passed")

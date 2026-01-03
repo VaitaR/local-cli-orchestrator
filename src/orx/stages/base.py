@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 import structlog
 
 if TYPE_CHECKING:
+    from orx.config import ModelSelector
     from orx.context.backlog import WorkItem
     from orx.context.pack import ContextPack
     from orx.executors.base import Executor
@@ -52,16 +53,18 @@ class StageContext:
         gates: List of gates to run.
         renderer: Prompt renderer.
         config: Run configuration.
+        model_selector: Model selection configuration for this stage.
     """
 
-    paths: RunPaths
-    pack: ContextPack
-    state: StateManager
-    workspace: WorkspaceGitWorktree
-    executor: Executor
-    gates: list[Gate]
-    renderer: PromptRenderer
+    paths: "RunPaths"
+    pack: "ContextPack"
+    state: "StateManager"
+    workspace: "WorkspaceGitWorktree"
+    executor: "Executor"
+    gates: list["Gate"]
+    renderer: "PromptRenderer"
     config: dict[str, Any]
+    model_selector: "ModelSelector | None" = None
 
 
 @runtime_checkable
@@ -226,6 +229,7 @@ class TextOutputStage(BaseStage):
                 prompt_path=prompt_path,
                 out_path=out_path,
                 logs=logs,
+                model_selector=ctx.model_selector,
             )
 
             if result.failed:
@@ -312,6 +316,7 @@ class ApplyStage(BaseStage):
                 cwd=ctx.workspace.worktree_path,
                 prompt_path=prompt_path,
                 logs=logs,
+                model_selector=ctx.model_selector,
             )
 
             if result.failed:

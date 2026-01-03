@@ -52,14 +52,16 @@
 5. `review` (executor text mode → produces `review.md` and `pr_body.md` artifacts)
 6. `ship` (final `patch.diff`, optional commit/push/PR)
 
+NOTE: Executor/model selection can be overridden per stage via `executors.*` + `stages.*` in `orx.yaml`.
+
 ASSUMPTION: stage naming and ordering follow `Runner` + `StateManager` implementation.
 
 ### 2.3 Executors (CLI agent adapters)
 
 | `engine.type` | External binary | Text stages | Apply stages | Command shape |
 |---|---|---|---|---|
-| `codex` | `codex` | `run_text` | `run_apply` | `codex exec --full-auto --cd <worktree> @<prompt.md>` |
-| `gemini` | `gemini` | `run_text` | `run_apply` | `gemini --yolo --approval-mode auto_edit --output-format json --prompt @<prompt.md>` |
+| `codex` | `codex` | `run_text` | `run_apply` | `codex exec --full-auto --cd <worktree> [-m <model> or -p <profile>] [--config model_reasoning_effort=\"high\"] @<prompt.md>` |
+| `gemini` | `gemini` | `run_text` | `run_apply` | `gemini [--model <model>] --yolo --approval-mode auto_edit --output-format <fmt> --prompt @<prompt.md>` |
 | `fake` | none | deterministic | deterministic | Used for tests / dry simulations |
 
 ### 2.4 Quality Gates
@@ -81,8 +83,10 @@ Supported gate names: `ruff`, `pytest`, `docker`.
 Minimal practical fields:
 
 - `engine.type`: `codex | gemini | fake`
-- `engine.binary`: path/name of the CLI binary
+- `engine.binary`: legacy path/name of the primary CLI binary (prefer `executors.<name>.bin`)
 - `engine.timeout`: seconds (applies to executor calls)
+- `executors.*`: per-executor binary + default model settings (preferred for routed stages)
+- `stages.*`: per-stage executor/model overrides
 - `git.base_branch`: base branch used for the worktree
 - `gates`: list of gate configs
 - `guardrails`: forbidden patterns/paths + file count limit
@@ -131,8 +135,36 @@ run:
   stop_on_first_failure: false
 ```
 
+Optional per-stage executor/model routing:
+
+```yaml
+executors:
+  codex:
+    bin: codex
+    default:
+      model: gpt-5.2
+      reasoning_effort: medium
+    profiles:
+      review: deep-review
+  gemini:
+    bin: gemini
+    default:
+      model: gemini-2.5-flash
+      output_format: json
+
+stages:
+  plan:
+    executor: gemini
+    model: gemini-2.5-pro
+  implement:
+    executor: codex
+    model: gpt-5.2
+    reasoning_effort: high
+```
+
 **Known limitations:**
 - `fallback_engine` exists in config, but TODO: not used by the runner.
+- `fallback` policy exists in config, but is not automatically applied by `Runner` yet (helper: `ModelRouter.apply_fallback()`).
 - `run.parallel_items` exists in config, but TODO: not implemented (loop is sequential).
 
 ---
@@ -235,4 +267,3 @@ Key files to inspect:
 runs/
 .worktrees/
 ```
-
