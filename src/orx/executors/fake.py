@@ -5,10 +5,14 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import structlog
 
-from orx.executors.base import BaseExecutor, ExecResult, LogPaths
+from orx.executors.base import BaseExecutor, ExecResult, LogPaths, ResolvedInvocation
+
+if TYPE_CHECKING:
+    from orx.config import ModelSelector
 
 logger = structlog.get_logger()
 
@@ -155,6 +159,51 @@ class FakeExecutor(BaseExecutor):
         self._attempt_counts[stage] = count
         return count
 
+    def resolve_invocation(
+        self,
+        *,
+        prompt_path: Path,
+        cwd: Path,
+        logs: LogPaths,
+        out_path: Path | None = None,
+        model_selector: "ModelSelector | None" = None,
+    ) -> ResolvedInvocation:
+        """Resolve the command invocation without executing.
+
+        Args:
+            prompt_path: Path to the prompt file.
+            cwd: Working directory.
+            logs: Paths for stdout/stderr logs.
+            out_path: Optional output path (for text mode).
+            model_selector: Optional model selection configuration.
+
+        Returns:
+            ResolvedInvocation with command and artifacts.
+        """
+        stage = self._extract_stage_from_prompt(prompt_path)
+        resolved = self._resolve_model(model_selector)
+
+        cmd = ["fake", "exec", "--stage", stage]
+        if resolved["model"]:
+            cmd.extend(["--model", resolved["model"]])
+
+        artifacts = {
+            "stdout": logs.stdout,
+            "stderr": logs.stderr,
+        }
+        if out_path:
+            artifacts["output"] = out_path
+
+        return ResolvedInvocation(
+            cmd=cmd,
+            artifacts=artifacts,
+            model_info={
+                "executor": self.name,
+                "model": resolved["model"],
+                "profile": resolved["profile"],
+            },
+        )
+
     def run_text(
         self,
         *,
@@ -163,6 +212,7 @@ class FakeExecutor(BaseExecutor):
         out_path: Path,
         logs: LogPaths,
         timeout: int | None = None,  # noqa: ARG002
+        model_selector: "ModelSelector | None" = None,
     ) -> ExecResult:
         """Run fake executor in text mode.
 
@@ -172,6 +222,7 @@ class FakeExecutor(BaseExecutor):
             out_path: Path to write the output to.
             logs: Paths for stdout/stderr logs.
             timeout: Optional timeout (unused).
+            model_selector: Optional model selection configuration.
 
         Returns:
             ExecResult with execution details.
@@ -180,7 +231,20 @@ class FakeExecutor(BaseExecutor):
         attempt = self._increment_attempt(stage)
         scenario = self.get_scenario(stage)
 
-        log = logger.bind(stage=stage, attempt=attempt, scenario=scenario.name)
+        invocation = self.resolve_invocation(
+            prompt_path=prompt_path,
+            cwd=cwd,
+            logs=logs,
+            out_path=out_path,
+            model_selector=model_selector,
+        )
+
+        log = logger.bind(
+            stage=stage,
+            attempt=attempt,
+            scenario=scenario.name,
+            model=invocation.model_info.get("model"),
+        )
         log.info("FakeExecutor running in text mode")
 
         # Create log files
@@ -202,6 +266,7 @@ class FakeExecutor(BaseExecutor):
                 logs=logs,
                 success=False,
                 error_message="Simulated failure",
+                invocation=invocation,
             )
 
         # Write output
@@ -213,6 +278,7 @@ class FakeExecutor(BaseExecutor):
             returncode=scenario.returncode,
             logs=logs,
             success=scenario.returncode == 0,
+            invocation=invocation,
         )
 
     def run_apply(
@@ -222,6 +288,7 @@ class FakeExecutor(BaseExecutor):
         prompt_path: Path,
         logs: LogPaths,
         timeout: int | None = None,  # noqa: ARG002
+        model_selector: "ModelSelector | None" = None,
     ) -> ExecResult:
         """Run fake executor in apply mode.
 
@@ -230,6 +297,7 @@ class FakeExecutor(BaseExecutor):
             prompt_path: Path to the prompt file.
             logs: Paths for stdout/stderr logs.
             timeout: Optional timeout (unused).
+            model_selector: Optional model selection configuration.
 
         Returns:
             ExecResult with execution details.
@@ -238,7 +306,19 @@ class FakeExecutor(BaseExecutor):
         attempt = self._increment_attempt(stage)
         scenario = self.get_scenario(stage)
 
-        log = logger.bind(stage=stage, attempt=attempt, scenario=scenario.name)
+        invocation = self.resolve_invocation(
+            prompt_path=prompt_path,
+            cwd=cwd,
+            logs=logs,
+            model_selector=model_selector,
+        )
+
+        log = logger.bind(
+            stage=stage,
+            attempt=attempt,
+            scenario=scenario.name,
+            model=invocation.model_info.get("model"),
+        )
         log.info("FakeExecutor running in apply mode")
 
         # Create log files
@@ -260,6 +340,7 @@ class FakeExecutor(BaseExecutor):
                 logs=logs,
                 success=False,
                 error_message="Simulated failure",
+                invocation=invocation,
             )
 
         # Apply file actions
@@ -287,6 +368,7 @@ class FakeExecutor(BaseExecutor):
             returncode=scenario.returncode,
             logs=logs,
             success=scenario.returncode == 0,
+            invocation=invocation,
         )
 
 

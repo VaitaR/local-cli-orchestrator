@@ -90,6 +90,8 @@ Abstraction layer for CLI agent integration. All executors implement a common pr
 - `run_text`: Generate text output (plan, spec, review)
 - `run_apply`: Modify filesystem (implementation)
 
+**Model routing:** The runner uses `ModelRouter` (`src/orx/executors/router.py`) to select the executor and `ModelSelector` per stage, passing the selector via `StageContext.model_selector` into executor calls.
+
 ### 4. Quality Gates
 
 Post-implementation verification layer. Gates run in the worktree after executor changes.
@@ -371,10 +373,46 @@ engine:
     implement: 1800  # 30 minutes for implementation
 ```
 
-### 5. Base Branch Validation
+### 5. Per-Stage Executor / Model Routing
+Configure different executors and models per stage while keeping a primary engine:
+
+```yaml
+engine:
+  type: codex
+  model: gpt-4.1  # legacy default (lowest priority)
+
+executors:
+  codex:
+    bin: codex
+    default:
+      model: gpt-5.2
+      reasoning_effort: high
+    profiles:
+      review: deep-review
+  gemini:
+    bin: gemini
+    default:
+      model: gemini-2.5-flash
+      output_format: json
+
+stages:
+  plan:
+    executor: gemini
+    model: gemini-2.5-pro
+  implement:
+    executor: codex
+    model: gpt-5.2
+    reasoning_effort: high
+```
+
+Model selection priority: `stages.<stage>` → `executors.<name>.profiles[stage]` (Codex) → `executors.<name>.default.*` → `engine.*` → CLI default.
+
+Stage keys: `plan`, `spec`, `decompose`, `implement`, `fix`, `review`, `knowledge_update`.
+
+### 6. Base Branch Validation
 Validates that worktree baseline SHA matches the expected base branch. Logs warnings on mismatch to catch configuration discrepancies early.
 
-### 6. Self-Improvement (Knowledge Update Stage)
+### 7. Self-Improvement (Knowledge Update Stage)
 Automatic updates to AGENTS.md and ARCHITECTURE.md after successful task completion.
 
 ```

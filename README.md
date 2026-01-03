@@ -5,6 +5,7 @@ A local, transparent, CLI-first orchestrator that enables long, sequential, self
 ## Features
 
 - **Multi-engine support**: Codex CLI (`codex exec --full-auto`) and Gemini CLI (headless + auto-approve)
+- **Stage-specific engine overrides**: Configure different engines/models per stage
 - **Sequential FSM**: Plan → Spec → Decompose → Implement → Verify → Review → Ship
 - **Git isolation**: Each run uses a separate git worktree
 - **Quality gates**: Ruff linting, pytest, optional Docker build
@@ -57,6 +58,14 @@ engine:
   extra_args: []
   timeout: 600
 
+stage_engines:
+  plan:
+    type: gemini
+    extra_args: ["--model", "gemini-2.0-flash"]
+  implement:
+    type: codex
+    extra_args: ["--model", "gpt-4.1"]
+
 git:
   base_branch: main
   remote: origin
@@ -88,6 +97,8 @@ run:
   max_fix_attempts: 3
   stop_on_first_failure: false
 ```
+
+Stage overrides apply to these stage names: `plan`, `spec`, `decompose`, `implement`, `fix`, `review`, `knowledge_update`.
 
 ## Run Directory Structure
 

@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
 from orx.exceptions import ExecutorError
-from orx.executors.base import BaseExecutor, ExecResult, LogPaths
+from orx.executors.base import BaseExecutor, ExecResult, LogPaths, ResolvedInvocation
 from orx.infra.command import CommandRunner
+
+if TYPE_CHECKING:
+    from orx.config import ModelSelector
 
 logger = structlog.get_logger()
 
@@ -19,6 +22,16 @@ class GeminiExecutor(BaseExecutor):
     """Executor adapter for Gemini CLI.
 
     Wraps the gemini CLI with headless and auto-approve modes.
+    Supports model selection via --model/-m flag.
+
+    Note: The --model flag only controls the main model in the session.
+    Sub-agents may use different models, which will appear in usage reports.
+    This is a known limitation of the Gemini CLI.
+
+    Model selection priority:
+    1. stage.model (explicit model override)
+    2. executor.default.model (default model)
+    3. CLI default (fallback to gemini settings)
 
     Example:
         >>> executor = GeminiExecutor(cmd=CommandRunner())
@@ -26,6 +39,7 @@ class GeminiExecutor(BaseExecutor):
         ...     cwd=Path("/workspace"),
         ...     prompt_path=Path("/prompts/implement.md"),
         ...     logs=LogPaths(stdout=Path("out.log"), stderr=Path("err.log")),
+        ...     model_selector=ModelSelector(model="gemini-2.5-pro"),
         ... )
     """
 
@@ -38,6 +52,8 @@ class GeminiExecutor(BaseExecutor):
         dry_run: bool = False,
         use_yolo: bool = True,
         approval_mode: str = "auto_edit",
+        output_format: str = "json",
+        default_model: str | None = None,
     ) -> None:
         """Initialize the Gemini executor.
 
@@ -48,11 +64,19 @@ class GeminiExecutor(BaseExecutor):
             dry_run: If True, commands are logged but not executed.
             use_yolo: If True, use --yolo flag for auto-approve.
             approval_mode: Approval mode (e.g., "auto_edit").
+            output_format: Output format (e.g., "json", "stream-json").
+            default_model: Default model to use (e.g., "gemini-2.5-pro").
         """
-        super().__init__(binary=binary, extra_args=extra_args, dry_run=dry_run)
+        super().__init__(
+            binary=binary,
+            extra_args=extra_args,
+            dry_run=dry_run,
+            default_model=default_model,
+        )
         self.cmd = cmd
         self.use_yolo = use_yolo
         self.approval_mode = approval_mode
+        self.output_format = output_format
 
     @property
     def name(self) -> str:
@@ -63,18 +87,25 @@ class GeminiExecutor(BaseExecutor):
         self,
         *,
         prompt_path: Path,
-    ) -> list[str]:
+        model_selector: "ModelSelector | None" = None,
+    ) -> tuple[list[str], dict[str, str | None]]:
         """Build the gemini command line.
 
         Args:
             prompt_path: Path to the prompt file.
-            cwd: Working directory.
-            text_mode: If True, expect text output rather than file changes.
+            model_selector: Optional model selection configuration.
 
         Returns:
-            Command as list of strings.
+            Tuple of (command list, resolved model info).
         """
+        resolved = self._resolve_model(model_selector)
+
         cmd = [self.binary]
+
+        # Add model selection if specified
+        # Using --model/-m for headless/scripted execution
+        if resolved["model"]:
+            cmd.extend(["--model", resolved["model"]])
 
         # Add yolo mode for auto-approve
         if self.use_yolo:
@@ -84,8 +115,9 @@ class GeminiExecutor(BaseExecutor):
         if self.approval_mode:
             cmd.extend(["--approval-mode", self.approval_mode])
 
-        # Always use JSON output for machine parsing
-        cmd.extend(["--output-format", "json"])
+        # Add output format for machine parsing
+        if self.output_format:
+            cmd.extend(["--output-format", self.output_format])
 
         # Add extra args
         cmd.extend(self.extra_args)
@@ -94,7 +126,59 @@ class GeminiExecutor(BaseExecutor):
         # Gemini uses -p or --prompt flag
         cmd.extend(["--prompt", f"@{prompt_path}"])
 
-        return cmd
+        return cmd, resolved
+
+    def resolve_invocation(
+        self,
+        *,
+        prompt_path: Path,
+        cwd: Path,
+        logs: LogPaths,
+        out_path: Path | None = None,
+        model_selector: "ModelSelector | None" = None,
+    ) -> ResolvedInvocation:
+        """Resolve the command invocation without executing.
+
+        Args:
+            prompt_path: Path to the prompt file.
+            cwd: Working directory.
+            logs: Paths for stdout/stderr logs.
+            out_path: Optional output path (for text mode).
+            model_selector: Optional model selection configuration.
+
+        Returns:
+            ResolvedInvocation with command and artifacts.
+        """
+        cmd, resolved = self._build_command(
+            prompt_path=prompt_path,
+            model_selector=model_selector,
+        )
+
+        artifacts = {
+            "stdout": logs.stdout,
+            "stderr": logs.stderr,
+        }
+        if out_path:
+            artifacts["output"] = out_path
+
+        # Note about Gemini sub-agents limitation
+        model_note = None
+        if resolved["model"]:
+            model_note = (
+                "Note: --model only controls main model; "
+                "sub-agents may use different models"
+            )
+
+        return ResolvedInvocation(
+            cmd=cmd,
+            artifacts=artifacts,
+            model_info={
+                "executor": self.name,
+                "model": resolved["model"],
+                "output_format": self.output_format,
+                "note": model_note,
+            },
+        )
 
     def _parse_json_output(self, stdout_path: Path) -> dict[str, Any]:
         """Parse JSON output from gemini.
@@ -133,6 +217,7 @@ class GeminiExecutor(BaseExecutor):
         out_path: Path,
         logs: LogPaths,
         timeout: int | None = None,
+        model_selector: "ModelSelector | None" = None,
     ) -> ExecResult:
         """Run gemini to produce text output.
 
@@ -142,24 +227,33 @@ class GeminiExecutor(BaseExecutor):
             out_path: Path to write the output to.
             logs: Paths for stdout/stderr logs.
             timeout: Optional timeout in seconds.
+            model_selector: Optional model selection configuration.
 
         Returns:
             ExecResult with execution details.
         """
-        log = logger.bind(mode="text", prompt=str(prompt_path))
+        invocation = self.resolve_invocation(
+            prompt_path=prompt_path,
+            cwd=cwd,
+            logs=logs,
+            out_path=out_path,
+            model_selector=model_selector,
+        )
+
+        log = logger.bind(
+            mode="text",
+            prompt=str(prompt_path),
+            model=invocation.model_info.get("model"),
+        )
         log.info("Running Gemini in text mode")
 
         if self.dry_run:
             log.info("Dry run - skipping execution")
             return self._dry_run_result(logs)
 
-        command = self._build_command(
-            prompt_path=prompt_path,
-        )
-
         try:
             result = self.cmd.run(
-                command,
+                invocation.cmd,
                 cwd=cwd,
                 stdout_path=logs.stdout,
                 stderr_path=logs.stderr,
@@ -189,11 +283,16 @@ class GeminiExecutor(BaseExecutor):
                     extra=extra,
                     success=False,
                     error_message=f"Gemini failed with exit code {result.returncode}",
+                    invocation=invocation,
                 )
 
             log.info("Gemini text mode completed successfully")
             return self._create_result(
-                returncode=0, logs=logs, extra=extra, success=True
+                returncode=0,
+                logs=logs,
+                extra=extra,
+                success=True,
+                invocation=invocation,
             )
 
         except Exception as e:
@@ -212,6 +311,7 @@ class GeminiExecutor(BaseExecutor):
         prompt_path: Path,
         logs: LogPaths,
         timeout: int | None = None,
+        model_selector: "ModelSelector | None" = None,
     ) -> ExecResult:
         """Run gemini to apply filesystem changes.
 
@@ -220,24 +320,33 @@ class GeminiExecutor(BaseExecutor):
             prompt_path: Path to the prompt file.
             logs: Paths for stdout/stderr logs.
             timeout: Optional timeout in seconds.
+            model_selector: Optional model selection configuration.
 
         Returns:
             ExecResult with execution details.
         """
-        log = logger.bind(mode="apply", prompt=str(prompt_path), cwd=str(cwd))
+        invocation = self.resolve_invocation(
+            prompt_path=prompt_path,
+            cwd=cwd,
+            logs=logs,
+            model_selector=model_selector,
+        )
+
+        log = logger.bind(
+            mode="apply",
+            prompt=str(prompt_path),
+            cwd=str(cwd),
+            model=invocation.model_info.get("model"),
+        )
         log.info("Running Gemini in apply mode")
 
         if self.dry_run:
             log.info("Dry run - skipping execution")
             return self._dry_run_result(logs)
 
-        command = self._build_command(
-            prompt_path=prompt_path,
-        )
-
         try:
             result = self.cmd.run(
-                command,
+                invocation.cmd,
                 cwd=cwd,
                 stdout_path=logs.stdout,
                 stderr_path=logs.stderr,
@@ -256,11 +365,16 @@ class GeminiExecutor(BaseExecutor):
                     extra=extra,
                     success=False,
                     error_message=f"Gemini failed with exit code {result.returncode}",
+                    invocation=invocation,
                 )
 
             log.info("Gemini apply mode completed successfully")
             return self._create_result(
-                returncode=0, logs=logs, extra=extra, success=True
+                returncode=0,
+                logs=logs,
+                extra=extra,
+                success=True,
+                invocation=invocation,
             )
 
         except Exception as e:

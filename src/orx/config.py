@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class EngineType(str, Enum):
@@ -16,6 +16,204 @@ class EngineType(str, Enum):
     CODEX = "codex"
     GEMINI = "gemini"
     FAKE = "fake"
+
+
+class StageName(str, Enum):
+    """Stage names for model routing."""
+
+    PLAN = "plan"
+    SPEC = "spec"
+    DECOMPOSE = "decompose"
+    IMPLEMENT = "implement"
+    FIX = "fix"
+    REVIEW = "review"
+    KNOWLEDGE_UPDATE = "knowledge_update"
+
+
+class ModelSelector(BaseModel):
+    """Model selection configuration for a stage.
+
+    Attributes:
+        model: Model name to use (e.g., "gpt-5.2", "gemini-2.5-pro").
+        profile: Codex profile name (alternative to model).
+        reasoning_effort: Codex reasoning effort level (low/medium/high).
+    """
+
+    model: str | None = None
+    profile: str | None = None
+    reasoning_effort: Literal["low", "medium", "high"] | None = None
+
+    @model_validator(mode="after")
+    def validate_model_or_profile(self) -> "ModelSelector":
+        """Validate that model and profile are not both set."""
+        if self.model and self.profile:
+            msg = "Cannot specify both 'model' and 'profile'"
+            raise ValueError(msg)
+        return self
+
+
+class ExecutorDefaults(BaseModel):
+    """Default settings for an executor.
+
+    Attributes:
+        model: Default model name.
+        reasoning_effort: Default reasoning effort for Codex.
+        output_format: Output format (e.g., "json" for Gemini).
+    """
+
+    model: str | None = None
+    reasoning_effort: Literal["low", "medium", "high"] | None = None
+    output_format: str | None = None
+
+
+class ExecutorConfig(BaseModel):
+    """Configuration for an executor type.
+
+    Attributes:
+        bin: Path or name of the CLI binary.
+        default: Default settings for this executor.
+        profiles: Named profiles (for Codex) keyed by stage name.
+    """
+
+    bin: str | None = None
+    default: ExecutorDefaults = Field(default_factory=ExecutorDefaults)
+    profiles: dict[str, str] = Field(default_factory=dict)
+
+
+class StageExecutorConfig(BaseModel):
+    """Configuration for a specific stage's executor.
+
+    Attributes:
+        executor: Which executor to use ("codex", "gemini").
+        model: Model override for this stage.
+        profile: Profile override (for Codex).
+        reasoning_effort: Reasoning effort override (for Codex).
+    """
+
+    executor: EngineType | None = None
+    model: str | None = None
+    profile: str | None = None
+    reasoning_effort: Literal["low", "medium", "high"] | None = None
+
+    @model_validator(mode="after")
+    def validate_model_or_profile(self) -> "StageExecutorConfig":
+        """Validate that model and profile are not both set."""
+        if self.model and self.profile:
+            msg = "Cannot specify both 'model' and 'profile' for a stage"
+            raise ValueError(msg)
+        return self
+
+    def to_model_selector(self) -> ModelSelector:
+        """Convert to a ModelSelector."""
+        return ModelSelector(
+            model=self.model,
+            profile=self.profile,
+            reasoning_effort=self.reasoning_effort,
+        )
+
+
+class FallbackMatchConfig(BaseModel):
+    """Configuration for fallback matching.
+
+    Attributes:
+        executor: Match fallback for this executor type.
+        error_contains: Match if error contains any of these strings.
+    """
+
+    executor: EngineType | None = None
+    error_contains: list[str] = Field(default_factory=list)
+
+
+class FallbackSwitchConfig(BaseModel):
+    """Configuration for fallback switch action.
+
+    Attributes:
+        model: Switch to this model.
+        profile: Switch to this profile (for Codex).
+    """
+
+    model: str | None = None
+    profile: str | None = None
+
+
+class FallbackRule(BaseModel):
+    """A single fallback rule.
+
+    Attributes:
+        match: Conditions to match.
+        switch_to: Action to take on match.
+        max_retries: Maximum retries with this fallback (default: 1).
+    """
+
+    match: FallbackMatchConfig
+    switch_to: FallbackSwitchConfig
+    max_retries: int = Field(default=1, ge=1, le=5)
+
+
+class FallbackPolicyConfig(BaseModel):
+    """Configuration for fallback policies.
+
+    Attributes:
+        enabled: Whether fallback is enabled.
+        rules: List of fallback rules to apply.
+    """
+
+    enabled: bool = True
+    rules: list[FallbackRule] = Field(default_factory=list)
+
+
+class ExecutorsConfig(BaseModel):
+    """Configuration for all executors.
+
+    Attributes:
+        codex: Codex executor configuration.
+        gemini: Gemini executor configuration.
+    """
+
+    codex: ExecutorConfig = Field(default_factory=ExecutorConfig)
+    gemini: ExecutorConfig = Field(default_factory=ExecutorConfig)
+
+
+class StagesConfig(BaseModel):
+    """Configuration for per-stage executor settings.
+
+    Attributes:
+        plan: Configuration for plan stage.
+        spec: Configuration for spec stage.
+        decompose: Configuration for decompose stage.
+        implement: Configuration for implement stage.
+        fix: Configuration for fix stage.
+        review: Configuration for review stage.
+        knowledge_update: Configuration for knowledge update stage.
+    """
+
+    plan: StageExecutorConfig = Field(default_factory=StageExecutorConfig)
+    spec: StageExecutorConfig = Field(default_factory=StageExecutorConfig)
+    decompose: StageExecutorConfig = Field(default_factory=StageExecutorConfig)
+    implement: StageExecutorConfig = Field(default_factory=StageExecutorConfig)
+    fix: StageExecutorConfig = Field(default_factory=StageExecutorConfig)
+    review: StageExecutorConfig = Field(default_factory=StageExecutorConfig)
+    knowledge_update: StageExecutorConfig = Field(default_factory=StageExecutorConfig)
+
+    def get_stage_config(self, stage: str) -> StageExecutorConfig:
+        """Get configuration for a specific stage.
+
+        Args:
+            stage: Stage name.
+
+        Returns:
+            StageExecutorConfig for the stage.
+        """
+        stage_map = {
+            "plan": self.plan,
+            "spec": self.spec,
+            "decompose": self.decompose,
+            "implement": self.implement,
+            "fix": self.fix,
+            "review": self.review,
+            "knowledge_update": self.knowledge_update,
+        }
+        return stage_map.get(stage, StageExecutorConfig())
 
 
 class EngineConfig(BaseModel):
@@ -29,6 +227,10 @@ class EngineConfig(BaseModel):
         timeout: Default timeout in seconds for engine operations.
         stage_timeouts: Stage-specific timeouts (overrides default timeout).
                         Example: {"implement": 1800, "review": 300}
+        model: Default model for this engine.
+        profile: Default profile for this engine (Codex only).
+        reasoning_effort: Default reasoning effort (Codex only).
+        output_format: Default output format (Gemini only).
     """
 
     type: EngineType
@@ -40,6 +242,10 @@ class EngineConfig(BaseModel):
         default_factory=dict,
         description="Stage-specific timeouts in seconds",
     )
+    model: str | None = None
+    profile: str | None = None
+    reasoning_effort: Literal["low", "medium", "high"] | None = None
+    output_format: str | None = None
 
     def __init__(self, **data: Any) -> None:
         super().__init__(**data)
@@ -51,6 +257,14 @@ class EngineConfig(BaseModel):
                 EngineType.FAKE: "",
             }
             object.__setattr__(self, "binary", defaults.get(self.type, ""))
+
+    def to_model_selector(self) -> ModelSelector:
+        """Convert engine config to a ModelSelector."""
+        return ModelSelector(
+            model=self.model,
+            profile=self.profile,
+            reasoning_effort=self.reasoning_effort,
+        )
 
 
 class GateConfig(BaseModel):
@@ -210,7 +424,11 @@ class OrxConfig(BaseModel):
     Attributes:
         version: Config schema version.
         engine: Primary engine configuration.
+        stage_engines: Optional per-stage engine overrides (legacy).
         fallback_engine: Optional fallback engine.
+        executors: Configuration for executor types (codex, gemini).
+        stages: Per-stage executor and model configuration.
+        fallback: Fallback policy configuration.
         gates: List of gate configurations.
         git: Git configuration.
         guardrails: Guardrail configuration.
@@ -226,7 +444,14 @@ class OrxConfig(BaseModel):
 
     version: str = "1.0"
     engine: EngineConfig
+    stage_engines: dict[str, EngineConfig] = Field(
+        default_factory=dict,
+        description="Per-stage engine overrides (keyed by stage name)",
+    )
     fallback_engine: EngineConfig | None = None
+    executors: ExecutorsConfig = Field(default_factory=ExecutorsConfig)
+    stages: StagesConfig = Field(default_factory=StagesConfig)
+    fallback: FallbackPolicyConfig = Field(default_factory=FallbackPolicyConfig)
     gates: list[GateConfig] = Field(
         default_factory=lambda: [
             GateConfig(name="ruff", command="ruff", args=["check", "."]),
