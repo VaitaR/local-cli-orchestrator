@@ -36,6 +36,12 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
+metrics_app = typer.Typer(
+    name="metrics",
+    help="Metrics aggregation and analysis",
+    no_args_is_help=True,
+)
+
 
 def version_callback(value: bool) -> None:
     """Print version and exit."""
@@ -549,6 +555,241 @@ def clean(
     else:
         typer.echo("Specify a run ID or 'all' to clean.")
         raise typer.Exit(1)
+
+
+# ============================================================================
+# Metrics subcommands
+# ============================================================================
+
+
+@metrics_app.command("rebuild")
+def metrics_rebuild(
+    base_dir: Annotated[
+        Path,
+        typer.Option(
+            "--dir",
+            "-d",
+            help="Base directory for the project",
+            exists=True,
+            file_okay=False,
+            resolve_path=True,
+        ),
+    ] = Path.cwd(),
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            "-o",
+            help="Output directory for aggregate report",
+            file_okay=False,
+            resolve_path=True,
+        ),
+    ] = None,
+) -> None:
+    """Rebuild aggregate metrics from all runs.
+
+    Scans all run directories and builds a combined metrics report.
+    """
+    from orx.metrics import MetricsAggregator
+
+    log = logger.bind(command="metrics rebuild")
+    log.info("Rebuilding metrics")
+
+    try:
+        aggregator = MetricsAggregator(base_dir)
+        if output:
+            aggregator.output_dir = output
+
+        count = aggregator.scan_runs()
+        if count == 0:
+            typer.echo("No runs with metrics found.")
+            return
+
+        report = aggregator.build_report()
+        report_path = aggregator.save_report(report)
+
+        typer.echo(f"Scanned {count} runs")
+        typer.echo(f"Report saved to: {report_path}")
+
+    except Exception as e:
+        log.error("Rebuild failed", error=str(e))
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1) from e
+
+
+@metrics_app.command("report")
+def metrics_report(
+    base_dir: Annotated[
+        Path,
+        typer.Option(
+            "--dir",
+            "-d",
+            help="Base directory for the project",
+            exists=True,
+            file_okay=False,
+            resolve_path=True,
+        ),
+    ] = Path.cwd(),
+    json_output: Annotated[
+        bool,
+        typer.Option(
+            "--json",
+            help="Output as JSON instead of human-readable format",
+        ),
+    ] = False,
+) -> None:
+    """Generate and display a metrics summary report.
+
+    Shows aggregated statistics across all runs including:
+    - Success rates
+    - Duration breakdowns
+    - Stage performance
+    - Gate pass rates
+    - Top failure reasons
+    """
+    from orx.metrics import MetricsAggregator
+
+    log = logger.bind(command="metrics report")
+
+    try:
+        aggregator = MetricsAggregator(base_dir)
+        count = aggregator.scan_runs()
+
+        if count == 0:
+            typer.echo("No runs with metrics found.")
+            return
+
+        report = aggregator.build_report()
+
+        if json_output:
+            typer.echo(json.dumps(report.to_dict(), indent=2))
+        else:
+            summary = aggregator.generate_summary_report()
+            typer.echo(summary)
+
+    except Exception as e:
+        log.error("Report failed", error=str(e))
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1) from e
+
+
+@metrics_app.command("show")
+def metrics_show(
+    run_id: Annotated[
+        str,
+        typer.Argument(help="Run ID to show metrics for"),
+    ],
+    base_dir: Annotated[
+        Path,
+        typer.Option(
+            "--dir",
+            "-d",
+            help="Base directory for the project",
+            exists=True,
+            file_okay=False,
+            resolve_path=True,
+        ),
+    ] = Path.cwd(),
+    json_output: Annotated[
+        bool,
+        typer.Option(
+            "--json",
+            help="Output as JSON",
+        ),
+    ] = False,
+    stages: Annotated[
+        bool,
+        typer.Option(
+            "--stages",
+            "-s",
+            help="Show per-stage metrics",
+        ),
+    ] = False,
+) -> None:
+    """Show metrics for a specific run.
+
+    Displays run-level metrics or detailed per-stage metrics.
+    """
+    from orx.metrics.writer import MetricsWriter
+
+    log = logger.bind(command="metrics show", run_id=run_id)
+
+    try:
+        paths = RunPaths.from_existing(base_dir, run_id)
+        writer = MetricsWriter(paths)
+
+        if stages:
+            # Show per-stage metrics
+            stage_metrics = writer.read_stages()
+
+            if not stage_metrics:
+                typer.echo(f"No stage metrics found for run: {run_id}")
+                return
+
+            if json_output:
+                typer.echo(json.dumps([m.to_dict() for m in stage_metrics], indent=2))
+            else:
+                typer.echo(f"Stage metrics for run: {run_id}")
+                typer.echo("-" * 50)
+                for m in stage_metrics:
+                    status_color = (
+                        typer.colors.GREEN
+                        if m.status.value == "success"
+                        else typer.colors.RED
+                    )
+                    status_str = typer.style(m.status.value, fg=status_color)
+                    typer.echo(
+                        f"{m.stage:15} | {status_str:10} | "
+                        f"{m.duration_ms:>6}ms | "
+                        f"attempt {m.attempt}"
+                    )
+                    if m.gates:
+                        for g in m.gates:
+                            gate_status = "✓" if g.passed else "✗"
+                            typer.echo(f"    {gate_status} {g.name}: {g.duration_ms}ms")
+        else:
+            # Show run-level metrics
+            run_metrics = writer.read_run()
+
+            if run_metrics is None:
+                typer.echo(f"No run metrics found for: {run_id}")
+                return
+
+            if json_output:
+                typer.echo(json.dumps(run_metrics.to_dict(), indent=2))
+            else:
+                typer.echo(f"Run metrics: {run_id}")
+                typer.echo("=" * 50)
+                typer.echo(f"Status: {run_metrics.final_status.value}")
+                typer.echo(f"Total Duration: {run_metrics.total_duration_ms}ms")
+                typer.echo(f"Total Stages: {run_metrics.stages_total}")
+                typer.echo(f"Fix Attempts: {run_metrics.fix_attempts_total}")
+                typer.echo(f"Gates Passed: {run_metrics.gates_passed}")
+                typer.echo(f"Gates Failed: {run_metrics.gates_failed}")
+
+                if run_metrics.stage_breakdown:
+                    typer.echo("")
+                    typer.echo("Time breakdown by stage:")
+                    for stage, duration in run_metrics.stage_breakdown.items():
+                        pct = (
+                            duration / run_metrics.total_duration_ms * 100
+                            if run_metrics.total_duration_ms
+                            else 0
+                        )
+                        bar = "█" * int(pct / 5)
+                        typer.echo(f"  {stage:15} {duration:>6}ms ({pct:>5.1f}%) {bar}")
+
+    except ValueError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1) from e
+    except Exception as e:
+        log.error("Show failed", error=str(e))
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1) from e
+
+
+# Register metrics sub-app
+app.add_typer(metrics_app, name="metrics")
 
 
 if __name__ == "__main__":

@@ -275,12 +275,12 @@ cli.py ────────────────────────�
          │                       paths.py
          │                           │
          ▼                           ▼
-    ┌─────────┐               ┌─────────────┐
-    │executors│               │  context/   │
-    │  gates  │               │  workspace/ │
-    └─────────┘               └─────────────┘
-         │                           │
-         └───────────┬───────────────┘
+    ┌─────────┐               ┌─────────────┐               ┌─────────┐
+    │executors│               │  context/   │               │metrics/ │
+    │  gates  │               │  workspace/ │               │         │
+    └─────────┘               └─────────────┘               └─────────┘
+         │                           │                           │
+         └───────────┬───────────────┴───────────────────────────┘
                      ▼
                infra/command.py
                      │
@@ -292,6 +292,7 @@ cli.py ────────────────────────�
 - No cyclic imports
 - All subprocess calls via `CommandRunner`
 - All file writes via `ContextPack` or `RunPaths`
+- Metrics collection via `MetricsCollector`
 
 ---
 
@@ -320,6 +321,10 @@ runs/<run_id>/
     │   ├── patch.diff      # From `git diff` (never agent-produced)
     │   ├── review.md
     │   └── pr_body.md
+    │
+    ├── metrics/            # Stage and run metrics
+    │   ├── stages.jsonl    # Per-stage attempt records
+    │   └── run.json        # Aggregated run summary
     │
     └── logs/
         ├── agent_plan.stdout.log
@@ -435,6 +440,67 @@ Automatic updates to AGENTS.md and ARCHITECTURE.md after successful task complet
 - **Architecture gatekeeping**: Only updates ARCHITECTURE.md if changes affect structure
 - **Guardrails**: Max lines changed, deletion limits, allowlist files
 - **Non-fatal**: Failures don't break the run
+
+### 8. Metrics & Monitoring (v0.4)
+
+Comprehensive observability for data-driven improvements. Tracks stage-level and run-level metrics.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Metrics Data Flow                             │
+│                                                                  │
+│  Stage Start ──► MetricsCollector ──► StageTimer                │
+│       │                │                  │                      │
+│       │                ▼                  ▼                      │
+│       │         Record: model,      LLM timing,                 │
+│       │         gates, quality      verify timing               │
+│       │                │                  │                      │
+│  Stage End ◄───────────┴──────────────────┘                     │
+│       │                                                          │
+│       ▼                                                          │
+│  MetricsWriter ──► stages.jsonl (append)                        │
+│       │                                                          │
+│  Run End                                                         │
+│       │                                                          │
+│       ▼                                                          │
+│  MetricsWriter ──► run.json (aggregate)                         │
+│       │          ──► index.jsonl (global)                       │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Metrics Collected:**
+
+| Metric Type | Data Captured |
+|-------------|---------------|
+| **Stage** | Duration (total, LLM, verify), attempt #, status, failure category |
+| **Gate** | Name, passed, duration, error count, test counts |
+| **Quality** | Spec score, plan score, diff hygiene, pack relevance |
+| **Run** | Total duration, stage breakdown, fix attempts, gate pass/fail |
+
+**File Structure:**
+```
+runs/<run_id>/metrics/
+    ├── stages.jsonl    # One line per stage attempt (JSONL)
+    └── run.json        # Aggregated run summary (JSON)
+
+~/.orx/metrics/
+    └── aggregate.json  # Cross-run analysis
+```
+
+**CLI Commands:**
+```bash
+orx metrics rebuild              # Rebuild aggregate from all runs
+orx metrics report               # Human-readable summary
+orx metrics report --json        # JSON output
+orx metrics show <run_id>        # Run-level metrics
+orx metrics show <run_id> -s     # Per-stage metrics
+```
+
+**Quality Analysis:**
+- `analyze_spec_quality()`: Scores spec by AC, file hints, schema
+- `analyze_plan_quality()`: Scores plan by overview, steps, risks
+- `analyze_diff_hygiene()`: Checks file count and LOC against limits
+- `analyze_pack_relevance()`: Ratio of pack files actually modified
 
 ---
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -26,6 +27,9 @@ from orx.gates.generic import GenericGate
 from orx.gates.pytest import PytestGate
 from orx.gates.ruff import RuffGate
 from orx.infra.command import CommandRunner
+from orx.metrics.collector import MetricsCollector
+from orx.metrics.schema import FailureCategory, StageStatus
+from orx.metrics.writer import MetricsWriter, append_to_index
 from orx.paths import RunPaths
 from orx.prompts.renderer import PromptRenderer
 from orx.stages.base import StageContext, StageResult
@@ -249,6 +253,15 @@ class Runner:
             base_branch=config.git.base_branch,
         )
 
+        # Initialize metrics collection
+        self.metrics = MetricsCollector(
+            run_id=self.paths.run_id,
+            engine=config.engine.type.value,
+            model=config.engine.model,
+            base_branch=config.git.base_branch,
+        )
+        self.metrics_writer = MetricsWriter(self.paths)
+
     def _create_executor(self, engine_config: EngineConfig | None = None) -> Executor:
         """Create an executor from engine config."""
         engine_config = engine_config or self.config.engine
@@ -422,8 +435,8 @@ class Runner:
 
         return versions
 
-    def _save_meta(self) -> None:
-        """Save meta.json."""
+    def _save_meta(self, success: bool = True) -> None:
+        """Save meta.json and metrics."""
         self.meta.versions = self._collect_versions()
         self.meta.end_time = datetime.now(tz=UTC).isoformat()
 
@@ -433,6 +446,58 @@ class Runner:
 
         meta_path = self.paths.meta_json
         meta_path.write_text(json.dumps(self.meta.to_dict(), indent=2))
+
+        # Save metrics
+        self._save_metrics(success)
+
+    def _save_metrics(self, success: bool = True) -> None:
+        """Save metrics to files.
+
+        Args:
+            success: Whether the run was successful.
+        """
+        try:
+            # Write all stage metrics
+            self.metrics_writer.write_stages(self.metrics.get_stage_metrics())
+
+            # Get final diff for run metrics
+            final_diff = None
+            if self.paths.patch_diff.exists():
+                final_diff = self.paths.patch_diff.read_text()
+
+            # Build and write run metrics
+            final_status = StageStatus.SUCCESS if success else StageStatus.FAIL
+            failure_reason = None
+            if not success and self.state.state.stage_statuses:
+                # Get last failure message
+                for status in reversed(list(self.state.state.stage_statuses.values())):
+                    if status.error:
+                        failure_reason = status.error
+                        break
+
+            run_metrics = self.metrics.build_run_metrics(
+                final_status=final_status,
+                failure_reason=failure_reason,
+                final_diff=final_diff,
+            )
+            self.metrics_writer.write_run(run_metrics)
+
+            # Append to global index
+            append_to_index(
+                self.base_dir,
+                self.paths.run_id,
+                {
+                    "run_id": self.paths.run_id,
+                    "status": final_status.value,
+                    "duration_ms": run_metrics.total_duration_ms,
+                    "engine": self.config.engine.type.value,
+                    "stages_executed": run_metrics.stages_executed,
+                    "fix_attempts": run_metrics.fix_attempts_total,
+                },
+            )
+
+        except Exception as e:
+            logger.warning("Failed to save metrics", error=str(e))
 
     def run(self, task: str | Path) -> bool:
         """Run the full orchestration.
@@ -454,6 +519,9 @@ class Runner:
             task_content = task.read_text() if isinstance(task, Path) else task
             self.pack.write_task(task_content)
 
+            # Set task fingerprint for metrics
+            self.metrics.set_task_fingerprint(task_content)
+
             # Create workspace
             base_branch = self.config.git.base_branch
             self.workspace.create(base_branch)
@@ -472,7 +540,7 @@ class Runner:
         except Exception as e:
             log.error("Run failed", error=str(e))
             self.state.mark_stage_failed(str(e))
-            self._save_meta()
+            self._save_meta(success=False)
             raise
 
     def resume(self) -> bool:
@@ -506,7 +574,7 @@ class Runner:
         except Exception as e:
             log.error("Resume failed", error=str(e))
             self.state.mark_stage_failed(str(e))
-            self._save_meta()
+            self._save_meta(success=False)
             raise
 
     def _execute_stages(self) -> bool:
@@ -540,20 +608,20 @@ class Runner:
             self.state.transition_to(stage)
 
             if stage == Stage.PLAN:
-                result = self._run_plan(self._get_stage_context(stage.value))
+                result = self._run_stage_with_metrics("plan", self._run_plan)
             elif stage == Stage.SPEC:
-                result = self._run_spec(self._get_stage_context(stage.value))
+                result = self._run_stage_with_metrics("spec", self._run_spec)
             elif stage == Stage.DECOMPOSE:
-                result = self._run_decompose(self._get_stage_context(stage.value))
+                result = self._run_stage_with_metrics("decompose", self._run_decompose)
             elif stage == Stage.IMPLEMENT_ITEM:
                 result = self._run_implement_loop()
             elif stage == Stage.REVIEW:
-                result = self._run_review(self._get_stage_context(stage.value))
+                result = self._run_stage_with_metrics("review", self._run_review)
             elif stage == Stage.SHIP:
-                result = self._run_ship(self._get_stage_context(stage.value))
+                result = self._run_stage_with_metrics("ship", self._run_ship)
             elif stage == Stage.KNOWLEDGE_UPDATE:
-                result = self._run_knowledge_update(
-                    self._get_stage_context(stage.value)
+                result = self._run_stage_with_metrics(
+                    "knowledge_update", self._run_knowledge_update
                 )
             else:
                 continue
@@ -562,7 +630,7 @@ class Runner:
                 log.error("Stage failed", stage=stage.value, error=result.message)
                 self.state.mark_stage_failed(result.message)
                 self.state.transition_to(Stage.FAILED)
-                self._save_meta()
+                self._save_meta(success=False)
                 return False
 
             self.state.mark_stage_completed()
@@ -570,9 +638,135 @@ class Runner:
         # All done
         self.state.transition_to(Stage.DONE)
         self.state.mark_stage_completed()
-        self._save_meta()
+        self._save_meta(success=True)
         log.info("Run completed successfully")
         return True
+
+    def _run_stage_with_metrics(
+        self,
+        stage_name: str,
+        run_fn: Any,
+    ) -> StageResult:
+        """Run a stage with metrics collection.
+
+        Args:
+            stage_name: Name of the stage.
+            run_fn: Function to run the stage.
+
+        Returns:
+            StageResult from the stage execution.
+        """
+        ctx = self._get_stage_context(stage_name)
+
+        with self.metrics.stage(stage_name) as timer:
+            # Record model selection
+            self.metrics.record_model_selection(
+                executor=ctx.executor.name,
+                model_selector=ctx.model_selector,
+            )
+
+            # Record input fingerprint
+            self._record_stage_inputs(stage_name)
+
+            # Time LLM call
+            timer.start_llm()
+            result = run_fn(ctx)
+            timer.end_llm()
+
+            # Record outputs and result
+            self._record_stage_outputs(stage_name, result)
+
+            if result.success:
+                self.metrics.record_success()
+            else:
+                failure_cat = self._categorize_failure(result.message)
+                self.metrics.record_failure(failure_cat, result.message)
+
+        return result
+
+    def _record_stage_inputs(self, stage: str) -> None:
+        """Record input fingerprints for a stage.
+
+        Args:
+            stage: Stage name.
+        """
+        inputs: list[str | Path] = []
+
+        # Task is always an input
+        if self.paths.task_md.exists():
+            inputs.append(self.paths.task_md)
+
+        # Stage-specific inputs
+        if stage in ("spec", "decompose", "implement", "fix", "review"):
+            if self.paths.plan_md.exists():
+                inputs.append(self.paths.plan_md)
+        if stage in ("decompose", "implement", "fix", "review"):
+            if self.paths.spec_md.exists():
+                inputs.append(self.paths.spec_md)
+        if stage in ("implement", "fix", "review"):
+            if self.paths.backlog_yaml.exists():
+                inputs.append(self.paths.backlog_yaml)
+
+        if inputs:
+            self.metrics.record_inputs_fingerprint(*inputs)
+
+    def _record_stage_outputs(self, stage: str, result: StageResult) -> None:
+        """Record output fingerprints and artifacts for a stage.
+
+        Args:
+            stage: Stage name.
+            result: Stage result.
+        """
+        outputs: list[str | Path] = []
+        artifacts: dict[str, Path] = {}
+
+        # Stage-specific outputs
+        if stage == "plan" and self.paths.plan_md.exists():
+            outputs.append(self.paths.plan_md)
+            artifacts["plan"] = self.paths.plan_md
+        elif stage == "spec" and self.paths.spec_md.exists():
+            outputs.append(self.paths.spec_md)
+            artifacts["spec"] = self.paths.spec_md
+        elif stage == "decompose" and self.paths.backlog_yaml.exists():
+            outputs.append(self.paths.backlog_yaml)
+            artifacts["backlog"] = self.paths.backlog_yaml
+        elif stage == "review" and self.paths.review_md.exists():
+            outputs.append(self.paths.review_md)
+            artifacts["review"] = self.paths.review_md
+
+        if outputs:
+            self.metrics.record_outputs_fingerprint(*outputs)
+        if artifacts:
+            self.metrics.record_artifacts(artifacts)
+
+    def _categorize_failure(self, message: str | None) -> FailureCategory:
+        """Categorize a failure message.
+
+        Args:
+            message: Error message.
+
+        Returns:
+            FailureCategory enum value.
+        """
+        if not message:
+            return FailureCategory.UNKNOWN
+
+        msg_lower = message.lower()
+
+        if "gate" in msg_lower or "ruff" in msg_lower or "pytest" in msg_lower:
+            return FailureCategory.GATE_FAILURE
+        if "guardrail" in msg_lower or "forbidden" in msg_lower:
+            return FailureCategory.GUARDRAIL_VIOLATION
+        if "timeout" in msg_lower:
+            return FailureCategory.TIMEOUT
+        if "parse" in msg_lower or "yaml" in msg_lower or "invalid" in msg_lower:
+            return FailureCategory.PARSE_ERROR
+        if "empty" in msg_lower and "diff" in msg_lower:
+            return FailureCategory.EMPTY_DIFF
+        if "executor" in msg_lower or "failed" in msg_lower:
+            return FailureCategory.EXECUTOR_ERROR
+
+        return FailureCategory.UNKNOWN
 
     def _run_plan(self, ctx: StageContext) -> StageResult:
         """Run the plan stage."""
@@ -602,6 +796,9 @@ class Runner:
         except Exception as e:
             return StageResult(success=False, message=f"Failed to load backlog: {e}")
 
+        # Track items for metrics
+        self.metrics.set_items_count(total=len(backlog.items))
+
         max_attempts = self.config.run.max_fix_attempts
 
         while not backlog.all_done():
@@ -617,62 +814,116 @@ class Runner:
 
             # Implementation/fix loop
             success = False
+            first_attempt_gates_passed = False
+
             for attempt in range(1, max_attempts + 1):
                 item.increment_attempts()
                 log.info("Implementation attempt", attempt=attempt)
 
-                # Run implement or fix
-                if attempt == 1:
-                    result = self.stages["implement"].execute_for_item(
-                        implement_ctx, item
+                # Choose stage name based on attempt
+                stage_name = "implement" if attempt == 1 else "fix"
+                ctx = implement_ctx if attempt == 1 else fix_ctx
+
+                with self.metrics.stage(stage_name, item_id=item.id, attempt=attempt) as timer:
+                    # Record model selection
+                    self.metrics.record_model_selection(
+                        executor=ctx.executor.name,
+                        model_selector=ctx.model_selector,
                     )
-                else:
-                    evidence = self.state.state.last_failure_evidence
-                    result = self.stages["fix"].execute_fix(
-                        fix_ctx, item, attempt, evidence
-                    )  # type: ignore[attr-defined]
 
-                if not result.success:
-                    log.warning("Implementation failed", error=result.message)
-                    continue
+                    # Track fix attempts
+                    if attempt > 1:
+                        self.metrics.add_fix_attempt()
 
-                # Capture diff
-                base_ctx.workspace.diff_to(base_ctx.paths.patch_diff)
+                    # Run implement or fix
+                    timer.start_llm()
+                    if attempt == 1:
+                        result = self.stages["implement"].execute_for_item(
+                            implement_ctx, item
+                        )
+                    else:
+                        evidence = self.state.state.last_failure_evidence
+                        result = self.stages["fix"].execute_fix(
+                            fix_ctx, item, attempt, evidence
+                        )  # type: ignore[attr-defined]
+                    timer.end_llm()
 
-                # Check for empty diff
-                if base_ctx.workspace.diff_empty():
-                    log.warning("No changes produced")
-                    self.state.set_failure_evidence({"diff_empty": True})
-                    continue
+                    if not result.success:
+                        log.warning("Implementation failed", error=result.message)
+                        self.metrics.record_failure(
+                            FailureCategory.EXECUTOR_ERROR, result.message
+                        )
+                        continue
 
-                # Check guardrails
-                try:
-                    changed_files = base_ctx.workspace.get_changed_files()
-                    self.guardrails.check_files(changed_files)
-                except GuardrailError as e:
-                    log.error("Guardrail violation", error=str(e))
-                    item.mark_failed(str(e))
-                    backlog.save(self.paths.backlog_yaml)
-                    return StageResult(success=False, message=str(e))
+                    # Capture diff
+                    base_ctx.workspace.diff_to(base_ctx.paths.patch_diff)
 
-                # Run verification
-                verify_result = self.stages["verify"].execute(verify_ctx)
+                    # Check for empty diff
+                    if base_ctx.workspace.diff_empty():
+                        log.warning("No changes produced")
+                        self.state.set_failure_evidence({"diff_empty": True})
+                        self.metrics.record_failure(
+                            FailureCategory.EMPTY_DIFF, "No changes produced"
+                        )
+                        continue
 
-                if verify_result.success:
-                    log.info("Verification passed")
-                    success = True
-                    self.state.clear_failure_evidence()
-                    break
-                else:
-                    log.warning("Verification failed", message=verify_result.message)
-                    if verify_result.data and "evidence" in verify_result.data:
-                        self.state.set_failure_evidence(verify_result.data["evidence"])
+                    # Record diff stats
+                    diff_content = base_ctx.paths.patch_diff.read_text()
+                    self.metrics.record_diff_stats(diff_content)
+
+                    # Check guardrails
+                    try:
+                        changed_files = base_ctx.workspace.get_changed_files()
+                        self.guardrails.check_files(changed_files)
+                    except GuardrailError as e:
+                        log.error("Guardrail violation", error=str(e))
+                        item.mark_failed(str(e))
+                        backlog.save(self.paths.backlog_yaml)
+                        self.metrics.record_failure(
+                            FailureCategory.GUARDRAIL_VIOLATION, str(e)
+                        )
+                        return StageResult(success=False, message=str(e))
+
+                    # Run verification with timing
+                    timer.start_verify()
+                    verify_result = self._run_verify_with_metrics(verify_ctx, item.id, attempt)
+                    timer.end_verify()
+
+                    if verify_result.success:
+                        log.info("Verification passed")
+                        success = True
+                        self.state.clear_failure_evidence()
+
+                        # Track first green
+                        if attempt == 1:
+                            first_attempt_gates_passed = True
+                            self.metrics.mark_first_green()
+
+                        self.metrics.record_success()
+                        break
+                    else:
+                        log.warning("Verification failed", message=verify_result.message)
+                        if verify_result.data and "evidence" in verify_result.data:
+                            self.state.set_failure_evidence(verify_result.data["evidence"])
+                        self.metrics.record_failure(
+                            FailureCategory.GATE_FAILURE, verify_result.message
+                        )
 
             if success:
                 item.mark_done()
+                self.metrics.set_items_count(
+                    total=len(backlog.items),
+                    completed=backlog.done_count(),
+                    failed=backlog.failed_count(),
+                )
             else:
                 log.error("Item failed after max attempts", item_id=item.id)
                 item.mark_failed(f"Failed after {max_attempts} attempts")
+                self.metrics.set_items_count(
+                    total=len(backlog.items),
+                    completed=backlog.done_count(),
+                    failed=backlog.failed_count(),
+                )
 
                 if self.config.run.stop_on_first_failure:
                     backlog.save(self.paths.backlog_yaml)
@@ -694,6 +945,90 @@ class Runner:
             success=True,
             message=f"Completed {backlog.done_count()} items",
         )
+
+    def _run_verify_with_metrics(
+        self,
+        ctx: StageContext,
+        item_id: str,
+        attempt: int,
+    ) -> StageResult:
+        """Run verification with gate metrics collection.
+
+        Args:
+            ctx: Stage context.
+            item_id: Work item ID.
+            attempt: Attempt number.
+
+        Returns:
+            StageResult from verification.
+        """
+        with self.metrics.stage("verify", item_id=item_id, attempt=attempt) as timer:
+            timer.start_verify()
+
+            # Run each gate and record metrics
+            for gate in ctx.gates:
+                gate_start = time.perf_counter()
+                log_path = ctx.paths.log_path(f"gate_{gate.name}_{item_id}_{attempt}")
+                result = gate.run(cwd=ctx.workspace.worktree_path, log_path=log_path)
+                gate_duration = int((time.perf_counter() - gate_start) * 1000)
+
+                # Extract test counts for pytest
+                tests_failed = None
+                tests_total = None
+                if gate.name == "pytest" and result.failed:
+                    # Try to parse test counts from output
+                    log_content = result.read_log()
+                    tests_failed, tests_total = self._parse_pytest_output(log_content)
+
+                self.metrics.record_gate(
+                    name=gate.name,
+                    result=result,
+                    duration_ms=gate_duration,
+                    tests_failed=tests_failed,
+                    tests_total=tests_total,
+                )
+
+                if result.failed:
+                    timer.end_verify()
+                    self.metrics.record_failure(FailureCategory.GATE_FAILURE, result.message)
+                    return StageResult(
+                        success=False,
+                        message=f"Gate {gate.name} failed",
+                        data={"evidence": {"gate": gate.name, "log": result.get_log_tail(30)}},
+                    )
+
+            timer.end_verify()
+            self.metrics.record_success()
+            return StageResult(success=True, message="All gates passed")
+
+    def _parse_pytest_output(self, output: str) -> tuple[int | None, int | None]:
+        """Parse pytest output for test counts.
+
+        Args:
+            output: Pytest output text.
+
+        Returns:
+            Tuple of (failed_count, total_count).
+        """
+        import re
+
+        # Look for patterns like "3 failed, 10 passed"
+        failed = None
+        passed = None
+
+        failed_match = re.search(r"(\d+) failed", output)
+        if failed_match:
+            failed = int(failed_match.group(1))
+
+        passed_match = re.search(r"(\d+) passed", output)
+        if passed_match:
+            passed = int(passed_match.group(1))
+
+        if failed is not None or passed is not None:
+            total = (failed or 0) + (passed or 0)
+            return failed, total
+
+        return None, None
 
     def _run_review(self, ctx: StageContext) -> StageResult:
         """Run the review stage."""
