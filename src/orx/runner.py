@@ -1134,10 +1134,15 @@ class Runner:
                             status="failure",
                             failed_gate=gate.name,
                         )
+                    evidence = self._build_gate_evidence(
+                        ctx,
+                        failed_gate=gate.name,
+                        log_tail=result.get_log_tail(50),
+                    )
                     return StageResult(
                         success=False,
                         message=f"Gate {gate.name} failed",
-                        data={"evidence": {"gate": gate.name, "log": result.get_log_tail(30)}},
+                        data={"evidence": evidence},
                     )
 
             timer.end_verify()
@@ -1151,6 +1156,30 @@ class Runner:
                     status="success",
                 )
             return StageResult(success=True, message="All gates passed")
+
+    def _build_gate_evidence(
+        self,
+        ctx: StageContext,
+        *,
+        failed_gate: str,
+        log_tail: str,
+    ) -> dict[str, Any]:
+        """Build evidence payload for fix prompts."""
+        evidence: dict[str, Any] = {
+            "ruff_failed": failed_gate == "ruff",
+            "pytest_failed": failed_gate == "pytest",
+        }
+
+        if failed_gate == "ruff":
+            evidence["ruff_log"] = log_tail
+        elif failed_gate == "pytest":
+            evidence["pytest_log"] = log_tail
+
+        diff = ctx.pack.read_patch_diff()
+        if diff:
+            evidence["patch_diff"] = diff[:5000] + ("\n... (truncated)" if len(diff) > 5000 else "")
+
+        return evidence
 
     def _parse_pytest_output(self, output: str) -> tuple[int | None, int | None]:
         """Parse pytest output for test counts.
