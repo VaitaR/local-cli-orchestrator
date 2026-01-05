@@ -7,6 +7,7 @@ from typing import Any
 import structlog
 
 from orx.context.backlog import WorkItem
+from orx.context.snippets import build_file_snippets, compact_text, extract_spec_highlights
 from orx.stages.base import ApplyStage, StageContext
 
 logger = structlog.get_logger()
@@ -40,17 +41,24 @@ class ImplementStage(ApplyStage):
         """
         task = ctx.pack.read_task() or ""
         spec = ctx.pack.read_spec() or ""
-        project_map = ctx.pack.read_project_map() or ""
+        task_summary = compact_text(task, max_lines=40)
+        spec_highlights = extract_spec_highlights(spec, max_lines=120)
+        snippets = build_file_snippets(
+            worktree=ctx.workspace.worktree_path,
+            files=item.files_hint,
+            max_lines=120,
+            max_files=8,
+        )
 
         return {
-            "task": task,
-            "spec": spec,
-            "project_map": project_map,
+            "task_summary": task_summary,
+            "spec_highlights": spec_highlights,
             "item_id": item.id,
             "item_title": item.title,
             "item_objective": item.objective,
             "acceptance": item.acceptance,
             "files_hint": item.files_hint,
+            "file_snippets": snippets,
         }
 
 
@@ -101,10 +109,18 @@ class FixStage(ApplyStage):
         """
         task = ctx.pack.read_task() or ""
         spec = ctx.pack.read_spec() or ""
+        task_summary = compact_text(task, max_lines=40)
+        spec_highlights = extract_spec_highlights(spec, max_lines=120)
+        snippets = build_file_snippets(
+            worktree=ctx.workspace.worktree_path,
+            files=item.files_hint,
+            max_lines=120,
+            max_files=8,
+        )
 
         return {
-            "task": task,
-            "spec": spec,
+            "task_summary": task_summary,
+            "spec_highlights": spec_highlights,
             "item_id": item.id,
             "item_title": item.title,
             "item_objective": item.objective,
@@ -116,6 +132,8 @@ class FixStage(ApplyStage):
             "pytest_log": pytest_log,
             "diff_empty": diff_empty,
             "patch_diff": patch_diff,
+            "files_hint": item.files_hint,
+            "file_snippets": snippets,
         }
 
     def execute_fix(

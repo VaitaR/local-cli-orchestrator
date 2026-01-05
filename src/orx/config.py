@@ -411,11 +411,17 @@ class RunConfig(BaseModel):
         max_fix_attempts: Maximum fix-loop iterations per work item.
         parallel_items: Whether to run independent items in parallel.
         stop_on_first_failure: Whether to stop on first work item failure.
+        per_item_verify: Verification mode for each work item (full or fast).
+        fast_verify_max_pytest_targets: Max targeted pytest paths for fast verify.
+        fast_verify_skip_pytest_if_no_targets: Skip pytest when no targets are found.
     """
 
     max_fix_attempts: int = Field(default=3, ge=1, le=10)
     parallel_items: bool = False
     stop_on_first_failure: bool = False
+    per_item_verify: Literal["full", "fast"] = "fast"
+    fast_verify_max_pytest_targets: int = Field(default=6, ge=1, le=50)
+    fast_verify_skip_pytest_if_no_targets: bool = True
 
 
 class OrxConfig(BaseModel):

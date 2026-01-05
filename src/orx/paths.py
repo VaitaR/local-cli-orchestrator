@@ -73,6 +73,11 @@ class RunPaths:
         return self.run_dir / "logs"
 
     @property
+    def events_jsonl(self) -> Path:
+        """Path to the events.jsonl timeline."""
+        return self.run_dir / "events.jsonl"
+
+    @property
     def worktrees_dir(self) -> Path:
         """Directory for git worktrees."""
         return self.base_dir / ".worktrees"

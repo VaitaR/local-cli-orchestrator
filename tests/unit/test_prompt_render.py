@@ -81,14 +81,14 @@ class TestPromptRenderer:
 
         content = renderer.render(
             "implement",
-            task="Build feature",
-            spec="Feature spec",
-            project_map="",
+            task_summary="Build feature",
+            spec_highlights="## Acceptance Criteria\n- Feature spec",
             item_id="W001",
             item_title="Implement function",
             item_objective="Create the function",
             acceptance=["Function works", "Tests pass"],
             files_hint=["src/app.py"],
+            file_snippets=[],
         )
 
         assert "W001" in content
@@ -102,8 +102,8 @@ class TestPromptRenderer:
 
         content = renderer.render(
             "fix",
-            task="Build feature",
-            spec="Feature spec",
+            task_summary="Build feature",
+            spec_highlights="## Acceptance Criteria\n- Feature spec",
             item_id="W001",
             item_title="Fix function",
             item_objective="Fix the function",
@@ -115,6 +115,8 @@ class TestPromptRenderer:
             pytest_log="",
             diff_empty=False,
             patch_diff="",
+            files_hint=["src/app.py"],
+            file_snippets=[],
         )
 
         assert "W001" in content
@@ -127,8 +129,8 @@ class TestPromptRenderer:
 
         content = renderer.render(
             "fix",
-            task="Build feature",
-            spec="Feature spec",
+            task_summary="Build feature",
+            spec_highlights="## Acceptance Criteria\n- Feature spec",
             item_id="W001",
             item_title="Fix function",
             item_objective="Fix the function",
@@ -140,6 +142,8 @@ class TestPromptRenderer:
             pytest_log="",
             diff_empty=True,
             patch_diff="",
+            files_hint=[],
+            file_snippets=[],
         )
 
         assert "No Changes Detected" in content or "no file changes" in content.lower()

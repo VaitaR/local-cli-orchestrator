@@ -2,13 +2,15 @@
 
 You are implementing a specific work item from the backlog.
 
-## Task Context
+## Task Summary
 
-{{ task }}
+{{ task_summary }}
 
-## Specification
+{% if spec_highlights %}
+## Spec Highlights
 
-{{ spec }}
+{{ spec_highlights }}
+{% endif %}
 
 ## Current Work Item
 
@@ -26,18 +28,23 @@ You are implementing a specific work item from the backlog.
 - {{ file }}
 {% endfor %}
 
-{% if project_map %}
-## Project Map
+{% if file_snippets %}
+## Relevant File Snippets
 
-{{ project_map }}
+{% for snippet in file_snippets %}
+### {{ snippet.path }}{% if snippet.truncated %} (truncated){% endif %}
+
+```
+{{ snippet.content }}
+```
+{% endfor %}
 {% endif %}
 
 ## Instructions
 
-1. Implement the work item according to the specification
+1. Implement the work item according to the acceptance criteria
 2. Create or update tests for the new functionality
 3. Follow the project's coding standards
-4. Update project_map.md if you add new modules
 
 ## Code Standards
 
@@ -49,6 +56,7 @@ You are implementing a specific work item from the backlog.
 ## Output
 
 Apply your changes directly to the filesystem. Do not output code blocks - make the actual file changes.
+Do not run tests or shell commands; the pipeline handles verification.
 
 ---
 

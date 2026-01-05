@@ -65,6 +65,7 @@ def test_run_paths_state_files(tmp_path: Path) -> None:
 
     assert paths.meta_json == paths.run_dir / "meta.json"
     assert paths.state_json == paths.run_dir / "state.json"
+    assert paths.events_jsonl == paths.run_dir / "events.jsonl"
 
 
 def test_prompt_path(tmp_path: Path) -> None:
