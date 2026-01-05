@@ -884,30 +884,27 @@ class Runner:
                         )
                         return StageResult(success=False, message=str(e))
 
-                    # Run verification with timing
-                    timer.start_verify()
-                    verify_result = self._run_verify_with_metrics(verify_ctx, item.id, attempt)
-                    timer.end_verify()
+                    # Implementation attempt is considered successful if it produces a non-empty diff
+                    # and passes guardrails. Verification is recorded as its own stage.
+                    self.metrics.record_success()
 
-                    if verify_result.success:
-                        log.info("Verification passed")
-                        success = True
-                        self.state.clear_failure_evidence()
+                verify_result = self._run_verify_with_metrics(verify_ctx, item.id, attempt)
 
-                        # Track first green
-                        if attempt == 1:
-                            first_attempt_gates_passed = True
-                            self.metrics.mark_first_green()
+                if verify_result.success:
+                    log.info("Verification passed")
+                    success = True
+                    self.state.clear_failure_evidence()
 
-                        self.metrics.record_success()
-                        break
-                    else:
-                        log.warning("Verification failed", message=verify_result.message)
-                        if verify_result.data and "evidence" in verify_result.data:
-                            self.state.set_failure_evidence(verify_result.data["evidence"])
-                        self.metrics.record_failure(
-                            FailureCategory.GATE_FAILURE, verify_result.message
-                        )
+                    # Track first green
+                    if attempt == 1:
+                        first_attempt_gates_passed = True
+                        self.metrics.mark_first_green()
+
+                    break
+                else:
+                    log.warning("Verification failed", message=verify_result.message)
+                    if verify_result.data and "evidence" in verify_result.data:
+                        self.state.set_failure_evidence(verify_result.data["evidence"])
 
             if success:
                 item.mark_done()

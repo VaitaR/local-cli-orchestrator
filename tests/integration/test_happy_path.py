@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from orx.metrics.writer import MetricsWriter
 from orx.config import EngineType, OrxConfig
 from orx.executors.fake import FakeAction, FakeExecutor, FakeScenario
 from orx.runner import Runner
@@ -166,6 +167,13 @@ def test_happy_path(
 
     # Check meta.json
     assert runner.paths.meta_json.exists()
+
+    # Check metrics include implement attempts (regression for nested stage timer bug)
+    metrics_writer = MetricsWriter(runner.paths)
+    stage_metrics = metrics_writer.read_stages()
+    stages = [m.stage for m in stage_metrics]
+    assert "implement" in stages
+    assert "verify" in stages
 
 
 @pytest.mark.integration

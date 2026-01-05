@@ -14,6 +14,7 @@ import pytest
 from orx.config import EngineType, OrxConfig
 from orx.context.backlog import Backlog
 from orx.executors.fake import FakeAction, FakeExecutor, FakeScenario
+from orx.metrics.writer import MetricsWriter
 from orx.runner import Runner
 from orx.state import Stage
 
@@ -180,6 +181,13 @@ items:
     # Should fail because no changes are ever produced
     # But the important thing is it doesn't loop forever
     assert not success or runner.state.current_stage == Stage.FAILED
+
+    # Metrics should record both implement and fix attempts
+    metrics_writer = MetricsWriter(runner.paths)
+    stage_metrics = metrics_writer.read_stages()
+    stages = [m.stage for m in stage_metrics]
+    assert "implement" in stages
+    assert "fix" in stages
 
     # Check backlog shows attempts
     if runner.paths.backlog_yaml.exists():
