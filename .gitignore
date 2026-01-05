@@ -89,6 +89,7 @@ dmypy.json
 runs/
 .worktrees/
 orx.yaml
+experiments/
 
 # Secrets (never commit)
 *.pem

@@ -1,4 +1,4 @@
-.PHONY: fmt lint test test-integration smoke-llm install clean help
+.PHONY: fmt lint test test-integration smoke-llm install clean clean-experiments help
 
 # Default target
 help:
@@ -12,6 +12,7 @@ help:
 	@echo "  make test-integration Run integration tests"
 	@echo "  make smoke-llm        Run LLM smoke tests (requires RUN_LLM_TESTS=1)"
 	@echo "  make clean            Remove build artifacts"
+	@echo "  make clean-experiments Remove experiment artifacts (keeps metrics)"
 
 install:
 	python -m pip install -e ".[dev]"
@@ -40,3 +41,6 @@ clean:
 	rm -rf build dist *.egg-info .pytest_cache .mypy_cache .ruff_cache
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name "*.pyc" -delete
+
+clean-experiments:
+	python scripts/cleanup_experiments.py --apply
