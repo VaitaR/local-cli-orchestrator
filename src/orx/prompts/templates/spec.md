@@ -19,6 +19,7 @@ You are a software architect creating a technical specification.
 ## Instructions
 
 Create a detailed specification document that can guide implementation.
+This stage is text-only: do not run any commands or tools.
 
 ## Output Requirements
 

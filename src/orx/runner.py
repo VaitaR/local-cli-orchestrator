@@ -13,7 +13,7 @@ from typing import Any
 import structlog
 
 from orx.config import EngineConfig, EngineType, ModelSelector, OrxConfig
-from orx.context.backlog import Backlog
+from orx.context.backlog import Backlog, WorkItem
 from orx.context.pack import ContextPack
 from orx.exceptions import GuardrailError
 from orx.executors.base import Executor
@@ -26,6 +26,7 @@ from orx.gates.docker import DockerGate
 from orx.gates.generic import GenericGate
 from orx.gates.pytest import PytestGate
 from orx.gates.ruff import RuffGate
+from orx.metrics.events import EventLogger
 from orx.infra.command import CommandRunner
 from orx.metrics.collector import MetricsCollector
 from orx.metrics.schema import FailureCategory, StageStatus
@@ -261,6 +262,7 @@ class Runner:
             base_branch=config.git.base_branch,
         )
         self.metrics_writer = MetricsWriter(self.paths)
+        self.events = EventLogger(self.paths.events_jsonl)
 
     def _create_executor(self, engine_config: EngineConfig | None = None) -> Executor:
         """Create an executor from engine config."""
@@ -394,6 +396,7 @@ class Runner:
             renderer=self.renderer,
             config=self.config.model_dump(),
             model_selector=model_selector,
+            events=self.events,
         )
 
     def _collect_versions(self) -> dict[str, str]:
@@ -510,6 +513,8 @@ class Runner:
         """
         log = logger.bind(run_id=self.paths.run_id)
         log.info("Starting run")
+        if self.events:
+            self.events.log("run_start", run_id=self.paths.run_id)
 
         try:
             # Initialize state
@@ -535,10 +540,24 @@ class Runner:
                 log.warning("Base branch validation warning", error=str(e))
 
             # Execute stages
-            return self._execute_stages()
+            success = self._execute_stages()
+            if self.events:
+                self.events.log(
+                    "run_end",
+                    run_id=self.paths.run_id,
+                    status="success" if success else "failure",
+                )
+            return success
 
         except Exception as e:
             log.error("Run failed", error=str(e))
+            if self.events:
+                self.events.log(
+                    "run_end",
+                    run_id=self.paths.run_id,
+                    status="failure",
+                    error=str(e),
+                )
             self.state.mark_stage_failed(str(e))
             self._save_meta(success=False)
             raise
@@ -551,6 +570,8 @@ class Runner:
         """
         log = logger.bind(run_id=self.paths.run_id)
         log.info("Resuming run")
+        if self.events:
+            self.events.log("run_resume", run_id=self.paths.run_id)
 
         try:
             # Load state
@@ -569,10 +590,24 @@ class Runner:
                     self.workspace.reset(self.state.state.baseline_sha)
 
             # Continue from resume point
-            return self._execute_stages()
+            success = self._execute_stages()
+            if self.events:
+                self.events.log(
+                    "run_end",
+                    run_id=self.paths.run_id,
+                    status="success" if success else "failure",
+                )
+            return success
 
         except Exception as e:
             log.error("Resume failed", error=str(e))
+            if self.events:
+                self.events.log(
+                    "run_end",
+                    run_id=self.paths.run_id,
+                    status="failure",
+                    error=str(e),
+                )
             self.state.mark_stage_failed(str(e))
             self._save_meta(success=False)
             raise
@@ -658,6 +693,9 @@ class Runner:
         """
         ctx = self._get_stage_context(stage_name)
 
+        if self.events:
+            self.events.log("stage_start", stage=stage_name)
+
         with self.metrics.stage(stage_name) as timer:
             # Record model selection
             self.metrics.record_model_selection(
@@ -681,6 +719,14 @@ class Runner:
             else:
                 failure_cat = self._categorize_failure(result.message)
                 self.metrics.record_failure(failure_cat, result.message)
+
+        if self.events:
+            self.events.log(
+                "stage_end",
+                stage=stage_name,
+                status="success" if result.success else "failure",
+                message=result.message,
+            )
 
         return result
 
@@ -785,16 +831,29 @@ class Runner:
         log = logger.bind(stage="implement_loop")
         log.info("Starting implementation loop")
 
+        if self.events:
+            self.events.log("stage_start", stage="implement_item")
+
         base_ctx = self._get_stage_context()
         implement_ctx = self._get_stage_context("implement")
         fix_ctx = self._get_stage_context("fix")
         verify_ctx = self._get_stage_context("verify")
 
         # Load backlog
+        def _finish(result: StageResult) -> StageResult:
+            if self.events:
+                self.events.log(
+                    "stage_end",
+                    stage="implement_item",
+                    status="success" if result.success else "failure",
+                    message=result.message,
+                )
+            return result
+
         try:
             backlog = Backlog.load(self.paths.backlog_yaml)
         except Exception as e:
-            return StageResult(success=False, message=f"Failed to load backlog: {e}")
+            return _finish(StageResult(success=False, message=f"Failed to load backlog: {e}"))
 
         # Track items for metrics
         self.metrics.set_items_count(total=len(backlog.items))
@@ -808,6 +867,12 @@ class Runner:
                 break
 
             log.info("Processing work item", item_id=item.id, title=item.title)
+            if self.events:
+                self.events.log(
+                    "item_start",
+                    item_id=item.id,
+                    title=item.title,
+                )
             self.state.set_current_item(item.id)
             item.mark_in_progress()
             backlog.save(self.paths.backlog_yaml)
@@ -882,13 +947,19 @@ class Runner:
                         self.metrics.record_failure(
                             FailureCategory.GUARDRAIL_VIOLATION, str(e)
                         )
-                        return StageResult(success=False, message=str(e))
+                        return _finish(StageResult(success=False, message=str(e)))
 
                     # Implementation attempt is considered successful if it produces a non-empty diff
                     # and passes guardrails. Verification is recorded as its own stage.
                     self.metrics.record_success()
 
-                verify_result = self._run_verify_with_metrics(verify_ctx, item.id, attempt)
+                    verify_mode = self._resolve_verify_mode(backlog)
+                    verify_result = self._run_verify_with_metrics(
+                        verify_ctx,
+                        item,
+                        attempt,
+                        mode=verify_mode,
+                    )
 
                 if verify_result.success:
                     log.info("Verification passed")
@@ -896,7 +967,7 @@ class Runner:
                     self.state.clear_failure_evidence()
 
                     # Track first green
-                    if attempt == 1:
+                    if attempt == 1 and verify_mode == "full":
                         first_attempt_gates_passed = True
                         self.metrics.mark_first_green()
 
@@ -913,6 +984,12 @@ class Runner:
                     completed=backlog.done_count(),
                     failed=backlog.failed_count(),
                 )
+                if self.events:
+                    self.events.log(
+                        "item_end",
+                        item_id=item.id,
+                        status="success",
+                    )
             else:
                 log.error("Item failed after max attempts", item_id=item.id)
                 item.mark_failed(f"Failed after {max_attempts} attempts")
@@ -921,51 +998,99 @@ class Runner:
                     completed=backlog.done_count(),
                     failed=backlog.failed_count(),
                 )
+                if self.events:
+                    self.events.log(
+                        "item_end",
+                        item_id=item.id,
+                        status="failure",
+                    )
 
                 if self.config.run.stop_on_first_failure:
                     backlog.save(self.paths.backlog_yaml)
-                    return StageResult(
-                        success=False,
-                        message=f"Item {item.id} failed after {max_attempts} attempts",
+                    return _finish(
+                        StageResult(
+                            success=False,
+                            message=f"Item {item.id} failed after {max_attempts} attempts",
+                        )
                     )
 
             backlog.save(self.paths.backlog_yaml)
 
         # Check final status
         if backlog.failed_count() > 0:
-            return StageResult(
-                success=False,
-                message=f"{backlog.failed_count()} items failed",
+            return _finish(
+                StageResult(
+                    success=False,
+                    message=f"{backlog.failed_count()} items failed",
+                )
             )
 
-        return StageResult(
-            success=True,
-            message=f"Completed {backlog.done_count()} items",
+        return _finish(
+            StageResult(
+                success=True,
+                message=f"Completed {backlog.done_count()} items",
+            )
         )
 
     def _run_verify_with_metrics(
         self,
         ctx: StageContext,
-        item_id: str,
+        item: WorkItem,
         attempt: int,
+        *,
+        mode: str = "full",
     ) -> StageResult:
         """Run verification with gate metrics collection.
 
         Args:
             ctx: Stage context.
-            item_id: Work item ID.
+            item: Work item.
             attempt: Attempt number.
+            mode: Verification mode ("full" or "fast").
 
         Returns:
             StageResult from verification.
         """
-        with self.metrics.stage("verify", item_id=item_id, attempt=attempt) as timer:
+        gates = ctx.gates if mode == "full" else self._build_fast_gates(ctx, item)
+
+        if self.events:
+            self.events.log(
+                "verify_start",
+                item_id=item.id,
+                attempt=attempt,
+                mode=mode,
+                gate_count=len(gates),
+            )
+
+        with self.metrics.stage("verify", item_id=item.id, attempt=attempt) as timer:
             timer.start_verify()
 
+            if not gates:
+                timer.end_verify()
+                self.metrics.record_success()
+                if self.events:
+                    self.events.log(
+                        "verify_end",
+                        item_id=item.id,
+                        attempt=attempt,
+                        mode=mode,
+                        status="success",
+                        skipped=True,
+                    )
+                return StageResult(success=True, message="No gates to run")
+
             # Run each gate and record metrics
-            for gate in ctx.gates:
+            for gate in gates:
+                if self.events:
+                    self.events.log(
+                        "gate_start",
+                        item_id=item.id,
+                        attempt=attempt,
+                        mode=mode,
+                        gate=gate.name,
+                    )
                 gate_start = time.perf_counter()
-                log_path = ctx.paths.log_path(f"gate_{gate.name}_{item_id}_{attempt}")
+                log_path = ctx.paths.log_path(f"gate_{gate.name}_{item.id}_{attempt}")
                 result = gate.run(cwd=ctx.workspace.worktree_path, log_path=log_path)
                 gate_duration = int((time.perf_counter() - gate_start) * 1000)
 
@@ -985,18 +1110,76 @@ class Runner:
                     tests_total=tests_total,
                 )
 
+                if self.events:
+                    self.events.log(
+                        "gate_end",
+                        item_id=item.id,
+                        attempt=attempt,
+                        mode=mode,
+                        gate=gate.name,
+                        status="success" if result.ok else "failure",
+                        duration_ms=gate_duration,
+                        returncode=result.returncode,
+                    )
+
                 if result.failed:
                     timer.end_verify()
                     self.metrics.record_failure(FailureCategory.GATE_FAILURE, result.message)
+                    if self.events:
+                        self.events.log(
+                            "verify_end",
+                            item_id=item.id,
+                            attempt=attempt,
+                            mode=mode,
+                            status="failure",
+                            failed_gate=gate.name,
+                        )
+                    evidence = self._build_gate_evidence(
+                        ctx,
+                        failed_gate=gate.name,
+                        log_tail=result.get_log_tail(50),
+                    )
                     return StageResult(
                         success=False,
                         message=f"Gate {gate.name} failed",
-                        data={"evidence": {"gate": gate.name, "log": result.get_log_tail(30)}},
+                        data={"evidence": evidence},
                     )
 
             timer.end_verify()
             self.metrics.record_success()
+            if self.events:
+                self.events.log(
+                    "verify_end",
+                    item_id=item.id,
+                    attempt=attempt,
+                    mode=mode,
+                    status="success",
+                )
             return StageResult(success=True, message="All gates passed")
+
+    def _build_gate_evidence(
+        self,
+        ctx: StageContext,
+        *,
+        failed_gate: str,
+        log_tail: str,
+    ) -> dict[str, Any]:
+        """Build evidence payload for fix prompts."""
+        evidence: dict[str, Any] = {
+            "ruff_failed": failed_gate == "ruff",
+            "pytest_failed": failed_gate == "pytest",
+        }
+
+        if failed_gate == "ruff":
+            evidence["ruff_log"] = log_tail
+        elif failed_gate == "pytest":
+            evidence["pytest_log"] = log_tail
+
+        diff = ctx.pack.read_patch_diff()
+        if diff:
+            evidence["patch_diff"] = diff[:5000] + ("\n... (truncated)" if len(diff) > 5000 else "")
+
+        return evidence
 
     def _parse_pytest_output(self, output: str) -> tuple[int | None, int | None]:
         """Parse pytest output for test counts.
@@ -1026,6 +1209,104 @@ class Runner:
             return failed, total
 
         return None, None
+
+    def _resolve_verify_mode(self, backlog: Backlog) -> str:
+        """Select verification mode for the current item."""
+        if self.config.run.per_item_verify == "full":
+            return "full"
+        if backlog.todo_count() == 0:
+            return "full"
+        return "fast"
+
+    @staticmethod
+    def _is_test_path(path: Path) -> bool:
+        name = path.name
+        return (
+            "tests" in path.parts
+            or (name.startswith("test_") and name.endswith(".py"))
+            or name.endswith("_test.py")
+        )
+
+    def _collect_pytest_targets(self, item: WorkItem, worktree: Path) -> list[str]:
+        targets: list[str] = []
+        seen: set[str] = set()
+
+        for raw in item.files_hint:
+            path = Path(raw)
+            if self._is_test_path(path):
+                full_path = worktree / path
+                if full_path.exists():
+                    rel = str(path)
+                    if rel not in seen:
+                        targets.append(rel)
+                        seen.add(rel)
+                continue
+
+            if path.suffix == ".py":
+                stem = path.stem
+                candidates = [
+                    Path("tests") / f"test_{stem}.py",
+                    Path("tests") / f"{stem}_test.py",
+                ]
+                for candidate in candidates:
+                    full_path = worktree / candidate
+                    if full_path.exists() and str(candidate) not in seen:
+                        targets.append(str(candidate))
+                        seen.add(str(candidate))
+
+        # Fallback to changed test files if any
+        if not targets:
+            try:
+                changed = self.workspace.get_changed_files()
+            except Exception:
+                changed = []
+            for raw in changed:
+                path = Path(raw)
+                if self._is_test_path(path):
+                    rel = str(path)
+                    if rel not in seen:
+                        targets.append(rel)
+                        seen.add(rel)
+
+        max_targets = self.config.run.fast_verify_max_pytest_targets
+        return targets[:max_targets]
+
+    def _build_fast_gates(self, ctx: StageContext, item: WorkItem) -> list[Gate]:
+        """Build a fast gate set for per-item verification."""
+        fast_gates: list[Gate] = []
+        pytest_targets = self._collect_pytest_targets(item, ctx.workspace.worktree_path)
+
+        for gate in ctx.gates:
+            if gate.name == "ruff":
+                fast_gates.append(gate)
+                continue
+            if gate.name != "pytest":
+                continue
+
+            if not pytest_targets and self.config.run.fast_verify_skip_pytest_if_no_targets:
+                if self.events:
+                    self.events.log(
+                        "gate_skipped",
+                        gate="pytest",
+                        item_id=item.id,
+                        reason="no_targets",
+                    )
+                continue
+
+            base_args = list(getattr(gate, "args", ["-q"]))
+            args = base_args + pytest_targets if pytest_targets else base_args
+            command = getattr(gate, "command", "pytest")
+            required = getattr(gate, "required", True)
+            fast_gates.append(
+                PytestGate(
+                    cmd=self.cmd,
+                    command=command,
+                    args=args,
+                    required=required,
+                )
+            )
+
+        return fast_gates
 
     def _run_review(self, ctx: StageContext) -> StageResult:
         """Run the review stage."""

@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from orx.context.pack import ContextPack
     from orx.executors.base import Executor
     from orx.gates.base import Gate
+    from orx.metrics.events import EventLogger
     from orx.paths import RunPaths
     from orx.prompts.renderer import PromptRenderer
     from orx.state import StateManager
@@ -65,6 +66,7 @@ class StageContext:
     renderer: "PromptRenderer"
     config: dict[str, Any]
     model_selector: "ModelSelector | None" = None
+    events: "EventLogger | None" = None
 
 
 @runtime_checkable
@@ -224,6 +226,14 @@ class TextOutputStage(BaseStage):
             logs = LogPaths(stdout=stdout_path, stderr=stderr_path)
             out_path = ctx.paths.context_dir / f"{self.name}_output.md"
 
+            if ctx.events:
+                ctx.events.log(
+                    "executor_start",
+                    stage=self.name,
+                    mode="text",
+                    prompt=str(prompt_path),
+                )
+
             result = ctx.executor.run_text(
                 cwd=ctx.workspace.worktree_path,
                 prompt_path=prompt_path,
@@ -231,6 +241,14 @@ class TextOutputStage(BaseStage):
                 logs=logs,
                 model_selector=ctx.model_selector,
             )
+            if ctx.events:
+                ctx.events.log(
+                    "executor_end",
+                    stage=self.name,
+                    mode="text",
+                    returncode=result.returncode,
+                    success=not result.failed,
+                )
 
             if result.failed:
                 log.error("Executor failed", error=result.error_message)
@@ -312,12 +330,32 @@ class ApplyStage(BaseStage):
 
             logs = LogPaths(stdout=stdout_path, stderr=stderr_path)
 
+            if ctx.events:
+                ctx.events.log(
+                    "executor_start",
+                    stage=self.name,
+                    mode="apply",
+                    item_id=item.id,
+                    iteration=iteration,
+                    prompt=str(prompt_path),
+                )
+
             result = ctx.executor.run_apply(
                 cwd=ctx.workspace.worktree_path,
                 prompt_path=prompt_path,
                 logs=logs,
                 model_selector=ctx.model_selector,
             )
+            if ctx.events:
+                ctx.events.log(
+                    "executor_end",
+                    stage=self.name,
+                    mode="apply",
+                    item_id=item.id,
+                    iteration=iteration,
+                    returncode=result.returncode,
+                    success=not result.failed,
+                )
 
             if result.failed:
                 log.error("Executor failed", error=result.error_message)

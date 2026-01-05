@@ -20,7 +20,8 @@ logger = structlog.get_logger()
 class CodexExecutor(BaseExecutor):
     """Executor adapter for Codex CLI.
 
-    Wraps the codex CLI to run with --full-auto mode.
+    Wraps the codex CLI. Apply mode uses --full-auto, while text mode
+    runs in a read-only sandbox with no approvals to avoid tool usage.
     Supports model selection via --model/-m flag or --profile/-p flag.
 
     Model selection priority:
@@ -87,6 +88,7 @@ class CodexExecutor(BaseExecutor):
         cwd: Path,
         model_selector: "ModelSelector | None" = None,
         out_path: Path | None = None,
+        text_only: bool = False,
     ) -> tuple[list[str], dict[str, str | None]]:
         """Build the codex command line.
 
@@ -95,6 +97,7 @@ class CodexExecutor(BaseExecutor):
             cwd: Working directory.
             model_selector: Optional model selection configuration.
             out_path: Optional output path for --output-last-message.
+            text_only: If True, run with a read-only sandbox and no approvals.
 
         Returns:
             Tuple of (command list, resolved model info).
@@ -104,10 +107,13 @@ class CodexExecutor(BaseExecutor):
         cmd = [
             self.binary,
             "exec",
-            "--full-auto",
             "--cd",
             str(cwd),
         ]
+        if text_only:
+            cmd.extend(["--sandbox", "read-only"])
+        else:
+            cmd.append("--full-auto")
 
         # Add model or profile selection
         if resolved["model"]:
@@ -147,6 +153,7 @@ class CodexExecutor(BaseExecutor):
         logs: LogPaths,
         out_path: Path | None = None,
         model_selector: "ModelSelector | None" = None,
+        text_only: bool = False,
     ) -> ResolvedInvocation:
         """Resolve the command invocation without executing.
 
@@ -156,6 +163,7 @@ class CodexExecutor(BaseExecutor):
             logs: Paths for stdout/stderr logs.
             out_path: Optional output path (for text mode).
             model_selector: Optional model selection configuration.
+            text_only: If True, run with a read-only sandbox and no approvals.
 
         Returns:
             ResolvedInvocation with command and artifacts.
@@ -165,6 +173,7 @@ class CodexExecutor(BaseExecutor):
             cwd=cwd,
             model_selector=model_selector,
             out_path=out_path,
+            text_only=text_only,
         )
 
         artifacts = {
@@ -216,6 +225,7 @@ class CodexExecutor(BaseExecutor):
             logs=logs,
             out_path=out_path,
             model_selector=model_selector,
+            text_only=True,
         )
 
         log = logger.bind(

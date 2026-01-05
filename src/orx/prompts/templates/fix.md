@@ -2,13 +2,15 @@
 
 You are fixing issues found in the previous implementation attempt.
 
-## Task Context
+## Task Summary
 
-{{ task }}
+{{ task_summary }}
 
-## Specification
+{% if spec_highlights %}
+## Spec Highlights
 
-{{ spec }}
+{{ spec_highlights }}
+{% endif %}
 
 ## Current Work Item
 
@@ -21,6 +23,25 @@ You are fixing issues found in the previous implementation attempt.
 {% for criterion in acceptance %}
 - {{ criterion }}
 {% endfor %}
+
+{% if files_hint %}
+### Files Hint
+{% for file in files_hint %}
+- {{ file }}
+{% endfor %}
+{% endif %}
+
+{% if file_snippets %}
+## Relevant File Snippets
+
+{% for snippet in file_snippets %}
+### {{ snippet.path }}{% if snippet.truncated %} (truncated){% endif %}
+
+```
+{{ snippet.content }}
+```
+{% endfor %}
+{% endif %}
 
 ## Evidence of Failure
 
@@ -67,6 +88,7 @@ You are fixing issues found in the previous implementation attempt.
 ## Output
 
 Apply your fixes directly to the filesystem. Focus only on fixing the identified issues.
+Do not run tests or shell commands; the pipeline handles verification.
 
 ---
 

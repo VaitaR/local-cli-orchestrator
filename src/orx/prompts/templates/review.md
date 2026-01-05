@@ -23,6 +23,7 @@ You are reviewing the completed implementation.
 ## Instructions
 
 Review the changes and produce two outputs **in your response text** (DO NOT create files in the worktree):
+This stage is text-only: do not run any commands or tools.
 
 1. `review.md` - Detailed code review
 2. `pr_body.md` - Concise PR description
