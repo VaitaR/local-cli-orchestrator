@@ -149,17 +149,17 @@ executors:
   gemini:
     bin: gemini
     default:
-      model: gemini-2.5-flash
+      model: gemini-3-flash
       output_format: json
 
 stages:
   plan:
     executor: gemini
-    model: gemini-2.5-pro
+    model: gemini-3-pro
   implement:
     executor: codex
-    model: gpt-5.2
-    reasoning_effort: high
+    model: gpt-5.2-codex
+    reasoning_effort: medium
 ```
 
 **Known limitations:**
