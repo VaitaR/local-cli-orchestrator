@@ -40,10 +40,14 @@ class DecomposeStage(TextOutputStage):
         spec = ctx.pack.read_spec() or ""
         plan = ctx.pack.read_plan() or ""
 
+        run_config = ctx.config.get("run", {}) if ctx.config else {}
+        max_items = run_config.get("max_backlog_items", 4)
+
         return {
             "spec": spec,
             "plan": plan,
             "run_id": ctx.paths.run_id,
+            "max_items": max_items,
         }
 
     def save_output(self, ctx: StageContext, content: str) -> None:
@@ -90,6 +94,35 @@ class DecomposeStage(TextOutputStage):
             if cycles:
                 log.error("Backlog has cycles", cycles=cycles)
                 return self._failure(f"Backlog has cycles: {'; '.join(cycles)}")
+
+            run_config = ctx.config.get("run", {}) if ctx.config else {}
+            max_items = run_config.get("max_backlog_items", 0)
+            coalesce_enabled = run_config.get("coalesce_backlog_items", True)
+            original_count = len(backlog.items)
+            if coalesce_enabled and max_items:
+                merged = backlog.coalesce(max_items)
+                if merged is not backlog:
+                    backlog = merged
+                    # Re-validate after coalescing.
+                    errors = backlog.validate_dependencies()
+                    if errors:
+                        log.error("Merged backlog dependency errors", errors=errors)
+                        return self._failure(
+                            f"Invalid merged backlog: {'; '.join(errors)}"
+                        )
+                    cycles = backlog.detect_cycles()
+                    if cycles:
+                        log.error("Merged backlog has cycles", cycles=cycles)
+                        return self._failure(
+                            f"Merged backlog has cycles: {'; '.join(cycles)}"
+                        )
+                    ctx.paths.backlog_yaml.write_text(backlog.to_yaml())
+                    log.info(
+                        "Backlog coalesced",
+                        original_count=original_count,
+                        new_count=len(backlog.items),
+                        max_items=max_items,
+                    )
 
             log.info(
                 "Backlog validated",

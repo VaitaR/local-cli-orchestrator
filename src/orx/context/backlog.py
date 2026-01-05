@@ -2,12 +2,39 @@
 
 from __future__ import annotations
 
+import math
 from enum import Enum
 from pathlib import Path
 from typing import Any
 
 import yaml
 from pydantic import BaseModel, Field, field_validator
+
+
+def _strip_markdown_code_fence(text: str) -> str:
+    stripped = text.strip()
+    if not stripped.startswith("```"):
+        return text
+
+    lines = stripped.splitlines()
+    if not lines:
+        return text
+
+    fence = lines[0].strip()
+    if not fence.startswith("```"):
+        return text
+
+    end_idx: int | None = None
+    for idx in range(1, len(lines)):
+        if lines[idx].strip() == "```":
+            end_idx = idx
+            break
+
+    if end_idx is None:
+        return text
+
+    inner = "\n".join(lines[1:end_idx]).strip()
+    return inner
 
 
 class WorkItemStatus(str, Enum):
@@ -211,6 +238,91 @@ class Backlog(BaseModel):
         data = self.model_dump(mode="json")
         return yaml.dump(data, default_flow_style=False, sort_keys=False)
 
+    def coalesce(self, max_items: int) -> "Backlog":
+        """Coalesce work items to reduce total count.
+
+        Args:
+            max_items: Maximum number of items to keep.
+
+        Returns:
+            A new Backlog with merged items if needed.
+        """
+        if max_items < 1 or len(self.items) <= max_items:
+            return self
+
+        group_size = math.ceil(len(self.items) / max_items)
+        groups = [
+            self.items[i : i + group_size]
+            for i in range(0, len(self.items), group_size)
+        ]
+
+        def unique(values: list[str]) -> list[str]:
+            seen: set[str] = set()
+            result: list[str] = []
+            for value in values:
+                if value not in seen:
+                    result.append(value)
+                    seen.add(value)
+            return result
+
+        id_to_group: dict[str, int] = {}
+        for idx, group in enumerate(groups):
+            for item in group:
+                id_to_group[item.id] = idx
+
+        group_ids = [f"W{idx + 1:03d}" for idx in range(len(groups))]
+        new_items: list[WorkItem] = []
+
+        for idx, group in enumerate(groups):
+            merged_ids = [item.id for item in group]
+            title = group[0].title
+            objective = group[0].objective
+            notes = group[0].notes
+            acceptance: list[str] = []
+
+            if len(group) > 1:
+                title = f"Batch {idx + 1}: {group[0].title} + {len(group) - 1} more"
+                objective = "; ".join(item.objective for item in group)
+                notes = f"Merged from {', '.join(merged_ids)}"
+
+            for item in group:
+                for criterion in item.acceptance:
+                    if len(group) > 1:
+                        entry = f"{item.id}: {criterion}"
+                    else:
+                        entry = criterion
+                    acceptance.append(entry)
+
+            acceptance = unique(acceptance)
+            if not acceptance:
+                acceptance = [f"Complete {title}"]
+
+            files_hint = unique([path for item in group for path in item.files_hint])
+
+            dep_targets: list[str] = []
+            for item in group:
+                for dep_id in item.depends_on:
+                    dep_group = id_to_group.get(dep_id)
+                    if dep_group is None or dep_group == idx:
+                        continue
+                    dep_targets.append(group_ids[dep_group])
+
+            new_items.append(
+                WorkItem(
+                    id=group_ids[idx],
+                    title=title,
+                    objective=objective,
+                    acceptance=acceptance,
+                    files_hint=files_hint,
+                    depends_on=unique(dep_targets),
+                    status=WorkItemStatus.TODO,
+                    attempts=0,
+                    notes=notes,
+                )
+            )
+
+        return Backlog(run_id=self.run_id, items=new_items)
+
     def save(self, path: Path) -> None:
         """Save the backlog to a YAML file.
 
@@ -232,6 +344,7 @@ class Backlog(BaseModel):
         Raises:
             ValueError: If the YAML is invalid.
         """
+        yaml_content = _strip_markdown_code_fence(yaml_content)
         try:
             data: dict[str, Any] = yaml.safe_load(yaml_content)
         except yaml.YAMLError as e:

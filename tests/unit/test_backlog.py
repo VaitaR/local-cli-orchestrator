@@ -367,6 +367,85 @@ items:
         assert len(backlog.items) == 1
         assert backlog.items[0].id == "W001"
 
+    def test_from_yaml_strips_markdown_code_fence(self) -> None:
+        yaml_content = """```yaml
+run_id: test_run
+items:
+  - id: "W001"
+    title: "Test item"
+    objective: "Test objective"
+    acceptance:
+      - "Test passes"
+    files_hint: []
+    depends_on: []
+    status: "todo"
+    attempts: 0
+    notes: ""
+```"""
+        backlog = Backlog.from_yaml(yaml_content)
+
+        assert backlog.run_id == "test_run"
+        assert len(backlog.items) == 1
+        assert backlog.items[0].id == "W001"
+
+    def test_coalesce_noop_when_under_limit(self) -> None:
+        backlog = Backlog(
+            run_id="test_run",
+            items=[
+                WorkItem(
+                    id="W001",
+                    title="First",
+                    objective="First objective",
+                    acceptance=["First AC"],
+                ),
+                WorkItem(
+                    id="W002",
+                    title="Second",
+                    objective="Second objective",
+                    acceptance=["Second AC"],
+                ),
+            ],
+        )
+
+        merged = backlog.coalesce(max_items=3)
+
+        assert merged is backlog
+
+    def test_coalesce_merges_items_and_dependencies(self) -> None:
+        backlog = Backlog(
+            run_id="test_run",
+            items=[
+                WorkItem(
+                    id="W001",
+                    title="First",
+                    objective="First objective",
+                    acceptance=["First AC"],
+                ),
+                WorkItem(
+                    id="W002",
+                    title="Second",
+                    objective="Second objective",
+                    acceptance=["Second AC"],
+                    depends_on=["W001"],
+                ),
+                WorkItem(
+                    id="W003",
+                    title="Third",
+                    objective="Third objective",
+                    acceptance=["Third AC"],
+                    depends_on=["W002"],
+                ),
+            ],
+        )
+
+        merged = backlog.coalesce(max_items=2)
+
+        assert len(merged.items) == 2
+        assert merged.items[0].id == "W001"
+        assert merged.items[1].id == "W002"
+        assert merged.items[1].depends_on == ["W001"]
+        assert any("W001:" in ac for ac in merged.items[0].acceptance)
+
     def test_save_and_load(self, tmp_path: Path) -> None:
         """Test save and load roundtrip."""
         backlog = Backlog(run_id="test_run", items=[])

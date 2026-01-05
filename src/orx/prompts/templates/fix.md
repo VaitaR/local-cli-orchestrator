@@ -78,11 +78,12 @@ You are fixing issues found in the previous implementation attempt.
 2. Identify the root cause of the failure
 3. Make targeted fixes to address the issues
 4. Ensure all acceptance criteria are met
+5. If a lint error is trivial (I001/UP/unused import), fix it immediately
 
 ## Common Issues
 
-- **Ruff failures**: Fix syntax errors, import sorting, unused imports
-- **Pytest failures**: Fix failing assertions, missing fixtures, import errors
+- **Ruff failures**: Fix syntax errors, import sorting, unused imports (keep imports ordered)
+- **Pytest failures**: Fix failing assertions, missing fixtures, import errors (ensure local modules resolve)
 - **Empty diff**: Ensure you're actually modifying files, not just outputting code
 
 ## Output

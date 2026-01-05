@@ -116,7 +116,7 @@ class EvidenceCollector:
 
     def _read_backlog(self) -> str:
         """Read the backlog YAML."""
-        backlog_path = self.paths.context / "backlog.yaml"
+        backlog_path = self.paths.backlog_yaml
         if backlog_path.exists():
             return backlog_path.read_text()
         return ""
