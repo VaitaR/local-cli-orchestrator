@@ -29,3 +29,24 @@ def test_collect_pytest_targets_from_files_hint(
 
     targets = runner._collect_pytest_targets(item, worktree)
     assert "tests/test_widget.py" in targets
+
+
+def test_collect_pytest_targets_skips_missing_tests(
+    tmp_path: Path, tmp_git_repo: Path
+) -> None:
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+
+    item = WorkItem(
+        id="W001",
+        title="Add widget",
+        objective="Implement widget",
+        acceptance=["Widget works"],
+        files_hint=["tests/test_missing.py"],
+    )
+
+    config = OrxConfig.default(EngineType.FAKE)
+    runner = Runner(config, base_dir=tmp_git_repo, dry_run=True)
+
+    targets = runner._collect_pytest_targets(item, worktree)
+    assert targets == []

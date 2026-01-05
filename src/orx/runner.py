@@ -1205,10 +1205,12 @@ class Runner:
         for raw in item.files_hint:
             path = Path(raw)
             if self._is_test_path(path):
-                rel = str(path)
-                if rel not in seen:
-                    targets.append(rel)
-                    seen.add(rel)
+                full_path = worktree / path
+                if full_path.exists():
+                    rel = str(path)
+                    if rel not in seen:
+                        targets.append(rel)
+                        seen.add(rel)
                 continue
 
             if path.suffix == ".py":
