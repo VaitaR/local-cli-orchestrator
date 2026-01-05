@@ -52,6 +52,7 @@ You are implementing a specific work item from the backlog.
 - Add docstrings with Google style
 - Keep functions focused and small
 - Handle errors appropriately
+- Keep imports sorted (ruff I001) when adding new files
 
 ## Output
 

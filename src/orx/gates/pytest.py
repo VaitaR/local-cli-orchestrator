@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import structlog
@@ -92,12 +93,20 @@ class PytestGate(BaseGate):
         # Build command
         full_command = [self.command, *self.args]
 
+        env = {}
+        pythonpath = str(cwd)
+        existing = os.environ.get("PYTHONPATH")
+        if existing:
+            pythonpath = f"{pythonpath}{os.pathsep}{existing}"
+        env["PYTHONPATH"] = pythonpath
+
         # Run pytest
         result = self.cmd.run(
             full_command,
             cwd=cwd,
             stdout_path=log_path,
             stderr_path=log_path.with_suffix(".stderr.log"),
+            env=env,
         )
 
         # Merge stderr into main log if it exists

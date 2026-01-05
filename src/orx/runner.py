@@ -1094,6 +1094,34 @@ class Runner:
                 result = gate.run(cwd=ctx.workspace.worktree_path, log_path=log_path)
                 gate_duration = int((time.perf_counter() - gate_start) * 1000)
 
+                if (
+                    result.failed
+                    and gate.name == "ruff"
+                    and self.config.run.auto_fix_ruff
+                    and "--fix" not in (getattr(gate, "args", []) or [])
+                ):
+                    fix_result, fix_duration = self._run_ruff_fix(
+                        ctx,
+                        gate,
+                        item,
+                        attempt,
+                        mode=mode,
+                    )
+                    gate_duration += fix_duration
+                    if fix_result.ok:
+                        retry_log = ctx.paths.log_path(
+                            f"gate_{gate.name}_{item.id}_{attempt}_retry"
+                        )
+                        retry_start = time.perf_counter()
+                        result = gate.run(
+                            cwd=ctx.workspace.worktree_path,
+                            log_path=retry_log,
+                        )
+                        gate_duration += int(
+                            (time.perf_counter() - retry_start) * 1000
+                        )
+                        log_path = retry_log
+
                 # Extract test counts for pytest
                 tests_failed = None
                 tests_total = None
@@ -1262,11 +1290,15 @@ class Runner:
                 changed = []
             for raw in changed:
                 path = Path(raw)
-                if self._is_test_path(path):
-                    rel = str(path)
-                    if rel not in seen:
-                        targets.append(rel)
-                        seen.add(rel)
+                if not self._is_test_path(path):
+                    continue
+                full_path = worktree / path
+                if not full_path.exists():
+                    continue
+                rel = str(path)
+                if rel not in seen:
+                    targets.append(rel)
+                    seen.add(rel)
 
         max_targets = self.config.run.fast_verify_max_pytest_targets
         return targets[:max_targets]
@@ -1307,6 +1339,51 @@ class Runner:
             )
 
         return fast_gates
+
+    def _run_ruff_fix(
+        self,
+        ctx: StageContext,
+        gate: Gate,
+        item: WorkItem,
+        attempt: int,
+        *,
+        mode: str,
+    ) -> tuple["GateResult", int]:
+        """Run ruff with --fix to auto-apply lint changes."""
+        args = list(getattr(gate, "args", []) or ["check", "."])
+        if "--fix" not in args:
+            args.append("--fix")
+
+        fix_gate = RuffGate(
+            cmd=self.cmd,
+            command=getattr(gate, "command", "ruff"),
+            args=args,
+            required=getattr(gate, "required", True),
+        )
+        log_path = ctx.paths.log_path(f"gate_ruff_fix_{item.id}_{attempt}")
+        if self.events:
+            self.events.log(
+                "gate_fix_start",
+                item_id=item.id,
+                attempt=attempt,
+                mode=mode,
+                gate="ruff",
+            )
+        gate_start = time.perf_counter()
+        result = fix_gate.run(cwd=ctx.workspace.worktree_path, log_path=log_path)
+        gate_duration = int((time.perf_counter() - gate_start) * 1000)
+        if self.events:
+            self.events.log(
+                "gate_fix_end",
+                item_id=item.id,
+                attempt=attempt,
+                mode=mode,
+                gate="ruff",
+                status="success" if result.ok else "failure",
+                duration_ms=gate_duration,
+                returncode=result.returncode,
+            )
+        return result, gate_duration
 
     def _run_review(self, ctx: StageContext) -> StageResult:
         """Run the review stage."""

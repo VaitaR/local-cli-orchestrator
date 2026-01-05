@@ -414,6 +414,7 @@ class RunConfig(BaseModel):
         per_item_verify: Verification mode for each work item (full or fast).
         fast_verify_max_pytest_targets: Max targeted pytest paths for fast verify.
         fast_verify_skip_pytest_if_no_targets: Skip pytest when no targets are found.
+        auto_fix_ruff: Whether to auto-apply ruff fixes on gate failures.
     """
 
     max_fix_attempts: int = Field(default=3, ge=1, le=10)
@@ -422,6 +423,7 @@ class RunConfig(BaseModel):
     per_item_verify: Literal["full", "fast"] = "fast"
     fast_verify_max_pytest_targets: int = Field(default=6, ge=1, le=50)
     fast_verify_skip_pytest_if_no_targets: bool = True
+    auto_fix_ruff: bool = True
 
 
 class OrxConfig(BaseModel):
