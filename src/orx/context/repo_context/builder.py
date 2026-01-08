@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 from orx.context.repo_context.blocks import ContextBlock, ContextPriority
-from orx.context.repo_context.packer import ContextPacker, PackResult, pack_for_stage
+from orx.context.repo_context.packer import pack_for_stage
 from orx.context.repo_context.python_extractor import PythonExtractor
 from orx.context.repo_context.ts_extractor import TypeScriptExtractor
 from orx.context.repo_context.verify_commands import build_verify_commands
