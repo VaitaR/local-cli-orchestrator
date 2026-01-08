@@ -14,26 +14,26 @@
         <tr>
             <td>
                 <a href="/runs/{{ run.run_id }}" class="run-link">
-                    {{ run.run_id[:20] }}...
+                    {{ run.run_id[:20] }}…
                 </a>
             </td>
             <td>
                 <span class="badge badge-running">
-                    {{ run.current_stage or 'starting' }}
+                    ⚡ {{ run.current_stage or 'starting' }}
                 </span>
             </td>
             <td class="mono">{{ run.elapsed_human }}</td>
-            <td class="task-preview">{{ run.task_preview or '-' }}</td>
+            <td class="task-preview" title="{{ run.task_preview or '' }}">{{ run.task_preview or '-' }}</td>
             <td>
                 {% if run.can_cancel %}
                 <button class="btn btn-sm btn-danger"
                         hx-post="/api/runs/{{ run.run_id }}/cancel"
                         hx-confirm="Cancel this run?"
                         hx-swap="none">
-                    Cancel
+                    🛑 Cancel
                 </button>
                 {% else %}
-                <span class="mono">-</span>
+                <span class="text-muted">-</span>
                 {% endif %}
             </td>
         </tr>
@@ -45,7 +45,8 @@
 </script>
 {% else %}
 <div class="empty-state">
-    <p>No active runs</p>
+    <p>✨ No active runs</p>
+    <small>Click "New Run" to start one</small>
 </div>
 <script>
     document.getElementById('active-count').textContent = '0';

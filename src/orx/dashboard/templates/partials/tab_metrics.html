@@ -1,26 +1,27 @@
+<div class="tab-content">
 {% if metrics %}
 <div class="metrics-grid">
     {% if metrics.tokens %}
     <div class="metric-card">
-        <h4>Token Usage</h4>
-        <div class="metric-value">{{ metrics.tokens.total | default(0) }}</div>
+        <h4>🔤 Token Usage</h4>
+        <div class="metric-value">{{ "{:,}".format(metrics.tokens.total | default(0)) }}</div>
         <div class="metric-breakdown">
-            <span>Input: {{ metrics.tokens.input | default(0) }}</span>
-            <span>Output: {{ metrics.tokens.output | default(0) }}</span>
+            <span>📥 Input: {{ "{:,}".format(metrics.tokens.input | default(0)) }}</span>
+            <span>📤 Output: {{ "{:,}".format(metrics.tokens.output | default(0)) }}</span>
         </div>
     </div>
     {% endif %}
     
     {% if metrics.duration %}
     <div class="metric-card">
-        <h4>Duration</h4>
+        <h4>⏱️ Duration</h4>
         <div class="metric-value">{{ metrics.duration | round(1) }}s</div>
     </div>
     {% endif %}
     
     {% if metrics.stages %}
     <div class="metric-card wide">
-        <h4>Stage Breakdown</h4>
+        <h4>📊 Stage Breakdown</h4>
         <table class="metrics-table">
             <thead>
                 <tr>
@@ -37,7 +38,9 @@
                     <td>{{ stage.duration | default('-') | round(1) }}s</td>
                     <td>{{ stage.tokens | default('-') }}</td>
                     <td>
-                        <span class="status-badge status-{{ stage.status | default('unknown') }}">
+                        <span class="badge badge-{{ stage.status | default('unknown') }}">
+                            {% if stage.status == 'success' %}✓{% endif %}
+                            {% if stage.status == 'failed' %}✕{% endif %}
                             {{ stage.status | default('unknown') }}
                         </span>
                     </td>
@@ -50,21 +53,22 @@
     
     {% if metrics.fix_loops %}
     <div class="metric-card">
-        <h4>Fix Loops</h4>
+        <h4>🔧 Fix Loops</h4>
         <div class="metric-value">{{ metrics.fix_loops }}</div>
     </div>
     {% endif %}
     
     {% if metrics.model %}
     <div class="metric-card">
-        <h4>Model</h4>
+        <h4>🤖 Model</h4>
         <div class="metric-value small">{{ metrics.model }}</div>
     </div>
     {% endif %}
 </div>
 {% else %}
 <div class="empty-state">
-    <p>No metrics available</p>
+    <p>📊 No metrics available</p>
     <small>Metrics will appear once the run completes</small>
 </div>
 {% endif %}
+</div>

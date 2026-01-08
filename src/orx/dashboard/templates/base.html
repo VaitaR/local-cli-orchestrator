@@ -6,13 +6,16 @@
     <title>{% block title %}ORX Dashboard{% endblock %}</title>
     <script src="/static/htmx.min.js"></script>
     <link rel="stylesheet" href="/static/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     {% block head %}{% endblock %}
 </head>
 <body>
     <div class="layout">
         <aside class="sidebar">
             <div class="logo">
-                <a href="/">🚀 ORX</a>
+                <a href="/">⚡ ORX</a>
             </div>
             <nav>
                 <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">

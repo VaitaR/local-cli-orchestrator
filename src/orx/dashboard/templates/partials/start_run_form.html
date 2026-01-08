@@ -1,10 +1,10 @@
 <div class="modal-header">
-    <h3>Start New Run</h3>
-    <button class="btn-close" onclick="document.getElementById('modal').classList.remove('active')">&times;</button>
+    <h3>🚀 Start New Run</h3>
+    <button class="modal-close" onclick="document.getElementById('modal').classList.remove('active')">&times;</button>
 </div>
 <form id="start-run-form" class="form">
     <div class="form-group">
-        <label for="task">Task Description *</label>
+        <label for="task">📝 Task Description *</label>
         <textarea id="task" 
                   rows="6" 
                   required
@@ -13,7 +13,7 @@
     </div>
     
     <div class="form-group">
-        <label for="repo_path">Repository Path</label>
+        <label for="repo_path">📁 Repository Path</label>
         <input type="text" 
                id="repo_path" 
                value="{{ default_repo_path }}"
@@ -21,14 +21,14 @@
     </div>
     
     <div class="form-group">
-        <label for="base_branch">Base Branch</label>
+        <label for="base_branch">🌿 Base Branch</label>
         <input type="text" 
                id="base_branch" 
                placeholder="main">
     </div>
     
     <div class="form-group">
-        <label for="engine">Engine</label>
+        <label for="engine">⚙️ Engine</label>
         <select id="engine">
             <option value="">Loading...</option>
         </select>
@@ -37,7 +37,7 @@
     
     <details class="form-group" id="per-stage-config">
         <summary style="cursor: pointer; font-weight: 500; margin-bottom: 0.5rem;">
-            ⚙️ Advanced: Per-Stage Engine
+            🔧 Advanced: Per-Stage Engine
         </summary>
         <div id="stage-engines-grid" 
              style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-top: 0.5rem;">
@@ -49,10 +49,10 @@
         <button type="button" 
                 class="btn btn-secondary"
                 onclick="document.getElementById('modal').classList.remove('active')">
-            Cancel
+            ✕ Cancel
         </button>
         <button type="submit" class="btn btn-primary">
-            Start Run
+            ▶️ Start Run
         </button>
     </div>
 </form>

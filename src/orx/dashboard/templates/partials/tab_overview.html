@@ -1,7 +1,7 @@
 <div class="tab-content">
     <section class="card">
         <div class="card-header">
-            <h3>Task</h3>
+            <h3>📋 Task</h3>
         </div>
         <div class="card-body">
             {% if run.task_content %}
@@ -15,7 +15,7 @@
     {% if run.stage_statuses %}
     <section class="card">
         <div class="card-header">
-            <h3>Stage Progress</h3>
+            <h3>⚡ Stage Progress</h3>
         </div>
         <div class="card-body"
              {% if run.is_active %}
@@ -28,6 +28,12 @@
             <div class="stage-timeline">
                 {% for stage, status in run.stage_statuses.items() %}
                 <div class="stage-item {% if stage == run.current_stage %}current {% endif %}status-{{ status }}">
+                    <span class="stage-icon">
+                        {%- if status == 'success' or status == 'completed' -%}✓
+                        {%- elif status == 'failed' or status == 'failure' -%}✕
+                        {%- elif status == 'running' or stage == run.current_stage -%}●
+                        {%- else -%}○{%- endif -%}
+                    </span>
                     <span class="stage-name">{{ stage }}</span>
                     <span class="stage-status badge badge-{{ status }}">{{ status }}</span>
                 </div>
@@ -40,7 +46,7 @@
     {% if run.metrics_summary %}
     <section class="card">
         <div class="card-header">
-            <h3>Quick Stats</h3>
+            <h3>📊 Quick Stats</h3>
         </div>
         <div class="card-body">
             <div class="stats-grid">

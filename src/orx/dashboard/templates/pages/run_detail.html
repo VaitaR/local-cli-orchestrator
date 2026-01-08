@@ -4,7 +4,7 @@
 
 {% block content %}
 <div class="page-header">
-    <a href="/" class="back-link">← All Runs</a>
+    <a href="/" class="back-link">← Back to All Runs</a>
 </div>
 
 <!-- Run Header (polled while running) -->
@@ -16,7 +16,7 @@
      hx-trigger="load"
      {% endif %}
      hx-swap="outerHTML">
-    <div class="loading">Loading...</div>
+    <div class="loading">Loading run details...</div>
 </div>
 
 <!-- Tabs -->
@@ -27,7 +27,7 @@
             hx-target="#tab-content"
             hx-swap="innerHTML"
             onclick="setActiveTab(this)">
-        Overview
+        📊 Overview
     </button>
     <button class="tab"
             data-tab="artifacts"
@@ -35,7 +35,7 @@
             hx-target="#tab-content"
             hx-swap="innerHTML"
             onclick="setActiveTab(this)">
-        Artifacts
+        📁 Artifacts
     </button>
     <button class="tab"
             data-tab="diff"
@@ -43,7 +43,7 @@
             hx-target="#tab-content"
             hx-swap="innerHTML"
             onclick="setActiveTab(this)">
-        Diff
+        📝 Diff
     </button>
     <button class="tab"
             data-tab="logs"
@@ -51,7 +51,7 @@
             hx-target="#tab-content"
             hx-swap="innerHTML"
             onclick="setActiveTab(this)">
-        Logs
+        📜 Logs
     </button>
     {% if run.has_metrics %}
     <button class="tab"
@@ -60,7 +60,7 @@
             hx-target="#tab-content"
             hx-swap="innerHTML"
             onclick="setActiveTab(this)">
-        Metrics
+        📈 Metrics
     </button>
     {% endif %}
 </div>
@@ -70,7 +70,7 @@
      hx-get="/partials/run-tab/{{ run.run_id }}?tab=overview"
      hx-trigger="load"
      hx-swap="innerHTML">
-    <div class="loading">Loading...</div>
+    <div class="loading">Loading tab content...</div>
 </div>
 {% endblock %}
 
