@@ -1,0 +1,42 @@
+{% if runs %}
+<table class="table">
+    <thead>
+        <tr>
+            <th>Run ID</th>
+            <th>Status</th>
+            <th>Duration</th>
+            <th>Task</th>
+            <th>Failure</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for run in runs %}
+        <tr class="status-{{ run.status.value }}">
+            <td>
+                <a href="/runs/{{ run.run_id }}" class="run-link">
+                    {{ run.run_id[:20] }}...
+                </a>
+            </td>
+            <td>
+                <span class="badge badge-{{ run.status.value }}">
+                    {{ run.status.value }}
+                </span>
+            </td>
+            <td class="mono">{{ run.elapsed_human }}</td>
+            <td class="task-preview">{{ run.task_preview or '-' }}</td>
+            <td class="fail-category">
+                {% if run.fail_category %}
+                <span class="text-danger">{{ run.fail_category[:30] }}</span>
+                {% else %}
+                -
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<div class="empty-state">
+    <p>No recent runs</p>
+</div>
+{% endif %}

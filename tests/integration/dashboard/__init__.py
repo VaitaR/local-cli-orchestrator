@@ -1,0 +1,1 @@
+"""Dashboard integration test fixtures."""

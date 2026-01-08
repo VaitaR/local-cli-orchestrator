@@ -1,0 +1,45 @@
+<div class="modal-header">
+    <h3>Start New Run</h3>
+    <button class="btn-close" onclick="document.getElementById('modal').classList.remove('open')">&times;</button>
+</div>
+<form hx-post="/api/runs/start"
+      hx-target="#modal-content"
+      hx-swap="innerHTML"
+      class="form">
+    <div class="form-group">
+        <label for="task">Task Description *</label>
+        <textarea id="task" 
+                  name="task" 
+                  rows="6" 
+                  required
+                  placeholder="Describe what you want to accomplish..."></textarea>
+        <small>Or use @filepath to read from file</small>
+    </div>
+    
+    <div class="form-group">
+        <label for="repo_path">Repository Path</label>
+        <input type="text" 
+               id="repo_path" 
+               name="repo_path" 
+               placeholder="Current directory if empty">
+    </div>
+    
+    <div class="form-group">
+        <label for="base_branch">Base Branch</label>
+        <input type="text" 
+               id="base_branch" 
+               name="base_branch" 
+               placeholder="main">
+    </div>
+    
+    <div class="form-actions">
+        <button type="button" 
+                class="btn btn-secondary"
+                onclick="document.getElementById('modal').classList.remove('open')">
+            Cancel
+        </button>
+        <button type="submit" class="btn btn-primary">
+            Start Run
+        </button>
+    </div>
+</form>
