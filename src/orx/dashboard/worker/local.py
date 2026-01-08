@@ -284,6 +284,7 @@ class LocalWorker:
         cmd.append(job.task)
 
         # Add options
+        cmd.extend(["--engine", "fake"])  # Use FakeExecutor for dashboard testing
         if job.base_branch:
             cmd.extend(["--base-branch", job.base_branch])
 
