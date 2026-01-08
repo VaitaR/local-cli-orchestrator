@@ -21,6 +21,7 @@ fmt:
 
 lint:
 	python -m ruff check .
+	python -m ruff check --fix .
 	python -m mypy src/orx tests
 
 test:

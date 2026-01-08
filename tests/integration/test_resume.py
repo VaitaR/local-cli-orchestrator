@@ -103,6 +103,48 @@ def test_resume_preserves_artifacts(
 
 
 @pytest.mark.integration
+def test_resume_recovers_plan_output_after_interrupt(
+    tmp_git_repo: Path,
+) -> None:
+    """Resume should recover plan_output.md into plan.md without rerunning plan."""
+    config = OrxConfig.default(EngineType.FAKE)
+    config.git.base_branch = "main"
+    config.git.auto_commit = False
+
+    runner1 = Runner(config, base_dir=tmp_git_repo, dry_run=False)
+    runner1.executor = FakeExecutor(
+        scenarios=[FakeScenario(name="plan", text_output="# SHOULD NOT RUN")]
+    )
+
+    runner1.state.initialize()
+    runner1.pack.write_task("Interrupted run")
+    runner1.workspace.create("main")
+    runner1.state.set_baseline_sha(runner1.workspace.baseline_sha())
+
+    # Simulate: PLAN started, executor produced output, then crash before plan.md write.
+    runner1.state.transition_to(Stage.PLAN)
+    recovered_plan = "# Recovered Plan\n\nThis came from plan_output.md."
+    (runner1.paths.context_dir / "plan_output.md").write_text(recovered_plan)
+    assert not runner1.paths.plan_md.exists()
+
+    run_id = runner1.paths.run_id
+
+    # Resume should recover and then fail at SPEC (to stop early for the test).
+    runner2 = Runner(config, base_dir=tmp_git_repo, run_id=run_id, dry_run=False)
+    runner2.executor = FakeExecutor(
+        scenarios=[
+            FakeScenario(name="plan", text_output="# NEW PLAN (should not run)"),
+            FakeScenario(name="spec", should_fail=True, returncode=1),
+        ]
+    )
+
+    success = runner2.resume()
+    assert success is False
+    assert runner2.paths.plan_md.exists()
+    assert runner2.paths.plan_md.read_text() == recovered_plan
+
+
+@pytest.mark.integration
 def test_resume_continues_from_checkpoint(
     tmp_git_repo: Path,
     resume_test_executor: FakeExecutor,  # noqa: ARG001

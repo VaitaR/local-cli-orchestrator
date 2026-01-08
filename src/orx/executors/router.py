@@ -14,10 +14,9 @@ from orx.config import (
     ExecutorsConfig,
     FallbackPolicyConfig,
     ModelSelector,
-    StageExecutorConfig,
     StagesConfig,
 )
-from orx.executors.base import ExecResult, Executor, LogPaths, ResolvedInvocation
+from orx.executors.base import ExecResult, Executor, ResolvedInvocation
 from orx.executors.codex import CodexExecutor
 from orx.executors.fake import FakeExecutor
 from orx.executors.gemini import GeminiExecutor
@@ -124,7 +123,7 @@ class ModelRouter:
         executors: ExecutorsConfig,
         stages: StagesConfig,
         fallback: FallbackPolicyConfig,
-        cmd: "CommandRunner",
+        cmd: CommandRunner,
         dry_run: bool = False,
     ) -> None:
         """Initialize the model router.
@@ -222,37 +221,48 @@ class ModelRouter:
 
         # Priority 1: Stage-level override
         if stage_cfg.model or stage_cfg.profile:
-            return stage_cfg.to_model_selector()
+            selector = stage_cfg.to_model_selector()
+        else:
+            selector = None
 
         # Priority 2: Executor profiles (for Codex)
-        if executor_type == EngineType.CODEX:
+        if selector is None and executor_type == EngineType.CODEX:
             codex_cfg = self.executors_config.codex
             if stage in codex_cfg.profiles:
-                return ModelSelector(profile=codex_cfg.profiles[stage])
+                selector = ModelSelector(profile=codex_cfg.profiles[stage])
 
         # Priority 3: Executor default
-        if executor_type == EngineType.CODEX:
+        if selector is None and executor_type == EngineType.CODEX:
             codex_default = self.executors_config.codex.default
             if codex_default.model:
-                return ModelSelector(
+                selector = ModelSelector(
                     model=codex_default.model,
                     reasoning_effort=codex_default.reasoning_effort,
                 )
-        elif executor_type == EngineType.GEMINI:
+        elif selector is None and executor_type == EngineType.GEMINI:
             gemini_default = self.executors_config.gemini.default
             if gemini_default.model:
-                return ModelSelector(model=gemini_default.model)
+                selector = ModelSelector(model=gemini_default.model)
 
         # Priority 4: Engine config (legacy)
-        if self.engine.model:
-            return ModelSelector(
+        if selector is None and self.engine.model:
+            selector = ModelSelector(
                 model=self.engine.model,
                 profile=self.engine.profile,
                 reasoning_effort=self.engine.reasoning_effort,
             )
 
         # No model configured - will use CLI default
-        return ModelSelector()
+        if selector is None:
+            selector = ModelSelector()
+
+        # Stage-level flags apply regardless of how model/profile was resolved.
+        if stage_cfg.reasoning_effort:
+            selector.reasoning_effort = stage_cfg.reasoning_effort
+        if stage_cfg.web_search:
+            selector.web_search = True
+
+        return selector
 
     def get_executor_for_stage(self, stage: str) -> tuple[Executor, ModelSelector]:
         """Get the executor and model selector for a stage.
@@ -396,7 +406,7 @@ class ModelRouter:
 
     def create_attempts_dir(
         self,
-        paths: "RunPaths",
+        paths: RunPaths,
         stage: str,
         attempt: int,
     ) -> Path:

@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from orx.context.snippets import build_file_snippets, compact_text, extract_spec_highlights
+from orx.context.snippets import (
+    build_file_snippets,
+    compact_text,
+    extract_spec_highlights,
+)
 
 
 def test_compact_text_truncates_lines() -> None:

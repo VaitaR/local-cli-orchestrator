@@ -1,0 +1,71 @@
+<div class="tab-content">
+    <section class="card">
+        <div class="card-header">
+            <h3>Task</h3>
+        </div>
+        <div class="card-body">
+            {% if run.task_content %}
+            <pre class="code-block">{{ run.task_content }}</pre>
+            {% else %}
+            <p class="text-muted">Task content not available</p>
+            {% endif %}
+        </div>
+    </section>
+    
+    {% if run.stage_statuses %}
+    <section class="card">
+        <div class="card-header">
+            <h3>Stage Progress</h3>
+        </div>
+        <div class="card-body"
+             {% if run.is_active %}
+             hx-get="/partials/run-tab/{{ run.run_id }}?tab=overview"
+             hx-trigger="every 3s"
+             hx-select=".stage-timeline"
+             hx-swap="innerHTML"
+             hx-target="this"
+             {% endif %}>
+            <div class="stage-timeline">
+                {% for stage, status in run.stage_statuses.items() %}
+                <div class="stage-item {% if stage == run.current_stage %}current {% endif %}status-{{ status }}">
+                    <span class="stage-name">{{ stage }}</span>
+                    <span class="stage-status badge badge-{{ status }}">{{ status }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </section>
+    {% endif %}
+    
+    {% if run.metrics_summary %}
+    <section class="card">
+        <div class="card-header">
+            <h3>Quick Stats</h3>
+        </div>
+        <div class="card-body">
+            <div class="stats-grid">
+                <div class="stat">
+                    <span class="stat-value">{{ run.metrics_summary.stages_executed or 0 }}</span>
+                    <span class="stat-label">Stages</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-value">{{ run.metrics_summary.fix_attempts_total or 0 }}</span>
+                    <span class="stat-label">Fix Attempts</span>
+                </div>
+                {% if run.metrics_summary.total_duration_ms %}
+                <div class="stat">
+                    <span class="stat-value">{{ (run.metrics_summary.total_duration_ms / 1000) | round(1) }}s</span>
+                    <span class="stat-label">Total Time</span>
+                </div>
+                {% endif %}
+                {% if run.metrics_summary.items_completed is defined %}
+                <div class="stat">
+                    <span class="stat-value">{{ run.metrics_summary.items_completed }}/{{ run.metrics_summary.items_total }}</span>
+                    <span class="stat-label">Items Done</span>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </section>
+    {% endif %}
+</div>

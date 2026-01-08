@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
-import subprocess
+import os
+import signal
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -15,20 +17,21 @@ import structlog
 from orx.config import EngineConfig, EngineType, ModelSelector, OrxConfig
 from orx.context.backlog import Backlog, WorkItem
 from orx.context.pack import ContextPack
+from orx.context.repo_context import RepoContextBuilder
 from orx.exceptions import GuardrailError
 from orx.executors.base import Executor
 from orx.executors.codex import CodexExecutor
 from orx.executors.fake import FakeExecutor
 from orx.executors.gemini import GeminiExecutor
 from orx.executors.router import ModelRouter
-from orx.gates.base import Gate
+from orx.gates.base import Gate, GateResult
 from orx.gates.docker import DockerGate
 from orx.gates.generic import GenericGate
 from orx.gates.pytest import PytestGate
 from orx.gates.ruff import RuffGate
-from orx.metrics.events import EventLogger
 from orx.infra.command import CommandRunner
 from orx.metrics.collector import MetricsCollector
+from orx.metrics.events import EventLogger
 from orx.metrics.schema import FailureCategory, StageStatus
 from orx.metrics.writer import MetricsWriter, append_to_index
 from orx.paths import RunPaths
@@ -47,6 +50,30 @@ from orx.workspace.git_worktree import WorkspaceGitWorktree
 from orx.workspace.guardrails import Guardrails
 
 logger = structlog.get_logger()
+
+
+@contextmanager
+def _termination_signals():
+    """Convert SIGTERM/SIGINT into KeyboardInterrupt for graceful cleanup."""
+    old_term = signal.getsignal(signal.SIGTERM)
+    old_int = signal.getsignal(signal.SIGINT)
+
+    def _handler(signum: int, frame: Any) -> None:  # noqa: ARG001
+        raise KeyboardInterrupt(f"Received signal {signum}")
+
+    try:
+        signal.signal(signal.SIGTERM, _handler)
+        signal.signal(signal.SIGINT, _handler)
+    except Exception:
+        # Best-effort: signal handling isn't guaranteed in all environments.
+        yield
+        return
+
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGTERM, old_term)
+        signal.signal(signal.SIGINT, old_int)
 
 
 @dataclass
@@ -226,8 +253,8 @@ class Runner:
             dry_run=dry_run,
         )
 
-        # Create executor (legacy - kept for backward compatibility)
-        self.executor = self._create_executor()
+        # Use model router's primary executor (ensures consistent binary)
+        self.executor = self.model_router.get_primary_executor()
         self.stage_executors = self._create_stage_executors()
 
         # Create gates
@@ -269,23 +296,28 @@ class Runner:
         engine_config = engine_config or self.config.engine
 
         if engine_config.type == EngineType.CODEX:
+            codex_cfg = self.config.executors.codex
             return CodexExecutor(
                 cmd=self.cmd,
-                binary=engine_config.binary,
+                binary=engine_config.binary or codex_cfg.bin or "codex",
                 extra_args=engine_config.extra_args,
                 dry_run=self.dry_run,
-                default_model=engine_config.model,
+                default_model=engine_config.model or codex_cfg.default.model,
                 default_profile=engine_config.profile,
-                default_reasoning_effort=engine_config.reasoning_effort,
+                default_reasoning_effort=engine_config.reasoning_effort
+                or codex_cfg.default.reasoning_effort,
             )
         elif engine_config.type == EngineType.GEMINI:
+            gemini_cfg = self.config.executors.gemini
             return GeminiExecutor(
                 cmd=self.cmd,
-                binary=engine_config.binary,
+                binary=engine_config.binary or gemini_cfg.bin or "gemini",
                 extra_args=engine_config.extra_args,
                 dry_run=self.dry_run,
-                default_model=engine_config.model,
-                output_format=engine_config.output_format or "json",
+                default_model=engine_config.model or gemini_cfg.default.model,
+                output_format=engine_config.output_format
+                or gemini_cfg.default.output_format
+                or "json",
             )
         elif engine_config.type == EngineType.FAKE:
             return FakeExecutor()
@@ -386,6 +418,14 @@ class Runner:
             executor = self.executor
             model_selector = ModelSelector()
 
+        timeout_seconds: int | None = None
+        if stage:
+            timeout_seconds = self.config.engine.stage_timeouts.get(
+                stage, self.config.engine.timeout
+            )
+        else:
+            timeout_seconds = self.config.engine.timeout
+
         return StageContext(
             paths=self.paths,
             pack=self.pack,
@@ -395,6 +435,7 @@ class Runner:
             gates=self.gates,
             renderer=self.renderer,
             config=self.config.model_dump(),
+            timeout_seconds=timeout_seconds,
             model_selector=model_selector,
             events=self.events,
         )
@@ -424,15 +465,11 @@ class Runner:
 
         for name, cmd in commands:
             try:
-                result = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                    check=False,
-                )
-                if result.returncode == 0:
-                    versions[name] = result.stdout.strip().split("\n")[0]
+                code, stdout, _stderr = self.cmd.run_capture(cmd, timeout=5)
+                if code == 0:
+                    versions[name] = stdout.strip().split("\n")[0]
+                else:
+                    versions[name] = "unknown"
             except Exception:
                 versions[name] = "unknown"
 
@@ -502,6 +539,56 @@ class Runner:
         except Exception as e:
             logger.warning("Failed to save metrics", error=str(e))
 
+    def _build_repo_context(self, *, force_rebuild: bool = False) -> None:
+        """Build repo context pack from the worktree.
+
+        Collects stack, tooling configuration, and gate commands
+        and writes them to context files for use in prompts.
+
+        Args:
+            force_rebuild: If True, rebuild even if files exist.
+        """
+        log = logger.bind(run_id=self.paths.run_id)
+
+        # Skip if files already exist (for resume stability)
+        if (
+            not force_rebuild
+            and self.pack.tooling_snapshot_exists()
+            and self.pack.project_map_exists()
+        ):
+            log.debug("Repo context pack already exists, reusing")
+            return
+
+        try:
+            builder = RepoContextBuilder(
+                worktree=self.workspace.worktree_path,
+                gates=self.gates,
+            )
+            result = builder.build()
+
+            # Write project map (stack profile)
+            if result.project_map:
+                self.pack.write_project_map(result.project_map)
+
+            # Write tooling snapshot (full context)
+            if result.tooling_snapshot:
+                self.pack.write_tooling_snapshot(result.tooling_snapshot)
+
+            # Write verify commands
+            if result.verify_commands:
+                self.pack.write_verify_commands(result.verify_commands)
+
+            log.info(
+                "Repo context pack built",
+                stacks=result.detected_stacks,
+                profile_size=len(result.project_map),
+                tooling_size=len(result.tooling_snapshot),
+            )
+
+        except Exception as e:
+            # Non-fatal: log warning and continue
+            log.warning("Failed to build repo context pack", error=str(e))
+
     def run(self, task: str | Path) -> bool:
         """Run the full orchestration.
 
@@ -516,50 +603,63 @@ class Runner:
         if self.events:
             self.events.log("run_start", run_id=self.paths.run_id)
 
+        state_initialized = False
+
         try:
-            # Initialize state
-            self.state.initialize()
+            with _termination_signals():
+                # Initialize state
+                self.state.initialize()
+                state_initialized = True
+                self.state.set_pid(os.getpid())
 
-            # Write task
-            task_content = task.read_text() if isinstance(task, Path) else task
-            self.pack.write_task(task_content)
+                # Write task
+                task_content = task.read_text() if isinstance(task, Path) else task
+                self.pack.write_task(task_content)
 
-            # Set task fingerprint for metrics
-            self.metrics.set_task_fingerprint(task_content)
+                # Set task fingerprint for metrics
+                self.metrics.set_task_fingerprint(task_content)
 
-            # Create workspace
-            base_branch = self.config.git.base_branch
-            self.workspace.create(base_branch)
-            self.state.set_baseline_sha(self.workspace.baseline_sha())
-            self.meta.branch_name = f"orx/{self.paths.run_id}"
+                # Create workspace
+                base_branch = self.config.git.base_branch
+                self.workspace.create(base_branch)
+                self.state.set_baseline_sha(self.workspace.baseline_sha())
+                self.meta.branch_name = f"orx/{self.paths.run_id}"
 
-            # Validate base branch (warn if mismatch)
-            try:
-                self.workspace.validate_base_branch(base_branch)
-            except Exception as e:
-                log.warning("Base branch validation warning", error=str(e))
+                # Validate base branch (warn if mismatch)
+                try:
+                    self.workspace.validate_base_branch(base_branch)
+                except Exception as e:
+                    log.warning("Base branch validation warning", error=str(e))
 
-            # Execute stages
-            success = self._execute_stages()
-            if self.events:
-                self.events.log(
-                    "run_end",
-                    run_id=self.paths.run_id,
-                    status="success" if success else "failure",
-                )
-            return success
+                # Build repo context pack (stack, tooling, gates)
+                self._build_repo_context()
 
-        except Exception as e:
-            log.error("Run failed", error=str(e))
+                # Execute stages
+                success = self._execute_stages()
+                if state_initialized:
+                    self.state.set_pid(None)
+                if self.events:
+                    self.events.log(
+                        "run_end",
+                        run_id=self.paths.run_id,
+                        status="success" if success else "failure",
+                    )
+                return success
+
+        except BaseException as e:
+            msg = "Cancelled" if isinstance(e, KeyboardInterrupt) else str(e)
+            log.error("Run failed", error=msg)
             if self.events:
                 self.events.log(
                     "run_end",
                     run_id=self.paths.run_id,
                     status="failure",
-                    error=str(e),
+                    error=msg,
                 )
-            self.state.mark_stage_failed(str(e))
-            self._save_meta(success=False)
+            if state_initialized:
+                self.state.mark_stage_failed(msg)
+                self.state.set_pid(None)
+                self._save_meta(success=False)
             raise
 
     def resume(self) -> bool:
@@ -573,44 +673,106 @@ class Runner:
         if self.events:
             self.events.log("run_resume", run_id=self.paths.run_id)
 
+        state_loaded = False
+
         try:
-            # Load state
-            self.state.load()
+            with _termination_signals():
+                # Load state
+                self.state.load()
+                state_loaded = True
+                self.state.set_pid(os.getpid())
 
-            if not self.state.is_resumable():
-                log.warning("Run is not resumable")
-                return False
+                if not self.state.is_resumable():
+                    log.warning("Run is not resumable")
+                    return False
 
-            # Restore workspace if needed
-            if not self.workspace.exists():
-                base_branch = self.config.git.base_branch
-                self.workspace.create(base_branch)
-                # Restore baseline
-                if self.state.state.baseline_sha:
-                    self.workspace.reset(self.state.state.baseline_sha)
+                self._recover_running_text_stage()
 
-            # Continue from resume point
-            success = self._execute_stages()
-            if self.events:
-                self.events.log(
-                    "run_end",
-                    run_id=self.paths.run_id,
-                    status="success" if success else "failure",
-                )
-            return success
+                # Restore workspace if needed
+                if not self.workspace.exists():
+                    base_branch = self.config.git.base_branch
+                    self.workspace.create(base_branch)
+                    # Restore baseline
+                    if self.state.state.baseline_sha:
+                        self.workspace.reset(self.state.state.baseline_sha)
 
-        except Exception as e:
-            log.error("Resume failed", error=str(e))
+                # Rebuild repo context pack if missing (for resume stability)
+                self._build_repo_context()
+
+                # Continue from resume point
+                success = self._execute_stages()
+                if state_loaded:
+                    self.state.set_pid(None)
+                if self.events:
+                    self.events.log(
+                        "run_end",
+                        run_id=self.paths.run_id,
+                        status="success" if success else "failure",
+                    )
+                return success
+
+        except BaseException as e:
+            msg = "Cancelled" if isinstance(e, KeyboardInterrupt) else str(e)
+            log.error("Resume failed", error=msg)
             if self.events:
                 self.events.log(
                     "run_end",
                     run_id=self.paths.run_id,
                     status="failure",
-                    error=str(e),
+                    error=msg,
                 )
-            self.state.mark_stage_failed(str(e))
-            self._save_meta(success=False)
+            if state_loaded:
+                self.state.mark_stage_failed(msg)
+                self.state.set_pid(None)
+                self._save_meta(success=False)
             raise
+
+    def _recover_running_text_stage(self) -> None:
+        """Recover a text stage output if the run was interrupted after LLM output.
+
+        If a stage is marked as running and a corresponding `<stage>_output.md`
+        exists in the context directory, this method attempts to copy it into the
+        final artifact (plan.md/spec.md/backlog.yaml/review.md) and advance the
+        current stage to the next stage in the FSM.
+        """
+        stage = self.state.current_stage
+        if stage not in (Stage.PLAN, Stage.SPEC, Stage.DECOMPOSE, Stage.REVIEW):
+            return
+
+        status = self.state.state.stage_statuses.get(stage.value)
+        if status is None or status.status != "running":
+            return
+
+        out_path = self.paths.context_dir / f"{stage.value}_output.md"
+        if not out_path.exists():
+            return
+
+        content = out_path.read_text()
+
+        if stage == Stage.PLAN and not self.paths.plan_md.exists():
+            self.pack.write_plan(content)
+        elif stage == Stage.SPEC and not self.paths.spec_md.exists():
+            self.pack.write_spec(content)
+        elif stage == Stage.DECOMPOSE and not self.paths.backlog_yaml.exists():
+            # Validate that the recovered backlog is parseable.
+            self.paths.backlog_yaml.write_text(content)
+            Backlog.load(self.paths.backlog_yaml)
+        elif stage == Stage.REVIEW and not self.paths.review_md.exists():
+            self.pack.write_review(content)
+        else:
+            return
+
+        self.state.mark_stage_completed(stage)
+
+        next_stage_map = {
+            Stage.PLAN: Stage.SPEC,
+            Stage.SPEC: Stage.DECOMPOSE,
+            Stage.DECOMPOSE: Stage.IMPLEMENT_ITEM,
+            Stage.REVIEW: Stage.SHIP,
+        }
+        next_stage = next_stage_map.get(stage)
+        if next_stage:
+            self.state.transition_to(next_stage)
 
     def _execute_stages(self) -> bool:
         """Execute the FSM stages.
@@ -743,20 +905,22 @@ class Runner:
             inputs.append(self.paths.task_md)
 
         # Stage-specific inputs
-        if stage in ("spec", "decompose", "implement", "fix", "review"):
-            if self.paths.plan_md.exists():
-                inputs.append(self.paths.plan_md)
-        if stage in ("decompose", "implement", "fix", "review"):
-            if self.paths.spec_md.exists():
-                inputs.append(self.paths.spec_md)
-        if stage in ("implement", "fix", "review"):
-            if self.paths.backlog_yaml.exists():
-                inputs.append(self.paths.backlog_yaml)
-
+        if (
+            stage in ("spec", "decompose", "implement", "fix", "review")
+            and self.paths.plan_md.exists()
+        ):
+            inputs.append(self.paths.plan_md)
+        if (
+            stage in ("decompose", "implement", "fix", "review")
+            and self.paths.spec_md.exists()
+        ):
+            inputs.append(self.paths.spec_md)
+        if stage in ("implement", "fix", "review") and self.paths.backlog_yaml.exists():
+            inputs.append(self.paths.backlog_yaml)
         if inputs:
             self.metrics.record_inputs_fingerprint(*inputs)
 
-    def _record_stage_outputs(self, stage: str, result: StageResult) -> None:
+    def _record_stage_outputs(self, stage: str, result: StageResult) -> None:  # noqa: ARG002
         """Record output fingerprints and artifacts for a stage.
 
         Args:
@@ -853,7 +1017,9 @@ class Runner:
         try:
             backlog = Backlog.load(self.paths.backlog_yaml)
         except Exception as e:
-            return _finish(StageResult(success=False, message=f"Failed to load backlog: {e}"))
+            return _finish(
+                StageResult(success=False, message=f"Failed to load backlog: {e}")
+            )
 
         # Track items for metrics
         self.metrics.set_items_count(total=len(backlog.items))
@@ -879,7 +1045,6 @@ class Runner:
 
             # Implementation/fix loop
             success = False
-            first_attempt_gates_passed = False
 
             for attempt in range(1, max_attempts + 1):
                 item.increment_attempts()
@@ -889,7 +1054,9 @@ class Runner:
                 stage_name = "implement" if attempt == 1 else "fix"
                 ctx = implement_ctx if attempt == 1 else fix_ctx
 
-                with self.metrics.stage(stage_name, item_id=item.id, attempt=attempt) as timer:
+                with self.metrics.stage(
+                    stage_name, item_id=item.id, attempt=attempt
+                ) as timer:
                     # Record model selection
                     self.metrics.record_model_selection(
                         executor=ctx.executor.name,
@@ -968,7 +1135,6 @@ class Runner:
 
                     # Track first green
                     if attempt == 1 and verify_mode == "full":
-                        first_attempt_gates_passed = True
                         self.metrics.mark_first_green()
 
                     break
@@ -1117,9 +1283,7 @@ class Runner:
                             cwd=ctx.workspace.worktree_path,
                             log_path=retry_log,
                         )
-                        gate_duration += int(
-                            (time.perf_counter() - retry_start) * 1000
-                        )
+                        gate_duration += int((time.perf_counter() - retry_start) * 1000)
                         log_path = retry_log
 
                 # Extract test counts for pytest
@@ -1152,7 +1316,9 @@ class Runner:
 
                 if result.failed:
                     timer.end_verify()
-                    self.metrics.record_failure(FailureCategory.GATE_FAILURE, result.message)
+                    self.metrics.record_failure(
+                        FailureCategory.GATE_FAILURE, result.message
+                    )
                     if self.events:
                         self.events.log(
                             "verify_end",
@@ -1205,7 +1371,9 @@ class Runner:
 
         diff = ctx.pack.read_patch_diff()
         if diff:
-            evidence["patch_diff"] = diff[:5000] + ("\n... (truncated)" if len(diff) > 5000 else "")
+            evidence["patch_diff"] = diff[:5000] + (
+                "\n... (truncated)" if len(diff) > 5000 else ""
+            )
 
         return evidence
 
@@ -1315,7 +1483,10 @@ class Runner:
             if gate.name != "pytest":
                 continue
 
-            if not pytest_targets and self.config.run.fast_verify_skip_pytest_if_no_targets:
+            if (
+                not pytest_targets
+                and self.config.run.fast_verify_skip_pytest_if_no_targets
+            ):
                 if self.events:
                     self.events.log(
                         "gate_skipped",
@@ -1348,7 +1519,7 @@ class Runner:
         attempt: int,
         *,
         mode: str,
-    ) -> tuple["GateResult", int]:
+    ) -> tuple[GateResult, int]:
         """Run ruff with --fix to auto-apply lint changes."""
         args = list(getattr(gate, "args", []) or ["check", "."])
         # Defensive check: current callers ensure "--fix" is not in args,

@@ -62,6 +62,10 @@ class DockerGate(BaseGate):
         """Name of the gate."""
         return "docker"
 
+    def render_command(self) -> str:
+        """Render the full docker build command."""
+        return f"{self.command} build -f {self.dockerfile} -t {self.image_tag} ."
+
     def run(self, *, cwd: Path, log_path: Path) -> GateResult:
         """Run docker build.
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from orx.metrics.schema import DiffStats, QualityMetrics
@@ -22,8 +21,14 @@ def analyze_spec_quality(spec_content: str) -> QualityMetrics:
         QualityMetrics with spec-related fields populated.
     """
     # Check for required sections
-    has_ac = bool(re.search(r"(?i)(acceptance\s+criteria|## ac\b|## criteria)", spec_content))
-    has_files = bool(re.search(r"(?i)(files?\s+hint|files?\s+to\s+modify|target\s+files)", spec_content))
+    has_ac = bool(
+        re.search(r"(?i)(acceptance\s+criteria|## ac\b|## criteria)", spec_content)
+    )
+    has_files = bool(
+        re.search(
+            r"(?i)(files?\s+hint|files?\s+to\s+modify|target\s+files)", spec_content
+        )
+    )
 
     # Check for schema validity (has headers)
     has_headers = spec_content.count("#") >= 2

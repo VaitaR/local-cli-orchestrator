@@ -4,13 +4,9 @@ from __future__ import annotations
 
 import time
 
-import pytest
-
 from orx.metrics.collector import MetricsCollector, StageTimer
 from orx.metrics.schema import (
     FailureCategory,
-    GateMetrics,
-    QualityMetrics,
     StageStatus,
 )
 
@@ -31,7 +27,7 @@ class FakeGateResult:
         self.returncode = returncode
         self._log_tail = log_tail
 
-    def get_log_tail(self, lines: int = 20) -> str:
+    def get_log_tail(self, lines: int = 20) -> str:  # noqa: ARG002
         return self._log_tail
 
 
@@ -156,7 +152,9 @@ class TestMetricsCollector:
         collector = MetricsCollector("run5")
 
         with collector.stage("implement"):
-            collector.record_model_selection(executor="codex", profile="pro", model="claude-3")
+            collector.record_model_selection(
+                executor="codex", profile="pro", model="claude-3"
+            )
             collector.record_success()
 
         stages = collector.get_stage_metrics()

@@ -63,7 +63,9 @@ class CommandRunner:
         self.heartbeat_interval = heartbeat_interval
 
     @staticmethod
-    def _heartbeat_logger(log: structlog.BoundLogger, stop_event: threading.Event, interval: int) -> None:
+    def _heartbeat_logger(
+        log: structlog.BoundLogger, stop_event: threading.Event, interval: int
+    ) -> None:
         """Log heartbeat messages while a command is running.
 
         Args:
@@ -142,7 +144,9 @@ class CommandRunner:
             # Start heartbeat logging if enabled and timeout is long enough
             stop_heartbeat = threading.Event()
             heartbeat_thread = None
-            if self.heartbeat_interval > 0 and (timeout is None or timeout > self.heartbeat_interval):
+            if self.heartbeat_interval > 0 and (
+                timeout is None or timeout > self.heartbeat_interval
+            ):
                 heartbeat_thread = threading.Thread(
                     target=self._heartbeat_logger,
                     args=(log, stop_heartbeat, self.heartbeat_interval),
@@ -210,51 +214,45 @@ class CommandRunner:
         check: bool = False,
         env: dict[str, str] | None = None,
     ) -> tuple[int, str, str]:
-        """Run a command and capture output as strings.
-
-        This is useful for commands where you need the output immediately
-        rather than written to files.
+        """Run a command and capture stdout/stderr in memory.
 
         Args:
             command: Command and arguments to run.
             cwd: Working directory for the command.
             timeout: Timeout in seconds.
             check: If True, raise on non-zero exit code.
-            env: Environment variables.
+            env: Environment variables (merged with current env).
 
         Returns:
             Tuple of (returncode, stdout, stderr).
 
         Raises:
-            CommandError: If check=True and command fails.
+            CommandError: If command cannot be started or times out, or if check=True and command fails.
         """
         log = logger.bind(command=command, cwd=str(cwd) if cwd else None)
-        log.debug("Running command (capture mode)")
+        log.info("Running command (capture mode)")
 
         if self.dry_run:
             log.info("Dry run - skipping execution")
-            return (0, "", "")
+            return 0, "", ""
+
+        import os
+
+        full_env = os.environ.copy()
+        if env:
+            full_env.update(env)
 
         try:
-            import os
-
-            full_env = os.environ.copy()
-            if env:
-                full_env.update(env)
-
             result = subprocess.run(
                 command,
                 cwd=cwd,
                 capture_output=True,
+                text=True,
                 timeout=timeout,
                 env=full_env,
                 check=False,
             )
-
-            stdout = result.stdout.decode("utf-8", errors="replace")
-            stderr = result.stderr.decode("utf-8", errors="replace")
-
-            log.debug("Command completed", returncode=result.returncode)
+            log.info("Command completed", returncode=result.returncode)
 
             if check and result.returncode != 0:
                 msg = f"Command failed with exit code {result.returncode}: {' '.join(command)}"
@@ -265,17 +263,90 @@ class CommandRunner:
                     cwd=cwd,
                 )
 
-            return (result.returncode, stdout, stderr)
-
+            return result.returncode, result.stdout, result.stderr
         except subprocess.TimeoutExpired as e:
             log.error("Command timed out", timeout=timeout)
             msg = f"Command timed out after {timeout}s: {' '.join(command)}"
             raise CommandError(msg, command=command, cwd=cwd) from e
-
         except FileNotFoundError as e:
             log.error("Command not found", command=command[0])
             msg = f"Command not found: {command[0]}"
             raise CommandError(msg, command=command, cwd=cwd) from e
+
+    def start_process(
+        self,
+        command: list[str],
+        *,
+        cwd: Path | None = None,
+        stdout_path: Path | None = None,
+        stderr_path: Path | None = None,
+        env: dict[str, str] | None = None,
+        start_new_session: bool = True,
+    ) -> subprocess.Popen[bytes]:
+        """Start a subprocess and return the process handle.
+
+        Args:
+            command: Command and arguments to run.
+            cwd: Working directory for the command.
+            stdout_path: Path to write stdout to.
+            stderr_path: Path to write stderr to.
+            env: Environment variables (merged with current env).
+            start_new_session: Whether to start a new process session.
+
+        Returns:
+            subprocess.Popen handle for the started process.
+
+        Raises:
+            CommandError: If dry_run is enabled or command cannot be started.
+        """
+        log = logger.bind(command=command, cwd=str(cwd) if cwd else None)
+        log.info("Starting process")
+
+        if self.dry_run:
+            msg = f"CommandRunner.start_process does not support dry_run: {' '.join(command)}"
+            raise CommandError(msg, command=command, cwd=cwd)
+
+        stdout_handle: IO[bytes] | int | None = None
+        stderr_handle: IO[bytes] | int | None = None
+
+        try:
+            if stdout_path:
+                stdout_path.parent.mkdir(parents=True, exist_ok=True)
+                stdout_handle = stdout_path.open("wb")
+            else:
+                stdout_handle = subprocess.DEVNULL
+
+            if stderr_path:
+                stderr_path.parent.mkdir(parents=True, exist_ok=True)
+                stderr_handle = stderr_path.open("wb")
+            else:
+                stderr_handle = subprocess.DEVNULL
+
+            import os
+
+            full_env = os.environ.copy()
+            if env:
+                full_env.update(env)
+
+            process = subprocess.Popen(
+                command,
+                cwd=cwd,
+                stdout=stdout_handle,
+                stderr=stderr_handle,
+                env=full_env,
+                start_new_session=start_new_session,
+            )
+            log.info("Process started", pid=process.pid)
+            return process
+        except Exception as e:
+            msg = f"Failed to start process: {' '.join(command)}"
+            log.error("Failed to start process", error=str(e))
+            raise CommandError(msg, command=command, cwd=cwd) from e
+        finally:
+            if stdout_handle and stdout_handle != subprocess.DEVNULL:
+                stdout_handle.close()  # type: ignore[union-attr]
+            if stderr_handle and stderr_handle != subprocess.DEVNULL:
+                stderr_handle.close()  # type: ignore[union-attr]
 
     def run_git(
         self,

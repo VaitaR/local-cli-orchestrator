@@ -7,8 +7,12 @@ from typing import Any
 import structlog
 
 from orx.context.backlog import WorkItem
-from orx.context.snippets import build_file_snippets, compact_text, extract_spec_highlights
-from orx.stages.base import ApplyStage, StageContext
+from orx.context.snippets import (
+    build_file_snippets,
+    compact_text,
+    extract_spec_highlights,
+)
+from orx.stages.base import ApplyStage, StageContext, StageResult
 
 logger = structlog.get_logger()
 
@@ -50,6 +54,10 @@ class ImplementStage(ApplyStage):
             max_files=8,
         )
 
+        # Get repo context for implement stage
+        repo_context = ctx.pack.read_tooling_snapshot() or ""
+        verify_commands = ctx.pack.read_verify_commands() or ""
+
         return {
             "task_summary": task_summary,
             "spec_highlights": spec_highlights,
@@ -59,6 +67,8 @@ class ImplementStage(ApplyStage):
             "acceptance": item.acceptance,
             "files_hint": item.files_hint,
             "file_snippets": snippets,
+            "repo_context": repo_context,
+            "verify_commands": verify_commands,
         }
 
 
@@ -118,6 +128,10 @@ class FixStage(ApplyStage):
             max_files=8,
         )
 
+        # Get repo context for fix stage
+        repo_context = ctx.pack.read_tooling_snapshot() or ""
+        verify_commands = ctx.pack.read_verify_commands() or ""
+
         return {
             "task_summary": task_summary,
             "spec_highlights": spec_highlights,
@@ -134,6 +148,8 @@ class FixStage(ApplyStage):
             "patch_diff": patch_diff,
             "files_hint": item.files_hint,
             "file_snippets": snippets,
+            "repo_context": repo_context,
+            "verify_commands": verify_commands,
         }
 
     def execute_fix(
@@ -142,7 +158,7 @@ class FixStage(ApplyStage):
         item: WorkItem,
         iteration: int,
         evidence: dict[str, Any],
-    ) -> Any:
+    ) -> StageResult:
         """Execute the fix stage with evidence.
 
         Args:
@@ -185,11 +201,33 @@ class FixStage(ApplyStage):
 
             logs = LogPaths(stdout=stdout_path, stderr=stderr_path)
 
+            if ctx.events:
+                ctx.events.log(
+                    "executor_start",
+                    stage=self.name,
+                    mode="apply",
+                    item_id=item.id,
+                    iteration=iteration,
+                    prompt=str(prompt_path),
+                )
+
             result = ctx.executor.run_apply(
                 cwd=ctx.workspace.worktree_path,
                 prompt_path=prompt_path,
                 logs=logs,
+                timeout=ctx.timeout_seconds,
+                model_selector=ctx.model_selector,
             )
+            if ctx.events:
+                ctx.events.log(
+                    "executor_end",
+                    stage=self.name,
+                    mode="apply",
+                    item_id=item.id,
+                    iteration=iteration,
+                    returncode=result.returncode,
+                    success=not result.failed,
+                )
 
             if result.failed:
                 log.error("Fix executor failed", error=result.error_message)

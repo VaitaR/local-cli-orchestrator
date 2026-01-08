@@ -11,13 +11,13 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-import pytest
+import pytest  # noqa: E402
 
-from orx.config import EngineType, OrxConfig
-from orx.context.backlog import Backlog, WorkItem
-from orx.executors.fake import FakeExecutor, create_happy_path_scenarios
-from orx.infra.command import CommandRunner
-from orx.paths import RunPaths
+from orx.config import EngineType, OrxConfig  # noqa: E402
+from orx.context.backlog import Backlog, WorkItem  # noqa: E402
+from orx.executors.fake import FakeExecutor, create_happy_path_scenarios  # noqa: E402
+from orx.infra.command import CommandRunner  # noqa: E402
+from orx.paths import RunPaths  # noqa: E402
 
 
 @pytest.fixture

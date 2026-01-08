@@ -10,9 +10,9 @@ from pathlib import Path
 
 import pytest
 
-from orx.metrics.writer import MetricsWriter
 from orx.config import EngineType, OrxConfig
 from orx.executors.fake import FakeAction, FakeExecutor, FakeScenario
+from orx.metrics.writer import MetricsWriter
 from orx.runner import Runner
 from orx.state import Stage
 

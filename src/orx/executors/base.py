@@ -144,7 +144,7 @@ class Executor(Protocol):
         out_path: Path,
         logs: LogPaths,
         timeout: int | None = None,
-        model_selector: "ModelSelector | None" = None,
+        model_selector: ModelSelector | None = None,
     ) -> ExecResult:
         """Run executor to produce text output.
 
@@ -171,7 +171,7 @@ class Executor(Protocol):
         prompt_path: Path,
         logs: LogPaths,
         timeout: int | None = None,
-        model_selector: "ModelSelector | None" = None,
+        model_selector: ModelSelector | None = None,
     ) -> ExecResult:
         """Run executor to apply filesystem changes.
 
@@ -197,7 +197,7 @@ class Executor(Protocol):
         cwd: Path,
         logs: LogPaths,
         out_path: Path | None = None,
-        model_selector: "ModelSelector | None" = None,
+        model_selector: ModelSelector | None = None,
     ) -> ResolvedInvocation:
         """Resolve the command invocation without executing.
 
@@ -254,7 +254,7 @@ class BaseExecutor:
         """Name of the executor."""
         raise NotImplementedError
 
-    def _resolve_model(self, model_selector: "ModelSelector | None") -> dict[str, Any]:
+    def _resolve_model(self, model_selector: ModelSelector | None) -> dict[str, Any]:
         """Resolve final model settings from selector and defaults.
 
         Args:
@@ -324,7 +324,7 @@ class BaseExecutor:
         cwd: Path,
         logs: LogPaths,
         out_path: Path | None = None,
-        model_selector: "ModelSelector | None" = None,
+        model_selector: ModelSelector | None = None,
     ) -> ResolvedInvocation:
         """Default implementation - subclasses should override."""
         raise NotImplementedError

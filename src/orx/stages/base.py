@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
@@ -57,16 +57,17 @@ class StageContext:
         model_selector: Model selection configuration for this stage.
     """
 
-    paths: "RunPaths"
-    pack: "ContextPack"
-    state: "StateManager"
-    workspace: "WorkspaceGitWorktree"
-    executor: "Executor"
-    gates: list["Gate"]
-    renderer: "PromptRenderer"
+    paths: RunPaths
+    pack: ContextPack
+    state: StateManager
+    workspace: WorkspaceGitWorktree
+    executor: Executor
+    gates: list[Gate]
+    renderer: PromptRenderer
     config: dict[str, Any]
-    model_selector: "ModelSelector | None" = None
-    events: "EventLogger | None" = None
+    timeout_seconds: int | None = None
+    model_selector: ModelSelector | None = None
+    events: EventLogger | None = None
 
 
 @runtime_checkable
@@ -239,6 +240,7 @@ class TextOutputStage(BaseStage):
                 prompt_path=prompt_path,
                 out_path=out_path,
                 logs=logs,
+                timeout=ctx.timeout_seconds,
                 model_selector=ctx.model_selector,
             )
             if ctx.events:
@@ -344,6 +346,7 @@ class ApplyStage(BaseStage):
                 cwd=ctx.workspace.worktree_path,
                 prompt_path=prompt_path,
                 logs=logs,
+                timeout=ctx.timeout_seconds,
                 model_selector=ctx.model_selector,
             )
             if ctx.events:

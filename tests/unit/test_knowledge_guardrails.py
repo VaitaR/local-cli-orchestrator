@@ -179,7 +179,9 @@ class TestArchitectureGatekeeping:
         assert guardrails.should_update_architecture([]) is True
         assert guardrails.should_update_architecture(["src/utils.py"]) is True
 
-    def test_gatekeeping_detects_module_changes(self, guardrails: KnowledgeGuardrails) -> None:
+    def test_gatekeeping_detects_module_changes(
+        self, guardrails: KnowledgeGuardrails
+    ) -> None:
         """Test gatekeeping detects new module changes."""
         changed_files = ["src/orx/newmodule.py"]
 
@@ -187,7 +189,9 @@ class TestArchitectureGatekeeping:
 
         assert result is True
 
-    def test_gatekeeping_detects_base_changes(self, guardrails: KnowledgeGuardrails) -> None:
+    def test_gatekeeping_detects_base_changes(
+        self, guardrails: KnowledgeGuardrails
+    ) -> None:
         """Test gatekeeping detects base.py changes."""
         changed_files = ["src/orx/stages/base.py"]
 
@@ -195,7 +199,9 @@ class TestArchitectureGatekeeping:
 
         assert result is True
 
-    def test_gatekeeping_ignores_internal_changes(self, guardrails: KnowledgeGuardrails) -> None:
+    def test_gatekeeping_ignores_internal_changes(
+        self, guardrails: KnowledgeGuardrails
+    ) -> None:
         """Test gatekeeping ignores internal implementation changes."""
         changed_files = ["src/orx/stages/plan.py", "tests/test_plan.py"]
 

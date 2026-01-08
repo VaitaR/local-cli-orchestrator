@@ -129,13 +129,15 @@ Artifact management layer. Handles read/write of all context files.
 
 ```
 runs/<run_id>/context/
-    ├── task.md          # Input task
-    ├── plan.md          # Generated plan
-    ├── spec.md          # Technical specification
-    ├── backlog.yaml     # Work items (Pydantic-validated)
-    ├── project_map.md   # Project structure
-    ├── decisions.md     # Design decisions
-    └── lessons.md       # Lessons learned
+    ├── task.md              # Input task
+    ├── plan.md              # Generated plan
+    ├── spec.md              # Technical specification
+    ├── backlog.yaml         # Work items (Pydantic-validated)
+    ├── project_map.md       # Project structure (stack-only profile)
+    ├── tooling_snapshot.md  # Full tooling context
+    ├── verify_commands.md   # Gate verification commands
+    ├── decisions.md         # Design decisions
+    └── lessons.md           # Lessons learned
 ```
 
 ### 7. State Management
@@ -308,7 +310,9 @@ runs/<run_id>/
     │   ├── plan.md
     │   ├── spec.md
     │   ├── backlog.yaml
-    │   ├── project_map.md
+    │   ├── project_map.md      # Stack-only context profile
+    │   ├── tooling_snapshot.md # Full tooling context
+    │   ├── verify_commands.md  # Gate verification commands
     │   ├── decisions.md
     │   └── lessons.md
     │
@@ -417,7 +421,75 @@ Stage keys: `plan`, `spec`, `decompose`, `implement`, `fix`, `review`, `knowledg
 ### 6. Base Branch Validation
 Validates that worktree baseline SHA matches the expected base branch. Logs warnings on mismatch to catch configuration discrepancies early.
 
-### 7. Self-Improvement (Knowledge Update Stage)
+### 7. Repo Context Pack (v0.6)
+
+Automatic injection of high-signal, compact repository context into prompts. Reduces lint/verify errors by providing agents with stack and tooling configuration upfront.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Repo Context Pack Flow                        │
+│                                                                  │
+│  Worktree Created → RepoContextBuilder.build()                  │
+│                           │                                      │
+│         ┌─────────────────┼─────────────────┐                   │
+│         ▼                 ▼                 ▼                   │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
+│  │   Python     │  │  TypeScript  │  │    Gates     │          │
+│  │  Extractor   │  │  Extractor   │  │  Commands    │          │
+│  └──────────────┘  └──────────────┘  └──────────────┘          │
+│         │                 │                 │                   │
+│         └─────────────────┼─────────────────┘                   │
+│                           ▼                                      │
+│                    ContextPacker                                 │
+│                  (priority + budget)                            │
+│                           │                                      │
+│         ┌─────────────────┼─────────────────┐                   │
+│         ▼                 ▼                 ▼                   │
+│  project_map.md    tooling_snapshot.md   verify_commands.md    │
+│  (stack-only)      (full context)        (gate commands)        │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Module Structure:**
+```
+src/orx/context/repo_context/
+├── __init__.py          # Package exports
+├── blocks.py            # ContextBlock dataclass, priority enum
+├── packer.py            # Budget-aware context packing
+├── python_extractor.py  # pyproject.toml, ruff, mypy, pytest
+├── ts_extractor.py      # package.json, tsconfig, eslint, prettier
+├── verify_commands.py   # Build verify commands from gates
+└── builder.py           # RepoContextBuilder coordinator
+```
+
+**Context Profiles:**
+
+| Stage | Profile | Budget | Content |
+|-------|---------|--------|---------|
+| plan, spec | stack-only | ~3000 chars | Stack name + basics |
+| implement, fix | full | ~11000 chars | Full tooling config |
+
+**Priority System:**
+
+| Priority | Value | Content |
+|----------|-------|---------|
+| VERIFY_COMMANDS | 100 | Gate commands (always included) |
+| PYTHON_CORE | 80 | pyproject.toml [project], ruff, mypy |
+| TS_CORE | 75 | package.json, tsconfig |
+| LAYOUT | 50 | Project structure |
+| FORMATTER | 30 | prettier, eslint |
+| EXTRAS | 10 | Additional config |
+
+**Extractors:**
+- **PythonExtractor**: Reads pyproject.toml (project deps, ruff, mypy, pytest)
+- **TypeScriptExtractor**: Reads package.json, tsconfig.json, eslint config, prettierrc
+
+**Integration:**
+- Context built once after workspace creation
+- Artifacts persisted for resume (deterministic)
+- Prompt templates conditionally include `{% if repo_context %}...{% endif %}`
+
+### 8. Self-Improvement (Knowledge Update Stage)
 Automatic updates to AGENTS.md and ARCHITECTURE.md after successful task completion.
 
 ```
@@ -441,7 +513,7 @@ Automatic updates to AGENTS.md and ARCHITECTURE.md after successful task complet
 - **Guardrails**: Max lines changed, deletion limits, allowlist files
 - **Non-fatal**: Failures don't break the run
 
-### 8. Metrics & Monitoring (v0.4)
+### 9. Metrics & Monitoring (v0.4)
 
 Comprehensive observability for data-driven improvements. Tracks stage-level and run-level metrics.
 
@@ -501,6 +573,137 @@ orx metrics show <run_id> -s     # Per-stage metrics
 - `analyze_plan_quality()`: Scores plan by overview, steps, risks
 - `analyze_diff_hygiene()`: Checks file count and LOC against limits
 - `analyze_pack_relevance()`: Ratio of pack files actually modified
+
+
+
+---
+
+## Dashboard Module (v0.5)
+
+Local web UI for monitoring and controlling orx runs. Built with FastAPI + HTMX for a server-rendered, low-JavaScript architecture.
+
+### Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     Dashboard Architecture                       │
+│                                                                  │
+│   Browser ──HTMX──► FastAPI ──► Store ──► FileSystem (runs/)    │
+│      │                │                                          │
+│      │                ├──► Worker ──► subprocess (orx run)      │
+│      │                │                                              │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Key Design Decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Frontend | HTMX + Jinja2 | No build step, minimal JavaScript, server-rendered |
+| Backend | FastAPI | Async support, OpenAPI docs, fast |
+| State | FileSystem (runs/) | No database needed, simple one-user local tool |
+| Binding | 127.0.0.1 only | Security - local use only |
+
+### Module Structure
+
+```
+src/orx/dashboard/
+├── __init__.py          # Package exports (create_app, DashboardConfig)
+├── __main__.py          # Entry point for python -m orx.dashboard
+├── config.py            # DashboardConfig with env var support
+├── server.py            # FastAPI app factory
+│
+├── store/               # Data access layer
+│   ├── models.py        # Pydantic models (RunSummary, RunDetail, etc.)
+│   ├── base.py          # Protocol definitions
+│   └── filesystem.py    # FileSystemRunStore implementation
+│
+├── handlers/            # Route handlers
+│   ├── pages.py         # Full page routes (/, /runs/{id})
+│   ├── partials.py      # HTMX partials (active-runs, recent-runs, etc.)
+│   └── api.py           # JSON API (start/cancel)
+│
+├── worker/              # Background processing
+│   └── local.py         # LocalWorker with subprocess management
+│
+├── templates/           # Jinja2 templates
+│   ├── base.html
+│   ├── pages/           # Full page templates
+│   └── partials/        # HTMX partial templates
+│
+└── static/              # Static assets
+    ├── htmx.min.js
+    └── style.css
+```
+
+### Data Models
+
+```python
+# Key models from store/models.py
+
+class RunStatus(str, Enum):
+    RUNNING = "running"
+    SUCCESS = "success"
+    FAIL = "fail"
+    CANCELLED = "cancelled"
+    UNKNOWN = "unknown"
+
+class RunSummary(BaseModel):
+    run_id: str
+    status: RunStatus
+    current_stage: str | None
+    created_at: datetime | None
+    task_preview: str | None
+
+class RunDetail(RunSummary):
+    completed_stages: list[str]
+    fix_loop_count: int
+    last_error: LastError | None
+    artifacts: list[ArtifactInfo]
+```
+
+### Security Measures
+
+1. **Localhost binding**: Dashboard only binds to 127.0.0.1
+2. **Path safety**: Artifact access uses allowlist extensions (.md, .json, .log, .diff, .txt, .yaml)
+3. **Path traversal prevention**: No ".." allowed in artifact paths
+4. **Run ID validation**: Run IDs must be valid directory names
+
+### Endpoints
+
+| Route | Method | Purpose |
+|-------|--------|---------|
+| `/` | GET | Runs list page |
+| `/runs/{run_id}` | GET | Run detail page |
+| `/active-runs` | GET | Active runs table (HTMX) |
+| `/recent-runs` | GET | Recent runs table (HTMX) |
+| `/run-header/{run_id}` | GET | Run status header (HTMX) |
+| `/run-tab/{run_id}` | GET | Tab content (HTMX) |
+| `/artifact/{run_id}` | GET | Artifact preview (HTMX) |
+| `/diff/{run_id}` | GET | Diff view (HTMX) |
+| `/log-tail/{run_id}` | GET | Log tail with cursor (HTMX) |
+| `/runs/start` | POST | Start new run |
+| `/runs/{run_id}/cancel` | POST | Cancel running run |
+| `/runs/{run_id}/status` | GET | Get run status (JSON) |
+| `/health` | GET | Health check |
+
+### Usage
+
+```bash
+# Install dashboard dependencies
+pip install -e ".[dashboard]"
+
+# Run the dashboard
+python -m orx.dashboard
+
+# With options
+python -m orx.dashboard --host 0.0.0.0 --port 8421 --runs-root ./runs
+
+# Environment variables
+ORX_RUNS_ROOT=./runs
+ORX_DASHBOARD_HOST=127.0.0.1
+ORX_DASHBOARD_PORT=8421
+```
 
 ---
 

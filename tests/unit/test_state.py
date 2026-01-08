@@ -60,18 +60,21 @@ class TestRunState:
         assert state.current_stage == Stage.INIT
         assert state.current_item_id is None
         assert state.current_iteration == 0
+        assert state.pid is None
 
     def test_to_dict(self) -> None:
         """Test converting to dict."""
         state = RunState(run_id="test_run")
         state.current_stage = Stage.PLAN
         state.baseline_sha = "abc123"
+        state.pid = 12345
 
         data = state.to_dict()
 
         assert data["run_id"] == "test_run"
         assert data["current_stage"] == "plan"
         assert data["baseline_sha"] == "abc123"
+        assert data["pid"] == 12345
 
     def test_from_dict(self) -> None:
         """Test creating from dict."""
@@ -81,6 +84,7 @@ class TestRunState:
             "current_item_id": "W001",
             "current_iteration": 2,
             "baseline_sha": "abc123",
+            "pid": 999,
             "stage_statuses": {},
             "last_failure_evidence": {},
             "created_at": "2024-01-01T00:00:00",
@@ -93,6 +97,7 @@ class TestRunState:
         assert state.current_stage == Stage.SPEC
         assert state.current_item_id == "W001"
         assert state.current_iteration == 2
+        assert state.pid == 999
 
 
 class TestStateManager:
@@ -192,6 +197,17 @@ class TestStateManager:
         mgr.set_baseline_sha("abc123def456")
 
         assert mgr.state.baseline_sha == "abc123def456"
+
+    def test_set_pid(self, run_paths: RunPaths) -> None:
+        """Test setting and clearing PID."""
+        mgr = StateManager(run_paths)
+        mgr.initialize()
+
+        mgr.set_pid(123)
+        assert mgr.state.pid == 123
+
+        mgr.set_pid(None)
+        assert mgr.state.pid is None
 
     def test_failure_evidence(self, run_paths: RunPaths) -> None:
         """Test failure evidence management."""

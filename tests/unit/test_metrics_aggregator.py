@@ -15,7 +15,6 @@ from orx.metrics.aggregator import (
     rebuild_metrics,
 )
 from orx.metrics.schema import (
-    FailureCategory,
     GateMetrics,
     RunMetrics,
     StageMetrics,

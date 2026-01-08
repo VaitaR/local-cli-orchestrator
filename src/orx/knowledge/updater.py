@@ -116,7 +116,9 @@ class KnowledgeUpdater:
                 report_sections.append(self._format_arch_report(arch_result))
             except Exception as e:
                 log.error("Failed to update ARCHITECTURE.md", error=str(e))
-                report_sections.append(f"## ARCHITECTURE.md Update: FAILED\n\nError: {e}\n")
+                report_sections.append(
+                    f"## ARCHITECTURE.md Update: FAILED\n\nError: {e}\n"
+                )
 
         # Generate full report
         result.report = "\n".join(report_sections)
@@ -200,7 +202,11 @@ class KnowledgeUpdater:
         # Apply update if in auto mode
         if self.config.mode == "auto":
             agents_path.write_text(new_content)
-            log.info("AGENTS.md updated", added=stats.added_lines, deleted=stats.deleted_lines)
+            log.info(
+                "AGENTS.md updated",
+                added=stats.added_lines,
+                deleted=stats.deleted_lines,
+            )
         else:
             log.info("AGENTS.md update suggested (mode=suggest)")
 
@@ -229,14 +235,22 @@ class KnowledgeUpdater:
         # Pre-gatekeeping based on changed files
         if not self.guardrails.should_update_architecture(evidence.changed_files):
             log.info("Architecture update not warranted by changed files")
-            return {"updated": False, "gatekeeping": "NO", "reason": "Changed files don't affect architecture"}
+            return {
+                "updated": False,
+                "gatekeeping": "NO",
+                "reason": "Changed files don't affect architecture",
+            }
 
         arch_path = self.repo_root / "ARCHITECTURE.md"
         current_content = evidence.current_arch_md
 
         if not current_content:
             log.warning("ARCHITECTURE.md not found, skipping")
-            return {"updated": False, "gatekeeping": "SKIPPED", "reason": "File not found"}
+            return {
+                "updated": False,
+                "gatekeeping": "SKIPPED",
+                "reason": "File not found",
+            }
 
         # Check/create markers
         if not self.guardrails.validate_markers_present(current_content, "arch"):
@@ -269,7 +283,11 @@ class KnowledgeUpdater:
 
         if not exec_result.success or not exec_result.output:
             log.warning("Executor failed or returned empty output")
-            return {"updated": False, "gatekeeping": "SKIPPED", "reason": "Executor failed"}
+            return {
+                "updated": False,
+                "gatekeeping": "SKIPPED",
+                "reason": "Executor failed",
+            }
 
         # Parse gatekeeping decision from output
         output = exec_result.output
@@ -277,14 +295,22 @@ class KnowledgeUpdater:
 
         if gatekeeping == "NO":
             log.info("Architecture gatekeeping decided NO update needed")
-            return {"updated": False, "gatekeeping": "NO", "reason": "Agent decided no update needed"}
+            return {
+                "updated": False,
+                "gatekeeping": "NO",
+                "reason": "Agent decided no update needed",
+            }
 
         # Extract content after gatekeeping decision
         content_to_apply = self._extract_content_after_gatekeeping(output)
 
         if not content_to_apply.strip():
             log.warning("No content to apply after gatekeeping")
-            return {"updated": False, "gatekeeping": "YES", "reason": "No content after gatekeeping"}
+            return {
+                "updated": False,
+                "gatekeeping": "YES",
+                "reason": "No content after gatekeeping",
+            }
 
         # Apply update within markers
         new_content = self.guardrails.replace_marker_content(
@@ -303,7 +329,11 @@ class KnowledgeUpdater:
         # Apply update if in auto mode
         if self.config.mode == "auto":
             arch_path.write_text(new_content)
-            log.info("ARCHITECTURE.md updated", added=stats.added_lines, deleted=stats.deleted_lines)
+            log.info(
+                "ARCHITECTURE.md updated",
+                added=stats.added_lines,
+                deleted=stats.deleted_lines,
+            )
         else:
             log.info("ARCHITECTURE.md update suggested (mode=suggest)")
 
@@ -403,7 +433,9 @@ class KnowledgeUpdater:
 
         if result.get("stats"):
             stats = result["stats"]
-            lines.append(f"**Lines changed:** +{stats.added_lines} / -{stats.deleted_lines}\n")
+            lines.append(
+                f"**Lines changed:** +{stats.added_lines} / -{stats.deleted_lines}\n"
+            )
 
         return "\n".join(lines)
 
@@ -417,7 +449,9 @@ class KnowledgeUpdater:
             Formatted report section.
         """
         lines = ["## ARCHITECTURE.md Update\n"]
-        lines.append(f"**Gatekeeping Decision:** {result.get('gatekeeping', 'SKIPPED')}\n")
+        lines.append(
+            f"**Gatekeeping Decision:** {result.get('gatekeeping', 'SKIPPED')}\n"
+        )
 
         if result.get("updated"):
             lines.append("**Status:** ✅ UPDATED\n")
@@ -428,7 +462,9 @@ class KnowledgeUpdater:
 
         if result.get("stats"):
             stats = result["stats"]
-            lines.append(f"**Lines changed:** +{stats.added_lines} / -{stats.deleted_lines}\n")
+            lines.append(
+                f"**Lines changed:** +{stats.added_lines} / -{stats.deleted_lines}\n"
+            )
 
         return "\n".join(lines)
 

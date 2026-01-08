@@ -163,10 +163,10 @@ class FakeExecutor(BaseExecutor):
         self,
         *,
         prompt_path: Path,
-        cwd: Path,
+        cwd: Path,  # noqa: ARG002
         logs: LogPaths,
         out_path: Path | None = None,
-        model_selector: "ModelSelector | None" = None,
+        model_selector: ModelSelector | None = None,
     ) -> ResolvedInvocation:
         """Resolve the command invocation without executing.
 
@@ -212,7 +212,7 @@ class FakeExecutor(BaseExecutor):
         out_path: Path,
         logs: LogPaths,
         timeout: int | None = None,  # noqa: ARG002
-        model_selector: "ModelSelector | None" = None,
+        model_selector: ModelSelector | None = None,
     ) -> ExecResult:
         """Run fake executor in text mode.
 
@@ -288,7 +288,7 @@ class FakeExecutor(BaseExecutor):
         prompt_path: Path,
         logs: LogPaths,
         timeout: int | None = None,  # noqa: ARG002
-        model_selector: "ModelSelector | None" = None,
+        model_selector: ModelSelector | None = None,
     ) -> ExecResult:
         """Run fake executor in apply mode.
 

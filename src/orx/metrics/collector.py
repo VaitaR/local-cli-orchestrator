@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterator
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -186,7 +187,7 @@ class MetricsCollector:
         model: str | None = None,
         profile: str | None = None,
         reasoning_effort: str | None = None,
-        model_selector: "ModelSelector | None" = None,
+        model_selector: ModelSelector | None = None,
     ) -> None:
         """Record the model selection for the current stage.
 
@@ -202,12 +203,14 @@ class MetricsCollector:
             profile = model_selector.profile or profile
             reasoning_effort = model_selector.reasoning_effort or reasoning_effort
 
-        self._current_stage_data.update({
-            "executor": executor,
-            "model": model,
-            "profile": profile,
-            "reasoning_effort": reasoning_effort,
-        })
+        self._current_stage_data.update(
+            {
+                "executor": executor,
+                "model": model,
+                "profile": profile,
+                "reasoning_effort": reasoning_effort,
+            }
+        )
 
     def record_artifacts(self, artifacts: dict[str, Path | str]) -> None:
         """Record artifact paths for the current stage.
@@ -233,9 +236,7 @@ class MetricsCollector:
         Args:
             *contents: Content to fingerprint.
         """
-        self._current_stage_data["outputs_fingerprint"] = compute_fingerprint(
-            *contents
-        )
+        self._current_stage_data["outputs_fingerprint"] = compute_fingerprint(*contents)
 
     def record_diff_stats(self, diff_content: str) -> None:
         """Record diff statistics.
@@ -248,7 +249,7 @@ class MetricsCollector:
     def record_gate(
         self,
         name: str,
-        result: "GateResult",
+        result: GateResult,
         duration_ms: int,
         tests_failed: int | None = None,
         tests_total: int | None = None,
@@ -267,17 +268,21 @@ class MetricsCollector:
         if result.failed:
             error_output = result.get_log_tail(20)
 
-        gates.append(GateMetrics(
-            name=name,
-            exit_code=result.returncode,
-            duration_ms=duration_ms,
-            passed=result.ok,
-            tests_failed=tests_failed,
-            tests_total=tests_total,
-            error_output=error_output,
-        ))
+        gates.append(
+            GateMetrics(
+                name=name,
+                exit_code=result.returncode,
+                duration_ms=duration_ms,
+                passed=result.ok,
+                tests_failed=tests_failed,
+                tests_total=tests_total,
+                error_output=error_output,
+            )
+        )
 
-    def record_quality(self, quality: QualityMetrics | None = None, **kwargs: Any) -> None:
+    def record_quality(
+        self, quality: QualityMetrics | None = None, **kwargs: Any
+    ) -> None:
         """Record quality metrics for the current stage.
 
         Args:
@@ -404,7 +409,9 @@ class MetricsCollector:
             gates=self._current_stage_data.get("gates", []),
             quality=self._current_stage_data.get("quality"),
             agent_invocations=self._current_stage_data.get("agent_invocations", 1),
-            llm_duration_ms=timer.llm_duration_ms if timer.llm_duration_ms > 0 else None,
+            llm_duration_ms=timer.llm_duration_ms
+            if timer.llm_duration_ms > 0
+            else None,
             verify_duration_ms=(
                 timer.verify_duration_ms if timer.verify_duration_ms > 0 else None
             ),
@@ -452,7 +459,9 @@ class MetricsCollector:
         total_stage_time = sum(m.duration_ms for m in self._stage_metrics)
         total_llm_time = sum(m.llm_duration_ms or 0 for m in self._stage_metrics)
         total_verify_time = sum(m.verify_duration_ms or 0 for m in self._stage_metrics)
-        stages_failed = sum(1 for m in self._stage_metrics if m.status == StageStatus.FAIL)
+        stages_failed = sum(
+            1 for m in self._stage_metrics if m.status == StageStatus.FAIL
+        )
 
         # Stage breakdown
         stage_breakdown: dict[str, int] = {}
@@ -461,7 +470,9 @@ class MetricsCollector:
 
         # Compute rework ratio (stages with attempt > 1)
         rework_count = sum(1 for m in self._stage_metrics if m.attempt > 1)
-        rework_ratio = rework_count / len(self._stage_metrics) if self._stage_metrics else 0.0
+        rework_ratio = (
+            rework_count / len(self._stage_metrics) if self._stage_metrics else 0.0
+        )
 
         # Time to green
         time_to_green = None

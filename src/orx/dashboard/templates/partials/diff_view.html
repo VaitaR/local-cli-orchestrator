@@ -1,0 +1,10 @@
+{% if has_diff %}
+<div class="diff-container">
+    <pre class="diff-content">{{ diff }}</pre>
+</div>
+{% else %}
+<div class="empty-state">
+    <p>No diff available</p>
+    <small>The patch.diff file was not found for this run</small>
+</div>
+{% endif %}

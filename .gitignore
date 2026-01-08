@@ -84,6 +84,7 @@ dmypy.json
 *.swp
 *.swo
 *~
+.DS_Store
 
 # orx specific
 runs/

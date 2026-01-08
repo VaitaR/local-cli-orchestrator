@@ -28,7 +28,7 @@ class MetricsWriter:
         >>> writer.write_run(run_metrics)
     """
 
-    def __init__(self, paths: "RunPaths") -> None:
+    def __init__(self, paths: RunPaths) -> None:
         """Initialize the metrics writer.
 
         Args:
@@ -57,7 +57,7 @@ class MetricsWriter:
         """Ensure the metrics directory exists."""
         self._metrics_dir.mkdir(parents=True, exist_ok=True)
 
-    def write_stage(self, metrics: "StageMetrics") -> None:
+    def write_stage(self, metrics: StageMetrics) -> None:
         """Write a single stage metrics record.
 
         Appends to stages.jsonl (one JSON object per line).
@@ -76,7 +76,7 @@ class MetricsWriter:
             attempt=metrics.attempt,
         )
 
-    def write_stages(self, metrics_list: list["StageMetrics"]) -> None:
+    def write_stages(self, metrics_list: list[StageMetrics]) -> None:
         """Write multiple stage metrics records.
 
         Args:
@@ -90,7 +90,7 @@ class MetricsWriter:
 
         self._log.debug("Wrote stage metrics", count=len(metrics_list))
 
-    def write_run(self, metrics: "RunMetrics") -> None:
+    def write_run(self, metrics: RunMetrics) -> None:
         """Write run-level metrics.
 
         Writes to run.json (overwrites if exists).
@@ -108,7 +108,7 @@ class MetricsWriter:
             duration_ms=metrics.total_duration_ms,
         )
 
-    def read_stages(self) -> list["StageMetrics"]:
+    def read_stages(self) -> list[StageMetrics]:
         """Read all stage metrics from stages.jsonl.
 
         Returns:
@@ -127,7 +127,7 @@ class MetricsWriter:
 
         return metrics
 
-    def read_run(self) -> "RunMetrics | None":
+    def read_run(self) -> RunMetrics | None:
         """Read run metrics from run.json.
 
         Returns:

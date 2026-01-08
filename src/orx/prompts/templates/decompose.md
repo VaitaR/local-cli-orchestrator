@@ -52,4 +52,7 @@ items:
 
 ---
 
-**Important**: Output ONLY the YAML content, no additional commentary.
+**Important**:
+- Output ONLY the YAML content (a single YAML mapping).
+- Do NOT use Markdown, bullet lists, or code fences.
+- No extra commentary or headers.

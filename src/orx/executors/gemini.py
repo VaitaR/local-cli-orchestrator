@@ -87,7 +87,7 @@ class GeminiExecutor(BaseExecutor):
         self,
         *,
         prompt_path: Path,
-        model_selector: "ModelSelector | None" = None,
+        model_selector: ModelSelector | None = None,
     ) -> tuple[list[str], dict[str, str | None]]:
         """Build the gemini command line.
 
@@ -107,12 +107,11 @@ class GeminiExecutor(BaseExecutor):
         if resolved["model"]:
             cmd.extend(["--model", resolved["model"]])
 
-        # Add yolo mode for auto-approve
+        # Add approval mode (replaces --yolo flag)
+        # Gemini 0.17+ requires using --approval-mode instead of --yolo
         if self.use_yolo:
-            cmd.append("--yolo")
-
-        # Add approval mode
-        if self.approval_mode:
+            cmd.extend(["--approval-mode", "yolo"])
+        elif self.approval_mode:
             cmd.extend(["--approval-mode", self.approval_mode])
 
         # Add output format for machine parsing
@@ -132,10 +131,10 @@ class GeminiExecutor(BaseExecutor):
         self,
         *,
         prompt_path: Path,
-        cwd: Path,
+        cwd: Path,  # noqa: ARG002
         logs: LogPaths,
         out_path: Path | None = None,
-        model_selector: "ModelSelector | None" = None,
+        model_selector: ModelSelector | None = None,
     ) -> ResolvedInvocation:
         """Resolve the command invocation without executing.
 
@@ -196,9 +195,15 @@ class GeminiExecutor(BaseExecutor):
         if not content:
             return {}
 
+        # First try to parse the entire content as JSON (handles multi-line JSON)
         try:
-            # Gemini may output multiple JSON objects (one per line)
-            # We want the last complete object
+            return json.loads(content)  # type: ignore[no-any-return]
+        except json.JSONDecodeError:
+            pass
+
+        # Fallback: Gemini may output multiple JSON objects (one per line)
+        # We want the last complete object
+        try:
             lines = content.split("\n")
             for line in reversed(lines):
                 line = line.strip()
@@ -217,7 +222,7 @@ class GeminiExecutor(BaseExecutor):
         out_path: Path,
         logs: LogPaths,
         timeout: int | None = None,
-        model_selector: "ModelSelector | None" = None,
+        model_selector: ModelSelector | None = None,
     ) -> ExecResult:
         """Run gemini to produce text output.
 
@@ -268,10 +273,17 @@ class GeminiExecutor(BaseExecutor):
             if text_content:
                 out_path.parent.mkdir(parents=True, exist_ok=True)
                 out_path.write_text(text_content)
+                log.debug("Extracted response from JSON output", length=len(text_content))
             elif logs.stdout.exists():
                 # Fallback: copy raw stdout
+                raw_content = logs.stdout.read_text()
                 out_path.parent.mkdir(parents=True, exist_ok=True)
-                out_path.write_text(logs.stdout.read_text())
+                out_path.write_text(raw_content)
+                log.warning(
+                    "No response field in JSON, copied raw stdout",
+                    has_extra=bool(extra),
+                    stdout_length=len(raw_content),
+                )
 
             if result.returncode != 0:
                 log.warning(
@@ -311,7 +323,7 @@ class GeminiExecutor(BaseExecutor):
         prompt_path: Path,
         logs: LogPaths,
         timeout: int | None = None,
-        model_selector: "ModelSelector | None" = None,
+        model_selector: ModelSelector | None = None,
     ) -> ExecResult:
         """Run gemini to apply filesystem changes.
 

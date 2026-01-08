@@ -149,7 +149,9 @@ class WorkspaceGitWorktree:
 
         if returncode != 0:
             msg = f"Failed to get branches for SHA {sha}: {stderr}"
-            raise WorkspaceError(msg, operation="get_branch_for_sha", path=self.repo_root)
+            raise WorkspaceError(
+                msg, operation="get_branch_for_sha", path=self.repo_root
+            )
 
         # Parse branch names (strip "origin/" prefix and whitespace)
         branches = []
@@ -230,7 +232,9 @@ class WorkspaceGitWorktree:
 
         log.info("Worktree reset complete")
 
-    def diff_to(self, out_path: Path, *, exclude_patterns: list[str] | None = None) -> None:
+    def diff_to(
+        self, out_path: Path, *, exclude_patterns: list[str] | None = None
+    ) -> None:
         """Write the diff to a file.
 
         Includes both modified tracked files and new untracked files.

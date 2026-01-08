@@ -19,6 +19,7 @@ class TestPromptRenderer:
         assert "plan" in templates
         assert "spec" in templates
         assert "decompose" in templates
+        assert "decompose_fix" in templates
         assert "implement" in templates
         assert "fix" in templates
         assert "review" in templates
@@ -69,11 +70,27 @@ class TestPromptRenderer:
             spec="## Acceptance\n- Feature works",
             plan="Step 1: Implement",
             run_id="test_run_123",
+            max_items=5,
         )
 
         assert "test_run_123" in content
         assert "backlog.yaml" in content
         assert "W001" in content
+
+    def test_render_decompose_fix(self) -> None:
+        """Test rendering decompose fix template."""
+        renderer = PromptRenderer()
+
+        content = renderer.render(
+            "decompose_fix",
+            error="Invalid YAML: mapping values are not allowed here",
+            invalid_output="not yaml",
+            run_id="test_run_123",
+            max_items=3,
+        )
+
+        assert "Invalid YAML" in content
+        assert "test_run_123" in content
 
     def test_render_implement(self) -> None:
         """Test rendering implement template."""

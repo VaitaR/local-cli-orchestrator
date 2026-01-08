@@ -238,7 +238,7 @@ class Backlog(BaseModel):
         data = self.model_dump(mode="json")
         return yaml.dump(data, default_flow_style=False, sort_keys=False)
 
-    def coalesce(self, max_items: int) -> "Backlog":
+    def coalesce(self, max_items: int) -> Backlog:
         """Coalesce work items to reduce total count.
 
         Args:
@@ -287,13 +287,8 @@ class Backlog(BaseModel):
 
             for item in group:
                 for criterion in item.acceptance:
-                    if len(group) > 1:
-                        entry = f"{item.id}: {criterion}"
-                    else:
-                        entry = criterion
+                    entry = f"{item.id}: {criterion}" if len(group) > 1 else criterion
                     acceptance.append(entry)
-
-            acceptance = unique(acceptance)
             if not acceptance:
                 acceptance = [f"Complete {title}"]
 

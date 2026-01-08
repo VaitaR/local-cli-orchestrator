@@ -322,11 +322,19 @@ def status(
                         state = state_mgr.load()
 
                         # Only print updates when something changes
-                        if state.current_stage != last_stage or state.current_iteration != last_iteration:
+                        if (
+                            state.current_stage != last_stage
+                            or state.current_iteration != last_iteration
+                        ):
                             timestamp = datetime.now().strftime("%H:%M:%S")
-                            typer.echo(f"[{timestamp}] Stage: {state.current_stage.value}", nl=False)
+                            typer.echo(
+                                f"[{timestamp}] Stage: {state.current_stage.value}",
+                                nl=False,
+                            )
                             if state.current_item_id:
-                                typer.echo(f" | Item: {state.current_item_id} (iteration {state.current_iteration})")
+                                typer.echo(
+                                    f" | Item: {state.current_item_id} (iteration {state.current_iteration})"
+                                )
                             else:
                                 typer.echo("")
 

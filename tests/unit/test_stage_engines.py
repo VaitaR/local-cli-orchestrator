@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from orx.config import EngineType, OrxConfig, StageExecutorConfig
+from orx.config import EngineType, OrxConfig
 from orx.executors.base import ExecResult, LogPaths
 from orx.runner import Runner
 

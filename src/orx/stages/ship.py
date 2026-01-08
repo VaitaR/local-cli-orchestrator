@@ -49,7 +49,7 @@ class ShipStage(BaseStage):
             "pr_body.md",
             "review.md",
             "*.orx.md",  # Any orx-specific temporary files
-            ".orx-*",    # Any orx-specific temporary files
+            ".orx-*",  # Any orx-specific temporary files
         ]
         ctx.workspace.diff_to(ctx.paths.patch_diff, exclude_patterns=exclude_artifacts)
 

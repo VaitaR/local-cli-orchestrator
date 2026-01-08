@@ -221,7 +221,9 @@ class KnowledgeGuardrails:
                 f"{stats.changed_lines} lines changed "
                 f"(max: {self.limits.max_changed_lines_per_file})"
             )
-            raise GuardrailError(msg, rule="max_changed_lines_per_file", violated_files=[filename])
+            raise GuardrailError(
+                msg, rule="max_changed_lines_per_file", violated_files=[filename]
+            )
 
         # Check deleted lines limit
         if stats.deleted_lines > self.limits.max_deleted_lines:
@@ -230,7 +232,9 @@ class KnowledgeGuardrails:
                 f"Change to {filename} deletes too many lines: "
                 f"{stats.deleted_lines} deleted (max: {self.limits.max_deleted_lines})"
             )
-            raise GuardrailError(msg, rule="max_deleted_lines", violated_files=[filename])
+            raise GuardrailError(
+                msg, rule="max_deleted_lines", violated_files=[filename]
+            )
 
         log.debug("Change within limits")
         return stats
@@ -257,17 +261,9 @@ class KnowledgeGuardrails:
             String containing start marker, empty line, end marker.
         """
         if marker_type == "agents":
-            return (
-                f"\n{self.markers.agents_start}\n"
-                f"\n"
-                f"{self.markers.agents_end}\n"
-            )
+            return f"\n{self.markers.agents_start}\n\n{self.markers.agents_end}\n"
         elif marker_type == "arch":
-            return (
-                f"\n{self.markers.arch_start}\n"
-                f"\n"
-                f"{self.markers.arch_end}\n"
-            )
+            return f"\n{self.markers.arch_start}\n\n{self.markers.arch_end}\n"
         else:
             msg = f"Unknown marker type: {marker_type}"
             raise ValueError(msg)
