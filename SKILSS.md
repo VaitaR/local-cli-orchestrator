@@ -9,11 +9,12 @@
 ## 1) Hard Rules (MUST / MUST NOT)
 
 ### MUST
-- Run `orx` from a **git repository root** (it uses git worktrees).
+- Run `orx` against a **git repository root** (it uses git worktrees). Prefer: `cd <repo>` and run there, or pass `--dir <repo>`.
 - Treat `runs/<run_id>/` and `.worktrees/<run_id>/` as **runtime artifacts**.
 - Keep secrets out of prompts and logs; use placeholders and refer to secret names/paths.
 - Ensure `runs/<run_id>/artifacts/patch.diff` is produced by **`git diff`** (this is how `orx` ships changes).
 - Prefer small, explicit tasks with a clear scope.
+- When passing a task file (`@task.md`), prefer an **absolute path** to avoid cwd vs `--dir` confusion.
 
 ### MUST NOT
 - Do not run `orx` in a directory that is not a git repo.
@@ -51,6 +52,7 @@
    - on gate failure: `fix` (executor apply mode) + retry up to `run.max_fix_attempts`
 5. `review` (executor text mode → produces `review.md` and `pr_body.md` artifacts)
 6. `ship` (final `patch.diff`, optional commit/push/PR)
+7. `knowledge_update` (executor text mode → non-fatal updates to `AGENTS.md`/`ARCHITECTURE.md`, can be disabled)
 
 NOTE: Executor/model selection can be overridden per stage via `executors.*` + `stages.*` in `orx.yaml`.
 
@@ -60,21 +62,32 @@ ASSUMPTION: stage naming and ordering follow `Runner` + `StateManager` implement
 
 | `engine.type` | External binary | Text stages | Apply stages | Command shape |
 |---|---|---|---|---|
-| `codex` | `codex` | `run_text` | `run_apply` | `codex exec --full-auto --cd <worktree> [-m <model> or -p <profile>] [--config model_reasoning_effort=\"high\"] @<prompt.md>` |
+| `codex` | `codex` | `run_text` | `run_apply` | Text: `codex exec --sandbox read-only --cd <worktree> ... @<prompt.md>`; Apply: `codex exec --full-auto --cd <worktree> ... @<prompt.md>` |
 | `gemini` | `gemini` | `run_text` | `run_apply` | `gemini [--model <model>] --yolo --approval-mode auto_edit --output-format <fmt> --prompt @<prompt.md>` |
 | `fake` | none | deterministic | deterministic | Used for tests / dry simulations |
 
+**Important:** Text stages are intended to be **text-only** (no shell/tool execution). For Codex this is enforced via `--sandbox read-only`.
+
 ### 2.4 Quality Gates
 
-Supported gate names: `ruff`, `pytest`, `docker`.
+Built-in gate names: `ruff`, `pytest`, `docker`. Any other `gates[].name` is treated as a **generic gate** (custom command).
 
 | Gate | Default | Skip behavior | Logs | Evidence in fix-loop |
 |---|---|---|---|---|
 | `ruff` | `ruff check .` | never | `runs/<id>/logs/ruff.log` | yes (tail) |
 | `pytest` | `pytest -q` | if no tests found or exit code `5` | `runs/<id>/logs/pytest.log` | yes (tail) |
 | `docker` | `docker build ...` | if no `Dockerfile` | `runs/<id>/logs/docker.log` | TODO: not included |
+| *(generic)* | *(custom)* | never (unless your command exits 0) | `runs/<id>/logs/<name>.log` | not included by default |
 
-**WORKAROUND:** You can repurpose `ruff` gate to run any command (e.g. `command: make`, `args: ["helm-lint"]`). Caveat: logs/evidence will still be labeled as `ruff`.
+Generic gate example:
+
+```yaml
+gates:
+  - name: helm-lint
+    command: make
+    args: ["helm-lint"]
+    required: true
+```
 
 ---
 
@@ -91,6 +104,15 @@ Minimal practical fields:
 - `gates`: list of gate configs
 - `guardrails`: forbidden patterns/paths + file count limit
 - `run.max_fix_attempts`: fix-loop attempts per work item
+- `run.per_item_verify`: `fast` (recommended) or `full`
+- `run.auto_fix_ruff`: auto-run `ruff --fix` on ruff failures and retry
+- `run.max_backlog_items`: target max number of work items (reduces apply invocations)
+- `run.coalesce_backlog_items`: merge items if the decomposition returns too many
+
+Semantics (important for speed/quality):
+- `run.per_item_verify: fast` runs a **fast gate set** for intermediate items (ruff + targeted pytest) and automatically switches to **full gates** on the **last item**.
+- Targeted pytest selection uses `files_hint` first, then falls back to changed test files; it can skip pytest if no targets are found and `run.fast_verify_skip_pytest_if_no_targets: true`.
+- `run.max_backlog_items` is used as a *hint* to the decompose prompt and as an upper bound for optional post-processing via `run.coalesce_backlog_items`.
 
 Example (safe-ish defaults for running locally):
 
@@ -133,6 +155,12 @@ run:
   max_fix_attempts: 3
   parallel_items: false
   stop_on_first_failure: false
+  per_item_verify: fast
+  fast_verify_max_pytest_targets: 6
+  fast_verify_skip_pytest_if_no_targets: true
+  auto_fix_ruff: true
+  max_backlog_items: 4
+  coalesce_backlog_items: true
 ```
 
 Optional per-stage executor/model routing:
@@ -164,7 +192,7 @@ stages:
 
 **Known limitations:**
 - `fallback_engine` exists in config, but TODO: not used by the runner.
-- `fallback` policy exists in config, but is not automatically applied by `Runner` yet (helper: `ModelRouter.apply_fallback()`).
+- `fallback` policy exists in config, but is not automatically applied by `Runner` yet (helper exists: `ModelRouter.apply_fallback()`).
 - `run.parallel_items` exists in config, but TODO: not implemented (loop is sequential).
 
 ---
@@ -182,10 +210,12 @@ Run:
 - `orx init` (once per repo)
 - `orx run -b <base_branch> "<task text>"`
 - or `orx run -b <base_branch> @/abs/path/task.md`
+  - If you must use `--dir`, also use an absolute `@` task path: `orx run --dir /repo -b main @/abs/task.md`
 
 After starting:
 - Record the `Run ID` printed by `orx`.
 - Inspect `runs/<run_id>/artifacts/patch.diff` and `runs/<run_id>/logs/`.
+- For time breakdowns, open `runs/<run_id>/metrics/run.json` (and `metrics/stages.jsonl`).
 
 ### 4.2 Resume a run
 
@@ -237,6 +267,9 @@ Directory layout:
 - `runs/<run_id>/prompts/` (materialized prompts)
 - `runs/<run_id>/artifacts/` (patch diff, review, pr body)
 - `runs/<run_id>/logs/` (agent + gate logs)
+- `runs/<run_id>/metrics/` (`stages.jsonl`, `run.json`)
+- `runs/<run_id>/events.jsonl` (append-only timeline)
+- `runs/index.jsonl` (append-only run summaries)
 - `.worktrees/<run_id>/` (git worktree)
 
 Key files to inspect:
@@ -245,6 +278,7 @@ Key files to inspect:
 - `runs/<run_id>/artifacts/patch.diff` (the authoritative diff)
 - `runs/<run_id>/logs/agent_*.stderr.log` (agent failures)
 - `runs/<run_id>/logs/<gate>.log` (gate output)
+- `runs/<run_id>/metrics/run.json` (time-to-green, stage breakdown)
 
 ---
 
