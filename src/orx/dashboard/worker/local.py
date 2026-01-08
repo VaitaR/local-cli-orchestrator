@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+import json
 import os
 import signal
 import subprocess
+import tempfile
 import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from queue import Empty, Queue
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import structlog
+import yaml
 
 from orx.infra.command import CommandRunner
 
@@ -287,6 +290,14 @@ class LocalWorker:
         if job.base_branch:
             cmd.extend(["--base-branch", job.base_branch])
 
+        # Handle config overrides
+        temp_config_path = self._create_temp_config(job.config_overrides)
+        if temp_config_path:
+            cmd.extend(["--config", str(temp_config_path)])
+        elif job.config_overrides.get("engine"):
+            # Simple engine override via CLI flag
+            cmd.extend(["--engine", job.config_overrides["engine"]])
+
         base_dir = self._resolve_repo_path(job.repo_path)
         runs_dir = base_dir / "runs"
         if self.config.runs_root.resolve() != runs_dir.resolve():
@@ -393,3 +404,51 @@ class LocalWorker:
 
             for run_id in completed:
                 del self._active_jobs[run_id]
+
+    def _create_temp_config(self, overrides: dict[str, Any]) -> Path | None:
+        """Create a temporary config file from overrides.
+
+        Args:
+            overrides: Config overrides dict with optional keys:
+                - engine: Global engine type ("codex", "gemini")
+                - stages: Per-stage config {stage_name: {executor: "..."}} 
+
+        Returns:
+            Path to temp config file, or None if no complex overrides.
+        """
+        if not overrides:
+            return None
+
+        # Check if we need a full config file (per-stage settings)
+        stages = overrides.get("stages", {})
+        if not stages:
+            # Simple engine override can be handled via CLI flag
+            return None
+
+        # Build config structure
+        engine_type = overrides.get("engine", "codex")
+        config_data: dict[str, Any] = {
+            "version": "1.0",
+            "engine": {
+                "type": engine_type,
+            },
+            "stages": {},
+        }
+
+        # Add per-stage executor overrides
+        for stage_name, stage_config in stages.items():
+            if isinstance(stage_config, dict) and stage_config.get("executor"):
+                config_data["stages"][stage_name] = {
+                    "executor": stage_config["executor"],
+                }
+
+        # Write to temp file
+        fd, path = tempfile.mkstemp(suffix=".yaml", prefix="orx_dashboard_")
+        try:
+            with os.fdopen(fd, "w") as f:
+                yaml.dump(config_data, f, default_flow_style=False)
+            self._log.debug("Created temp config", path=path, config=config_data)
+            return Path(path)
+        except Exception as e:
+            self._log.error("Failed to create temp config", error=str(e))
+            return None

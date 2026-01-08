@@ -121,3 +121,32 @@ async def run_status(request: Request, run_id: str):
 async def health():
     """Health check endpoint."""
     return {"status": "ok"}
+
+
+@router.get("/config/engines")
+async def get_available_engines():
+    """Get available engine types and stages.
+
+    Returns configuration options for the start run form.
+    This endpoint allows the frontend to dynamically build
+    the engine selection UI without hardcoding values.
+    """
+    from orx.config import EngineType, StageName
+
+    # Get available engines (exclude FAKE for production UI)
+    engines = [
+        {"value": e.value, "label": e.value.capitalize(), "is_test": e == EngineType.FAKE}
+        for e in EngineType
+    ]
+
+    # Get available stages
+    stages = [
+        {"value": s.value, "label": s.value.replace("_", " ").title()}
+        for s in StageName
+    ]
+
+    return {
+        "engines": engines,
+        "stages": stages,
+        "default_engine": EngineType.CODEX.value,
+    }

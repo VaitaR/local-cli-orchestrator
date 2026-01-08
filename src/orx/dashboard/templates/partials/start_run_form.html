@@ -2,8 +2,7 @@
     <h3>Start New Run</h3>
     <button class="btn-close" onclick="document.getElementById('modal').classList.remove('active')">&times;</button>
 </div>
-<form id="start-run-form"
-      class="form">
+<form id="start-run-form" class="form">
     <div class="form-group">
         <label for="task">Task Description *</label>
         <textarea id="task" 
@@ -28,6 +27,24 @@
                placeholder="main">
     </div>
     
+    <div class="form-group">
+        <label for="engine">Engine</label>
+        <select id="engine">
+            <option value="">Loading...</option>
+        </select>
+        <small>Executor to use for all stages</small>
+    </div>
+    
+    <details class="form-group" id="per-stage-config">
+        <summary style="cursor: pointer; font-weight: 500; margin-bottom: 0.5rem;">
+            ⚙️ Advanced: Per-Stage Engine
+        </summary>
+        <div id="stage-engines-grid" 
+             style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-top: 0.5rem;">
+            <!-- Dynamically populated -->
+        </div>
+    </details>
+    
     <div class="form-actions">
         <button type="button" 
                 class="btn btn-secondary"
@@ -41,56 +58,224 @@
 </form>
 
 <script>
-document.getElementById('start-run-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
+(function() {
+    // Cache for engine config
+    let engineConfig = null;
     
-    const task = document.getElementById('task').value;
-    const repo_path = document.getElementById('repo_path').value || null;
-    const base_branch = document.getElementById('base_branch').value || null;
-    
-    console.log('Submitting form with:', { task, repo_path, base_branch });
-    
-    try {
-        const response = await fetch('/api/runs/start', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                task: task,
-                repo_path: repo_path,
-                base_branch: base_branch,
-                config_overrides: {}
-            })
-        });
+    // Load engine configuration from API
+    async function loadEngineConfig() {
+        if (engineConfig) return engineConfig;
         
-        if (!response.ok) {
-            let error_detail = 'Failed to start run';
-            try {
-                const error = await response.json();
-                error_detail = error.detail || JSON.stringify(error);
-            } catch (e) {
-                // Response is not JSON
-                const text = await response.text();
-                error_detail = `HTTP ${response.status}: ${text.substring(0, 200)}`;
+        try {
+            const response = await fetch('/api/config/engines');
+            if (!response.ok) {
+                console.error('Failed to load engine config');
+                return null;
             }
-            console.error('API Error:', error_detail);
-            alert(`Error: ${error_detail}`);
+            engineConfig = await response.json();
+            return engineConfig;
+        } catch (error) {
+            console.error('Error loading engine config:', error);
+            return null;
+        }
+    }
+    
+    // Populate engine select dropdown
+    function populateEngineSelect(selectId, engines, includeDefault = true, includeTest = false) {
+        const select = document.getElementById(selectId);
+        if (!select) return;
+        
+        select.innerHTML = '';
+        
+        if (includeDefault) {
+            const defaultOpt = document.createElement('option');
+            defaultOpt.value = '';
+            defaultOpt.textContent = selectId === 'engine' ? 'Default (from orx.yaml)' : 'Default';
+            select.appendChild(defaultOpt);
+        }
+        
+        for (const engine of engines) {
+            if (!includeTest && engine.is_test) continue;
+            
+            const opt = document.createElement('option');
+            opt.value = engine.value;
+            opt.textContent = engine.label;
+            if (engine.is_test) {
+                opt.textContent += ' (testing)';
+            }
+            select.appendChild(opt);
+        }
+    }
+    
+    // Build per-stage engine selects dynamically
+    function buildStageEngineSelects(stages, engines) {
+        const grid = document.getElementById('stage-engines-grid');
+        if (!grid) return;
+        
+        grid.innerHTML = '';
+        
+        // Filter out stages that shouldn't be configurable
+        const configurableStages = stages.filter(s => 
+            !['knowledge_update'].includes(s.value)
+        );
+        
+        for (const stage of configurableStages) {
+            const div = document.createElement('div');
+            
+            const label = document.createElement('label');
+            label.setAttribute('for', `engine_${stage.value}`);
+            label.style.fontSize = '0.9rem';
+            label.textContent = stage.label;
+            
+            const select = document.createElement('select');
+            select.id = `engine_${stage.value}`;
+            select.style.fontSize = '0.9rem';
+            
+            // Add default option
+            const defaultOpt = document.createElement('option');
+            defaultOpt.value = '';
+            defaultOpt.textContent = 'Default';
+            select.appendChild(defaultOpt);
+            
+            // Add engine options (exclude test engines)
+            for (const engine of engines) {
+                if (engine.is_test) continue;
+                
+                const opt = document.createElement('option');
+                opt.value = engine.value;
+                opt.textContent = engine.label;
+                select.appendChild(opt);
+            }
+            
+            div.appendChild(label);
+            div.appendChild(select);
+            grid.appendChild(div);
+        }
+    }
+    
+    // Initialize form
+    async function initForm() {
+        const config = await loadEngineConfig();
+        if (!config) {
+            // Fallback to hardcoded values
+            const fallbackEngines = [
+                { value: 'codex', label: 'Codex', is_test: false },
+                { value: 'gemini', label: 'Gemini', is_test: false },
+                { value: 'fake', label: 'Fake', is_test: true }
+            ];
+            const fallbackStages = [
+                { value: 'plan', label: 'Plan' },
+                { value: 'spec', label: 'Spec' },
+                { value: 'decompose', label: 'Decompose' },
+                { value: 'implement', label: 'Implement' },
+                { value: 'fix', label: 'Fix' },
+                { value: 'review', label: 'Review' }
+            ];
+            populateEngineSelect('engine', fallbackEngines, true, true);
+            buildStageEngineSelects(fallbackStages, fallbackEngines);
             return;
         }
         
-        const result = await response.json();
-        console.log('Run started:', result);
-        alert(`Run started: ${result.run_id}`);
-        document.getElementById('modal').classList.remove('active');
-        
-        // Refresh the runs list
-        htmx.ajax('GET', '/partials/active-runs', {target: '#active-runs', swap: 'innerHTML'});
-        htmx.ajax('GET', '/partials/recent-runs', {target: '#recent-runs', swap: 'innerHTML'});
-        
-    } catch (error) {
-        console.error('Request error:', error);
-        alert(`Error: ${error.message}`);
+        populateEngineSelect('engine', config.engines, true, true);
+        buildStageEngineSelects(config.stages, config.engines);
     }
-});
+    
+    // Collect per-stage engine overrides
+    function collectStageOverrides() {
+        const stages = {};
+        const grid = document.getElementById('stage-engines-grid');
+        if (!grid) return stages;
+        
+        const selects = grid.querySelectorAll('select');
+        for (const select of selects) {
+            const stageName = select.id.replace('engine_', '');
+            const value = select.value;
+            if (value) {
+                stages[stageName] = { executor: value };
+            }
+        }
+        
+        return stages;
+    }
+    
+    // Form submit handler
+    document.getElementById('start-run-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const task = document.getElementById('task').value;
+        const repo_path = document.getElementById('repo_path').value || null;
+        const base_branch = document.getElementById('base_branch').value || null;
+        const engine = document.getElementById('engine').value || null;
+        
+        // Build config_overrides
+        const config_overrides = {};
+        
+        // Global engine override
+        if (engine) {
+            config_overrides.engine = engine;
+        }
+        
+        // Per-stage engine overrides
+        const stages_config = collectStageOverrides();
+        if (Object.keys(stages_config).length > 0) {
+            config_overrides.stages = stages_config;
+        }
+        
+        console.log('Submitting form with:', { task, repo_path, base_branch, engine, config_overrides });
+        
+        try {
+            const response = await fetch('/api/runs/start', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    task: task,
+                    repo_path: repo_path,
+                    base_branch: base_branch,
+                    config_overrides: config_overrides
+                })
+            });
+            
+            if (!response.ok) {
+                let error_detail = 'Failed to start run';
+                try {
+                    const error = await response.json();
+                    error_detail = error.detail || JSON.stringify(error);
+                } catch (e) {
+                    const text = await response.text();
+                    error_detail = `HTTP ${response.status}: ${text.substring(0, 200)}`;
+                }
+                console.error('API Error:', error_detail);
+                alert(`Error: ${error_detail}`);
+                return;
+            }
+            
+            const result = await response.json();
+            console.log('Run started:', result);
+            
+            // Close modal
+            document.getElementById('modal').classList.remove('active');
+            
+            // Show success notification
+            const notification = document.createElement('div');
+            notification.className = 'notification success';
+            notification.innerHTML = `✓ Run started: <a href="/runs/${result.run_id}" style="color:white;text-decoration:underline">${result.run_id}</a>`;
+            notification.style.cssText = 'position:fixed;top:1rem;right:1rem;background:#22c55e;color:white;padding:1rem;border-radius:0.5rem;z-index:1000;box-shadow:0 4px 6px rgba(0,0,0,0.1);';
+            document.body.appendChild(notification);
+            setTimeout(() => notification.remove(), 5000);
+            
+            // Refresh the runs list
+            htmx.ajax('GET', '/partials/active-runs', {target: '#active-runs', swap: 'innerHTML'});
+            htmx.ajax('GET', '/partials/recent-runs', {target: '#recent-runs', swap: 'innerHTML'});
+            
+        } catch (error) {
+            console.error('Request error:', error);
+            alert(`Error: ${error.message}`);
+        }
+    });
+    
+    // Initialize on load
+    initForm();
+})();
 </script>
