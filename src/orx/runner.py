@@ -1351,6 +1351,8 @@ class Runner:
     ) -> tuple["GateResult", int]:
         """Run ruff with --fix to auto-apply lint changes."""
         args = list(getattr(gate, "args", []) or ["check", "."])
+        # Defensive check: current callers ensure "--fix" is not in args,
+        # but we guard here to remain robust if call sites change.
         if "--fix" not in args:
             args.append("--fix")
 
