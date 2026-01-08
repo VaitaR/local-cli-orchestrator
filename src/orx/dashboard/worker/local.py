@@ -243,11 +243,15 @@ class LocalWorker:
         # Set working directory
         cwd = job.repo_path or str(Path.cwd())
 
+        # Prepare environment - inherit current env and preserve ORX_RUNS_ROOT
+        env = os.environ.copy()
+
         try:
             # Start subprocess
             process = subprocess.Popen(
                 cmd,
                 cwd=cwd,
+                env=env,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 start_new_session=True,  # Allow proper signal handling
