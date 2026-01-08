@@ -37,20 +37,54 @@ class FileSystemRunStore:
             └── metrics/
     """
 
-    def __init__(self, config: "DashboardConfig") -> None:
+    # Default allowed extensions for safety
+    DEFAULT_ALLOWED_EXTENSIONS: frozenset[str] = frozenset({
+        ".md", ".json", ".yaml", ".yml", ".txt", ".log", ".diff"
+    })
+
+    def __init__(
+        self,
+        config_or_path: "DashboardConfig | Path",
+    ) -> None:
         """Initialize the store.
 
         Args:
-            config: Dashboard configuration.
+            config_or_path: Dashboard configuration or direct path to runs directory.
         """
-        self.config = config
-        self._runs_dir = config.get_runs_dir()
+        if isinstance(config_or_path, Path):
+            # Direct path mode (for testing)
+            self.config = None
+            self._runs_dir = config_or_path
+            self._allowed_extensions = self.DEFAULT_ALLOWED_EXTENSIONS
+        else:
+            # Config mode (production)
+            self.config = config_or_path
+            self._runs_dir = config_or_path.get_runs_dir()
+            self._allowed_extensions = config_or_path.allowed_extensions
+
         self._log = logger.bind(component="FileSystemRunStore")
 
     @property
     def runs_dir(self) -> Path:
         """Get the runs directory."""
         return self._runs_dir
+
+    def _is_safe_path(self, relative: str) -> bool:
+        """Check if a relative path is safe.
+
+        Args:
+            relative: Relative path to check.
+
+        Returns:
+            True if path is safe to access.
+        """
+        # Block path traversal
+        if ".." in relative or relative.startswith("/"):
+            return False
+
+        # Check extension
+        ext = Path(relative).suffix.lower()
+        return ext in self._allowed_extensions
 
     def _safe_path(self, run_dir: Path, relative: str) -> Path | None:
         """Resolve a path safely within run directory.
@@ -62,7 +96,7 @@ class FileSystemRunStore:
         Returns:
             Resolved path if safe, None otherwise.
         """
-        if not self.config.is_path_allowed(run_dir, relative):
+        if not self._is_safe_path(relative):
             return None
 
         resolved = (run_dir / relative).resolve()
@@ -327,7 +361,7 @@ class FileSystemRunStore:
                     continue
 
                 ext = file_path.suffix.lower()
-                if ext not in self.config.allowed_extensions:
+                if ext not in self._allowed_extensions:
                     continue
 
                 relative = f"{subdir_name}/{file_path.name}"

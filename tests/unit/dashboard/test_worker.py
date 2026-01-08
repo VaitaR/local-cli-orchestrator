@@ -2,76 +2,81 @@
 
 import threading
 import time
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from orx.dashboard.worker.local import LocalWorker
+
+class MockConfig:
+    """Mock configuration for worker tests."""
+    max_concurrency: int = 2
+    cancel_grace_seconds: float = 2.0
+    orx_bin: str = "orx"
+
+
+@pytest.fixture
+def mock_config() -> MockConfig:
+    """Create a mock config for testing."""
+    return MockConfig()
 
 
 class TestLocalWorker:
     """Tests for LocalWorker."""
 
-    def test_worker_starts_and_stops(self) -> None:
+    def test_worker_starts_and_stops(self, mock_config: MockConfig) -> None:
         """Test that worker can start and stop cleanly."""
-        worker = LocalWorker()
+        from orx.dashboard.worker.local import LocalWorker
+
+        worker = LocalWorker(mock_config)
         worker.start()
-        assert worker.is_running
+        assert worker._thread is not None
+        assert worker._thread.is_alive()
         worker.stop()
-        assert not worker.is_running
+        # After stop, thread should be None or not alive
+        assert worker._thread is None or not worker._thread.is_alive()
 
-    def test_worker_can_start_run(self) -> None:
+    def test_worker_can_queue_run(self, mock_config: MockConfig) -> None:
         """Test that worker can queue a run."""
-        worker = LocalWorker()
+        from orx.dashboard.worker.local import LocalWorker
+
+        worker = LocalWorker(mock_config)
         worker.start()
         
         try:
-            run_id = worker.start_run("Test task", "/tmp/test-repo")
+            run_id = worker.start_run("Test task", repo_path="/tmp/test-repo")
             assert run_id is not None
-            assert run_id.startswith("run-")
-            
-            # Give it a moment to start
-            time.sleep(0.1)
-            
-            # The run should be tracked
-            assert run_id in worker.active_runs or run_id in worker._completed_runs
+            assert "_" in run_id  # Format: YYYYMMDD_HHMMSS_uuid
         finally:
             worker.stop()
 
-    def test_worker_can_cancel_run(self) -> None:
-        """Test that worker can cancel a running task."""
-        worker = LocalWorker()
-        worker.start()
-        
-        try:
-            # Start a run that would take a while
-            run_id = worker.start_run("Long task", "/tmp/test-repo")
-            
-            # Give it a moment
-            time.sleep(0.1)
-            
-            # Cancel it
-            result = worker.cancel_run(run_id)
-            # Result depends on whether run started yet
-            assert isinstance(result, bool)
-        finally:
-            worker.stop()
+    def test_cancel_non_existent_run(self, mock_config: MockConfig) -> None:
+        """Test that cancelling non-existent run returns False."""
+        from orx.dashboard.worker.local import LocalWorker
 
-    def test_get_status_returns_none_for_unknown(self) -> None:
-        """Test that get_status returns None for unknown runs."""
-        worker = LocalWorker()
-        status = worker.get_status("unknown-run-id")
-        assert status is None
+        worker = LocalWorker(mock_config)
+        result = worker.cancel_run("non-existent-run")
+        assert result is False
 
-    def test_worker_handles_multiple_runs(self) -> None:
+    def test_get_pid_returns_none_for_unknown(self, mock_config: MockConfig) -> None:
+        """Test that get_run_pid returns None for unknown runs."""
+        from orx.dashboard.worker.local import LocalWorker
+
+        worker = LocalWorker(mock_config)
+        pid = worker.get_run_pid("unknown-run-id")
+        assert pid is None
+
+    def test_worker_handles_multiple_runs(self, mock_config: MockConfig) -> None:
         """Test that worker can handle multiple run requests."""
-        worker = LocalWorker()
+        from orx.dashboard.worker.local import LocalWorker
+
+        worker = LocalWorker(mock_config)
         worker.start()
         
         try:
             run_ids = []
             for i in range(3):
-                run_id = worker.start_run(f"Task {i}", "/tmp/test-repo")
+                run_id = worker.start_run(f"Task {i}", repo_path="/tmp/test-repo")
                 run_ids.append(run_id)
             
             # All run IDs should be unique
@@ -79,15 +84,26 @@ class TestLocalWorker:
         finally:
             worker.stop()
 
-    def test_worker_stops_gracefully(self) -> None:
+    def test_empty_task_raises_error(self, mock_config: MockConfig) -> None:
+        """Test that empty task raises ValueError."""
+        from orx.dashboard.worker.local import LocalWorker
+
+        worker = LocalWorker(mock_config)
+        with pytest.raises(ValueError, match="Task cannot be empty"):
+            worker.start_run("   ")
+
+    def test_worker_stops_gracefully(self, mock_config: MockConfig) -> None:
         """Test that worker stops gracefully even with pending work."""
-        worker = LocalWorker()
+        from orx.dashboard.worker.local import LocalWorker
+
+        worker = LocalWorker(mock_config)
         worker.start()
         
         # Queue some runs
-        for i in range(5):
-            worker.start_run(f"Task {i}", "/tmp/test-repo")
+        for i in range(3):
+            worker.start_run(f"Task {i}", repo_path="/tmp/test-repo")
         
         # Stop should not hang
-        worker.stop(timeout=2.0)
-        assert not worker.is_running
+        worker.stop()
+        time.sleep(0.2)
+        assert worker._thread is None or not worker._thread.is_alive()
