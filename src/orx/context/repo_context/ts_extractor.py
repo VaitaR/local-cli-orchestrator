@@ -20,15 +20,76 @@ from orx.context.repo_context.blocks import ContextBlock, ContextPriority
 logger = structlog.get_logger()
 
 
-def _parse_json(path: Path) -> dict[str, Any]:
-    """Parse a JSON file, returning empty dict on failure."""
+def _parse_jsonc(path: Path) -> dict[str, Any]:
+    """Parse a JSONC file (JSON with comments), returning empty dict on failure.
+    
+    Handles:
+    - Single-line comments (// ...)
+    - Multi-line comments (/* ... */)
+    - Trailing commas in objects and arrays
+    """
     if not path.exists():
         return {}
+    
     try:
-        return json.loads(path.read_text())
-    except Exception as e:
-        logger.debug("Failed to parse JSON", path=str(path), error=str(e))
+        text = path.read_text()
+        
+        # Remove single-line comments (but not in strings)
+        lines = []
+        for line in text.split('\n'):
+            in_string = False
+            escape_next = False
+            result = []
+            i = 0
+            while i < len(line):
+                char = line[i]
+                if escape_next:
+                    result.append(char)
+                    escape_next = False
+                elif char == '\\':
+                    result.append(char)
+                    escape_next = True
+                elif char == '"' and not in_string:
+                    in_string = True
+                    result.append(char)
+                elif char == '"' and in_string:
+                    in_string = False
+                    result.append(char)
+                elif i < len(line) - 1 and line[i:i+2] == '//' and not in_string:
+                    # Found comment, stop processing this line
+                    break
+                else:
+                    result.append(char)
+                i += 1
+            lines.append(''.join(result))
+        
+        text = '\n'.join(l              
+        # Remove multi-line comments
+        while '/*            result = []
+       text.find('/*')
+            end = text.find('*/', start)
+            if end == -1:
+                # Unclosed comment
+                text = text[:start]
+                break
+            text = text[:start] + text[end+2:]
+        
+        # Remove trailing commas before ] or }
+        text = text.replace(',\n]', '\n]').replace(',\n}', '\n}')
+        text = text.replace(', ]', ' ]').replace(', }', ' }')
+        
+        return json.loads(text)
+    except E                    in_string = False
+         parse JSONC", path=str(path), error=str(e))
         return {}
+
+
+def _parse_json(path: Path) -> dict[str, Any]:
+    """Parse a JSON file, returning empty dict on failure.
+    
+    Note: This now uses JSONC parsing for better compatibility.
+    """
+    return _parse_jsonc(path)
 
 
 class TypeScriptExtractor:
@@ -48,14 +109,14 @@ class TypeScriptExtractor:
     def package_json(self) -> dict[str, Any]:
         """Lazy-load package.json."""
         if self._package_json is None:
-            self._package_json = _parse_json(self.worktree / "package.json")
+            self._package_json = _parse_jsonc(self.worktree / "package.json")
         return self._package_json
 
     @property
     def tsconfig(self) -> dict[str, Any]:
         """Lazy-load tsconfig.json."""
         if self._tsconfig is None:
-            self._tsconfig = _parse_json(self.worktree / "tsconfig.json")
+            self._tsconfig = _parse_jsonc(self.worktree / "tsconfig.json")
         return self._tsconfig
 
     def is_ts_project(self) -> bool:
@@ -308,7 +369,7 @@ class TypeScriptExtractor:
         ]:
             full_path = self.worktree / path
             if full_path.exists():
-                config = _parse_json(full_path)
+                config = _parse_jsonc(full_path)
                 if config:
                     source = path
                     break
@@ -389,7 +450,7 @@ class TypeScriptExtractor:
         ]:
             full_path = self.worktree / path
             if full_path.exists():
-                config = _parse_json(full_path)
+                config = _parse_jsonc(full_path)
                 if config:
                     source = path
                     break

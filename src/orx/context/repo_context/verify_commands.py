@@ -15,7 +15,9 @@ if TYPE_CHECKING:
 
 
 def build_verify_commands(gates: list["Gate"]) -> ContextBlock | None:
-    """Build a context block describing verify commands.
+    """Build a context 
+    for gate in gates:
+commands.
 
     Args:
         gates: List of Gate instances that will run during VERIFY.
@@ -31,21 +33,28 @@ def build_verify_commands(gates: list["Gate"]) -> ContextBlock | None:
     for gate in gates:
         name = gate.name
 
-        # Get command info from gate attributes
-        command = getattr(gate, "command", name)
-        args = getattr(gate, "args", []) or []
-        required = getattr(gate, "required", True)
-
-        # Build command string
-        if args:
-            full_cmd = f"{command} {' '.join(args)}"
+        # Try to get the full command rendering from gate first
+        if hasattr(gate, "render_command"):
+            full_cmd = gate.render_command()
         else:
-            full_cmd = command
+            # Fallback: build from command and args attributes
+            command = getattr(gate, "c
+    body = "\n".join(lines)
+
+    return ContextBlock(
+       []
+            
+            # Build command string
+            if args:
+                full_cmd = f"{command} {' '.join(args)}"
+            else:
+                full_cmd = command
 
         # Truncate long commands
         if len(full_cmd) > 80:
             full_cmd = full_cmd[:77] + "..."
 
+        required = getattr(gate, "required", True)
         req_marker = "(required)" if required else "(optional)"
         lines.append(f"- **{name}** {req_marker}: `{full_cmd}`")
 
