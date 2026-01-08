@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import cast
 
 from fastapi import APIRouter, Query, Request
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse
 
 router = APIRouter(tags=["partials"])
 
@@ -165,7 +165,7 @@ async def log_tail(
     name: str = Query(..., description="Log file name"),
     cursor: int = Query(0, description="Line offset"),
     lines: int = Query(200, le=1000, description="Number of lines"),
-) -> Response:
+) -> HTMLResponse:
     """Render log tail content."""
     templates = request.app.state.templates
     store = request.app.state.store
@@ -174,7 +174,7 @@ async def log_tail(
     chunk = store.tail_log(run_id, name, cursor=cursor, lines=lines)
 
     return cast(
-        Response,
+        HTMLResponse,
         templates.TemplateResponse(
             "partials/log_tail.html",
             {
