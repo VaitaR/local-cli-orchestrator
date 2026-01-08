@@ -83,6 +83,10 @@ class DashboardConfig(BaseSettings):
         default=2,
         description="Polling interval for logs (seconds)",
     )
+    stale_run_without_pid_seconds: int = Field(
+        default=3600,
+        description="Treat runs without pid as stale after N seconds",
+    )
 
     # Security
     allowed_extensions: set[str] = Field(

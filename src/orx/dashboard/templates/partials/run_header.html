@@ -50,7 +50,7 @@
     </div>
     {% endif %}
     
-    {% if run.is_active %}
+    {% if run.can_cancel %}
     <div class="run-actions">
         <button class="btn btn-danger"
                 hx-post="/api/runs/{{ run.run_id }}/cancel"

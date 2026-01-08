@@ -62,6 +62,7 @@ class RunSummary(BaseModel):
     created_at: datetime | None = None
     updated_at: datetime | None = None
     elapsed_ms: int | None = None
+    pid: int | None = None
     repo_path: str | None = None
     base_branch: str | None = None
     fail_category: str | None = None
@@ -71,6 +72,11 @@ class RunSummary(BaseModel):
     def is_active(self) -> bool:
         """Check if run is currently active."""
         return self.status == RunStatus.RUNNING
+
+    @property
+    def can_cancel(self) -> bool:
+        """True if dashboard can attempt to cancel the run."""
+        return self.is_active and isinstance(self.pid, int) and self.pid > 0
 
     @property
     def elapsed_human(self) -> str:
@@ -97,7 +103,6 @@ class RunDetail(RunSummary):
 
     base_sha: str | None = None
     worktree_path: str | None = None
-    pid: int | None = None
     last_error: LastError | None = None
     artifacts: list[str] = Field(default_factory=list)
     logs: list[str] = Field(default_factory=list)

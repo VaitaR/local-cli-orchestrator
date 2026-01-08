@@ -50,7 +50,7 @@ async def start_run_form(request: Request):
         "partials/start_run_form.html",
         {
             "request": request,
-            "default_repo_path": str(config.runs_root.parent),
+            "default_repo_path": str(config.get_runs_dir().parent),
         },
     )
 

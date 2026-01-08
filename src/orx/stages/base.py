@@ -65,6 +65,7 @@ class StageContext:
     gates: list["Gate"]
     renderer: "PromptRenderer"
     config: dict[str, Any]
+    timeout_seconds: int | None = None
     model_selector: "ModelSelector | None" = None
     events: "EventLogger | None" = None
 
@@ -239,6 +240,7 @@ class TextOutputStage(BaseStage):
                 prompt_path=prompt_path,
                 out_path=out_path,
                 logs=logs,
+                timeout=ctx.timeout_seconds,
                 model_selector=ctx.model_selector,
             )
             if ctx.events:
@@ -344,6 +346,7 @@ class ApplyStage(BaseStage):
                 cwd=ctx.workspace.worktree_path,
                 prompt_path=prompt_path,
                 logs=logs,
+                timeout=ctx.timeout_seconds,
                 model_selector=ctx.model_selector,
             )
             if ctx.events:

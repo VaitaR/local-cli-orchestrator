@@ -6,11 +6,13 @@ Usage:
 """
 
 import argparse
+import os
 import sys
 
 import uvicorn
 
 from .config import DashboardConfig
+from .server import create_app
 
 
 def main() -> int:
@@ -61,19 +63,37 @@ def main() -> int:
     if args.debug:
         config.debug = True
 
-    print(f"🚀 Starting ORX Dashboard")
-    print(f"   Runs root: {config.runs_root}")
+    # Ensure CLI overrides propagate into reload subprocesses by mapping them back
+    # to the env vars that DashboardConfig reads.
+    os.environ["ORX_RUNS_ROOT"] = str(config.runs_root)
+    os.environ["ORX_DASHBOARD_HOST"] = str(config.host)
+    os.environ["ORX_DASHBOARD_PORT"] = str(config.port)
+    os.environ["ORX_DASHBOARD_DEBUG"] = "1" if config.debug else "0"
+
+    print("🚀 Starting ORX Dashboard")
+    print(f"   Runs root: {config.get_runs_dir()}")
     print(f"   URL: http://{config.host}:{config.port}")
     print()
 
-    uvicorn.run(
-        "orx.dashboard:create_app",
-        factory=True,
-        host=config.host,
-        port=config.port,
-        reload=args.reload,
-        log_level="debug" if config.debug else "info",
-    )
+    if args.reload:
+        # Reload mode requires an import string so uvicorn can re-import the app.
+        uvicorn.run(
+            "orx.dashboard.server:create_app",
+            factory=True,
+            host=config.host,
+            port=config.port,
+            reload=True,
+            log_level="debug" if config.debug else "info",
+        )
+    else:
+        app = create_app(config)
+        uvicorn.run(
+            app,
+            host=config.host,
+            port=config.port,
+            reload=False,
+            log_level="debug" if config.debug else "info",
+        )
 
     return 0
 

@@ -217,6 +217,52 @@ class TestAPIEndpoints:
         response = client.post("/api/runs/start", json={"repo_path": "/tmp/test"})
         assert response.status_code == 422  # Validation error
 
+    def test_cancel_non_running_run_is_idempotent(self, client: TestClient) -> None:
+        """Cancel on a completed run should return a non-error status."""
+        response = client.post("/api/runs/test-run-001/cancel")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "not_running"
+        assert data["run_id"] == "test-run-001"
+
+    def test_cancel_run_missing_pid_returns_cannot_cancel(self, client: TestClient) -> None:
+        """Runs that look active but lack pid can't be cancelled by the dashboard."""
+        runs_dir = client.app.state.store.runs_dir
+        run_id = "running-no-pid-001"
+        run_dir = runs_dir / run_id
+        run_dir.mkdir()
+        (run_dir / "meta.json").write_text(
+            json.dumps(
+                {
+                    "run_id": run_id,
+                    "task": "Running but missing pid",
+                    "base_branch": "main",
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+        )
+        (run_dir / "state.json").write_text(
+            json.dumps(
+                {
+                    "current_stage": "implement",
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "stage_statuses": {
+                        "plan": {"status": "success"},
+                        "implement": {"status": "running"},
+                    },
+                }
+            )
+        )
+        (run_dir / "context").mkdir()
+        (run_dir / "context" / "task.md").write_text("Task")
+
+        response = client.post(f"/api/runs/{run_id}/cancel")
+        assert response.status_code == 409
+        data = response.json()
+        assert data["status"] == "cannot_cancel"
+        assert data["run_id"] == run_id
+
 
 class TestStaticFiles:
     """Tests for static file serving."""

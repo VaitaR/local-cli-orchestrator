@@ -30,57 +30,110 @@ def _parse_jsonc(path: Path) -> dict[str, Any]:
     """
     if not path.exists():
         return {}
-    
-    try:
-        text = path.read_text()
-        
-        # Remove single-line comments (but not in strings)
-        lines = []
-        for line in text.split('\n'):
-            in_string = False
-            escape_next = False
-            result = []
-            i = 0
-            while i < len(line):
-                char = line[i]
-                if escape_next:
-                    result.append(char)
-                    escape_next = False
-                elif char == '\\':
-                    result.append(char)
-                    escape_next = True
-                elif char == '"' and not in_string:
-                    in_string = True
-                    result.append(char)
-                elif char == '"' and in_string:
-                    in_string = False
-                    result.append(char)
-                elif i < len(line) - 1 and line[i:i+2] == '//' and not in_string:
-                    # Found comment, stop processing this line
-                    break
-                else:
-                    result.append(char)
+
+    def strip_jsonc(text: str) -> str:
+        """Strip JSONC comments and trailing commas."""
+        out: list[str] = []
+        in_string = False
+        escape_next = False
+        in_single_comment = False
+        in_multi_comment = False
+        i = 0
+
+        while i < len(text):
+            ch = text[i]
+            nxt = text[i + 1] if i + 1 < len(text) else ""
+
+            if in_single_comment:
+                if ch == "\n":
+                    in_single_comment = False
+                    out.append(ch)
                 i += 1
-            lines.append(''.join(result))
-        
-        text = '\n'.join(l              
-        # Remove multi-line comments
-        while '/*            result = []
-       text.find('/*')
-            end = text.find('*/', start)
-            if end == -1:
-                # Unclosed comment
-                text = text[:start]
-                break
-            text = text[:start] + text[end+2:]
-        
-        # Remove trailing commas before ] or }
-        text = text.replace(',\n]', '\n]').replace(',\n}', '\n}')
-        text = text.replace(', ]', ' ]').replace(', }', ' }')
-        
+                continue
+
+            if in_multi_comment:
+                if ch == "*" and nxt == "/":
+                    in_multi_comment = False
+                    i += 2
+                else:
+                    i += 1
+                continue
+
+            if in_string:
+                out.append(ch)
+                if escape_next:
+                    escape_next = False
+                elif ch == "\\":
+                    escape_next = True
+                elif ch == '"':
+                    in_string = False
+                i += 1
+                continue
+
+            # Not in string/comment
+            if ch == '"':
+                in_string = True
+                out.append(ch)
+                i += 1
+                continue
+
+            if ch == "/" and nxt == "/":
+                in_single_comment = True
+                i += 2
+                continue
+
+            if ch == "/" and nxt == "*":
+                in_multi_comment = True
+                i += 2
+                continue
+
+            out.append(ch)
+            i += 1
+
+        # Remove trailing commas (outside strings; comments already stripped)
+        stripped = "".join(out)
+        out2: list[str] = []
+        in_string = False
+        escape_next = False
+        i = 0
+        while i < len(stripped):
+            ch = stripped[i]
+            if in_string:
+                out2.append(ch)
+                if escape_next:
+                    escape_next = False
+                elif ch == "\\":
+                    escape_next = True
+                elif ch == '"':
+                    in_string = False
+                i += 1
+                continue
+
+            if ch == '"':
+                in_string = True
+                out2.append(ch)
+                i += 1
+                continue
+
+            if ch == ",":
+                j = i + 1
+                while j < len(stripped) and stripped[j].isspace():
+                    j += 1
+                if j < len(stripped) and stripped[j] in ("}", "]"):
+                    i += 1
+                    continue
+
+            out2.append(ch)
+            i += 1
+
+        return "".join(out2)
+
+    try:
+        text = path.read_text(encoding="utf-8")
+        text = strip_jsonc(text)
         return json.loads(text)
-    except E                    in_string = False
-         parse JSONC", path=str(path), error=str(e))
+    except (OSError, json.JSONDecodeError) as e:
+        logger.warning("Failed to parse JSONC", path=str(path), error=str(e))
         return {}
 
 

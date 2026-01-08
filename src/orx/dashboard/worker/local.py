@@ -149,7 +149,10 @@ class LocalWorker:
         with self._lock:
             job = self._active_jobs.get(run_id)
             if job is None:
-                return False
+                pid = self._read_run_pid(run_id)
+                if pid is None:
+                    return False
+                return self._cancel_pid(pid, run_id=run_id)
 
             return self._cancel_job(job)
 
@@ -169,8 +172,8 @@ class LocalWorker:
         self._log.info("Cancelling run", run_id=job.run_id, pid=pid)
 
         try:
-            # Send SIGTERM first
-            os.kill(pid, signal.SIGTERM)
+            # Send SIGTERM to the whole session (started with start_new_session=True)
+            os.killpg(pid, signal.SIGTERM)
 
             # Wait for grace period
             try:
@@ -178,13 +181,55 @@ class LocalWorker:
             except subprocess.TimeoutExpired:
                 # Force kill
                 self._log.warning("Force killing run", run_id=job.run_id, pid=pid)
-                os.kill(pid, signal.SIGKILL)
+                os.killpg(pid, signal.SIGKILL)
                 job.process.wait(timeout=2)
 
             return True
         except (ProcessLookupError, OSError) as e:
             self._log.warning("Failed to cancel", run_id=job.run_id, error=str(e))
             return False
+
+    def _cancel_pid(self, pid: int, *, run_id: str) -> bool:
+        """Cancel a run by PID (for runs started by a previous dashboard session)."""
+        self._log.info("Cancelling run by pid", run_id=run_id, pid=pid)
+        try:
+            os.killpg(pid, signal.SIGTERM)
+            deadline = time.time() + self.config.cancel_grace_seconds
+            while time.time() < deadline:
+                try:
+                    os.kill(pid, 0)
+                except ProcessLookupError:
+                    return True
+                time.sleep(0.1)
+            self._log.warning("Force killing run by pid", run_id=run_id, pid=pid)
+            os.killpg(pid, signal.SIGKILL)
+            return True
+        except (ProcessLookupError, OSError) as e:
+            self._log.warning("Failed to cancel by pid", run_id=run_id, error=str(e))
+            return False
+
+    def _read_run_pid(self, run_id: str) -> int | None:
+        """Read PID for a run from state.json if present."""
+        if "/" in run_id or ".." in run_id:
+            return None
+        run_dir = (self.config.runs_root / run_id).resolve()
+        try:
+            run_dir.relative_to(self.config.runs_root.resolve())
+        except ValueError:
+            return None
+        state_path = run_dir / "state.json"
+        if not state_path.exists():
+            return None
+        try:
+            import json
+
+            data = json.loads(state_path.read_text())
+            pid = data.get("pid")
+            if isinstance(pid, int) and pid > 0:
+                return pid
+        except Exception:
+            return None
+        return None
 
     def get_run_pid(self, run_id: str) -> int | None:
         """Get PID of a running job.
@@ -236,10 +281,7 @@ class LocalWorker:
         cmd = [self.config.orx_bin, "run"]
 
         # Add task
-        if job.task.startswith("@"):
-            cmd.extend(["--task-file", job.task[1:]])
-        else:
-            cmd.append(job.task)
+        cmd.append(job.task)
 
         # Add options
         if job.base_branch:

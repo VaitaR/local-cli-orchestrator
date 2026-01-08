@@ -25,12 +25,16 @@
             <td class="mono">{{ run.elapsed_human }}</td>
             <td class="task-preview">{{ run.task_preview or '-' }}</td>
             <td>
+                {% if run.can_cancel %}
                 <button class="btn btn-sm btn-danger"
                         hx-post="/api/runs/{{ run.run_id }}/cancel"
                         hx-confirm="Cancel this run?"
                         hx-swap="none">
                     Cancel
                 </button>
+                {% else %}
+                <span class="mono">-</span>
+                {% endif %}
             </td>
         </tr>
         {% endfor %}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -141,9 +142,33 @@ class FileSystemRunStore:
         # Read state.json (current state)
         state = self._read_json(run_dir / "state.json") or {}
 
-        # Determine status
         current_stage = state.get("current_stage")
         stage_statuses = state.get("stage_statuses", {})
+        pid = state.get("pid")
+
+        pid_alive: bool | None = None
+        if isinstance(pid, int) and pid > 0:
+            try:
+                os.kill(pid, 0)
+                pid_alive = True
+            except ProcessLookupError:
+                pid_alive = False
+            except PermissionError:
+                # If we cannot query, treat as unknown rather than running.
+                pid_alive = None
+
+        # Parse timestamps (used for elapsed + staleness heuristics)
+        created_at = None
+        updated_at = None
+        try:
+            if "created_at" in state:
+                created_at = datetime.fromisoformat(state["created_at"])
+            elif "created_at" in meta:
+                created_at = datetime.fromisoformat(meta["created_at"])
+            if "updated_at" in state:
+                updated_at = datetime.fromisoformat(state["updated_at"])
+        except (ValueError, TypeError):
+            pass
 
         # Check for failure
         fail_category = None
@@ -158,24 +183,28 @@ class FileSystemRunStore:
         elif current_stage == "failed" or fail_category:
             status = RunStatus.FAIL
         elif current_stage:
-            status = RunStatus.RUNNING
+            if pid_alive is False:
+                status = RunStatus.FAIL
+                fail_category = fail_category or "process_exited"
+            else:
+                status = RunStatus.RUNNING
         else:
             status = RunStatus.UNKNOWN
 
-        # Parse timestamps
-        created_at = None
-        updated_at = None
-        try:
-            if "created_at" in state:
-                created_at = datetime.fromisoformat(state["created_at"])
-            elif "created_at" in meta:
-                created_at = datetime.fromisoformat(meta["created_at"])
-            if "updated_at" in state:
-                updated_at = datetime.fromisoformat(state["updated_at"])
-        except (ValueError, TypeError):
-            # Silently ignore malformed or invalid timestamp data; timestamps are optional
-            # and we want to gracefully degrade rather than fail the entire run summary
-            pass
+        # If pid is missing, treat very old "running" states as stale.
+        if (
+            status == RunStatus.RUNNING
+            and pid_alive is None
+            and updated_at is not None
+            and self.config is not None
+        ):
+            now = datetime.now(tz=UTC)
+            if updated_at.tzinfo is None:
+                updated_at = updated_at.replace(tzinfo=UTC)
+            age_seconds = (now - updated_at).total_seconds()
+            if age_seconds > self.config.stale_run_without_pid_seconds:
+                status = RunStatus.UNKNOWN
+                fail_category = fail_category or "stale_no_pid"
 
         # Calculate elapsed time
         elapsed_ms = None
@@ -206,6 +235,7 @@ class FileSystemRunStore:
             created_at=created_at,
             updated_at=updated_at,
             elapsed_ms=elapsed_ms,
+            pid=pid if isinstance(pid, int) else None,
             repo_path=meta.get("repo_path"),
             base_branch=meta.get("base_branch"),
             fail_category=fail_category,
@@ -328,7 +358,6 @@ class FileSystemRunStore:
             **summary.model_dump(),
             base_sha=meta.get("base_sha") or state.get("baseline_sha"),
             worktree_path=meta.get("worktree_path"),
-            pid=state.get("pid"),
             last_error=last_error,
             artifacts=artifact_paths,
             logs=logs,

@@ -101,6 +101,7 @@ class RunState:
         current_item_id: Current work item being processed.
         current_iteration: Current fix-loop iteration.
         baseline_sha: Git SHA of the baseline.
+        pid: PID of the orx process (if running).
         stage_statuses: Status of each stage.
         last_failure_evidence: Pointers to failure evidence.
         created_at: When the run was created.
@@ -112,6 +113,7 @@ class RunState:
     current_item_id: str | None = None
     current_iteration: int = 0
     baseline_sha: str | None = None
+    pid: int | None = None
     stage_statuses: dict[str, StageStatus] = field(default_factory=dict)
     last_failure_evidence: dict[str, str] = field(default_factory=dict)
     created_at: str = field(default_factory=lambda: datetime.now(tz=UTC).isoformat())
@@ -125,6 +127,7 @@ class RunState:
             "current_item_id": self.current_item_id,
             "current_iteration": self.current_iteration,
             "baseline_sha": self.baseline_sha,
+            "pid": self.pid,
             "stage_statuses": {k: v.to_dict() for k, v in self.stage_statuses.items()},
             "last_failure_evidence": self.last_failure_evidence,
             "created_at": self.created_at,
@@ -144,6 +147,7 @@ class RunState:
             current_item_id=data.get("current_item_id"),
             current_iteration=data.get("current_iteration", 0),
             baseline_sha=data.get("baseline_sha"),
+            pid=data.get("pid"),
             stage_statuses=stage_statuses,
             last_failure_evidence=data.get("last_failure_evidence", {}),
             created_at=data.get("created_at", datetime.now(tz=UTC).isoformat()),
@@ -331,6 +335,15 @@ class StateManager:
         self.state.baseline_sha = sha
         self.save()
         logger.debug("Set baseline SHA", sha=sha[:8])
+
+    def set_pid(self, pid: int | None) -> None:
+        """Set or clear the PID for the running orx process.
+
+        Args:
+            pid: Process ID, or None to clear.
+        """
+        self.state.pid = pid
+        self.save()
 
     def set_failure_evidence(self, evidence: dict[str, str]) -> None:
         """Set failure evidence for fix prompts.

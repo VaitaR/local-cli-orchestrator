@@ -201,6 +201,62 @@ class CommandRunner:
             if stderr_handle and stderr_handle != subprocess.DEVNULL:
                 stderr_handle.close()  # type: ignore[union-attr]
 
+    def run_capture(
+        self,
+        command: list[str],
+        *,
+        cwd: Path | None = None,
+        timeout: int | None = None,
+        env: dict[str, str] | None = None,
+    ) -> tuple[int, str, str]:
+        """Run a command and capture stdout/stderr in memory.
+
+        Args:
+            command: Command and arguments to run.
+            cwd: Working directory for the command.
+            timeout: Timeout in seconds.
+            env: Environment variables (merged with current env).
+
+        Returns:
+            Tuple of (returncode, stdout, stderr).
+
+        Raises:
+            CommandError: If command cannot be started or times out.
+        """
+        log = logger.bind(command=command, cwd=str(cwd) if cwd else None)
+        log.info("Running command (capture mode)")
+
+        if self.dry_run:
+            log.info("Dry run - skipping execution")
+            return 0, "", ""
+
+        import os
+
+        full_env = os.environ.copy()
+        if env:
+            full_env.update(env)
+
+        try:
+            result = subprocess.run(
+                command,
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                env=full_env,
+                check=False,
+            )
+            log.info("Command completed", returncode=result.returncode)
+            return result.returncode, result.stdout, result.stderr
+        except subprocess.TimeoutExpired as e:
+            log.error("Command timed out", timeout=timeout)
+            msg = f"Command timed out after {timeout}s: {' '.join(command)}"
+            raise CommandError(msg, command=command, cwd=cwd) from e
+        except FileNotFoundError as e:
+            log.error("Command not found", command=command[0])
+            msg = f"Command not found: {command[0]}"
+            raise CommandError(msg, command=command, cwd=cwd) from e
+
     def start_process(
         self,
         command: list[str],

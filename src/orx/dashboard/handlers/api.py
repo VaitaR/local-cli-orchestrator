@@ -52,11 +52,46 @@ async def cancel_run(request: Request, run_id: str):
         return JSONResponse(
             {"status": "cancelled", "run_id": run_id, "message": "Cancellation initiated"}
         )
-    else:
+
+    # If the worker cannot cancel, fall back to the store to distinguish:
+    # - run truly not found
+    # - run exists but already finished
+    # - run appears running but cannot be cancelled (e.g., missing pid)
+    store = request.app.state.store
+    run = store.get_run(run_id)
+    if run is None:
         return JSONResponse(
-            {"status": "not_found", "run_id": run_id, "message": "Run not found or not running"},
+            {"status": "not_found", "run_id": run_id, "message": "Run not found"},
             status_code=404,
         )
+
+    if not run.is_active:
+        return JSONResponse(
+            {
+                "status": "not_running",
+                "run_id": run_id,
+                "message": "Run is not running (it may have already finished)",
+            }
+        )
+
+    if not run.can_cancel:
+        return JSONResponse(
+            {
+                "status": "cannot_cancel",
+                "run_id": run_id,
+                "message": "Run appears active but cannot be cancelled (missing pid)",
+            },
+            status_code=409,
+        )
+
+    return JSONResponse(
+        {
+            "status": "cancel_failed",
+            "run_id": run_id,
+            "message": "Failed to cancel run",
+        },
+        status_code=500,
+    )
 
 
 @router.get("/runs/{run_id}/status")

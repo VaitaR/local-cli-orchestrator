@@ -70,7 +70,7 @@ class DockerGate(BaseGate):
             f"-t {self.image_tag} ."
         )
 
-        def run(self, *, cwd: Path, log_path: Path) -> GateResult:
+    def run(self, *, cwd: Path, log_path: Path) -> GateResult:
         """Run docker build.
 
         Args:

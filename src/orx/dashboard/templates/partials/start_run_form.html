@@ -74,6 +74,7 @@ document.getElementById('start-run-form').addEventListener('submit', async (e) =
         
         // Refresh the runs list
         htmx.ajax('GET', '/partials/active-runs', {target: '#active-runs', swap: 'innerHTML'});
+        htmx.ajax('GET', '/partials/recent-runs', {target: '#recent-runs', swap: 'innerHTML'});
         
     } catch (error) {
         alert(`Error: ${error.message}`);

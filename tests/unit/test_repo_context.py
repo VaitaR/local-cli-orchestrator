@@ -252,6 +252,30 @@ class TestPythonExtractor:
 class TestTypeScriptExtractor:
     """Tests for TypeScriptExtractor."""
 
+    def test_parse_jsonc_with_comments_and_trailing_commas(self, tmp_path: Path) -> None:
+        """Test JSONC parsing for tsconfig/eslint style files."""
+        (tmp_path / "package.json").write_text('{"name": "test"}')
+
+        tsconfig_jsonc = dedent(
+            """
+            {
+              // comment
+              "compilerOptions": {
+                "strict": true, /* inline comment */
+                "target": "ES2022",
+              },
+            }
+            """
+        ).strip()
+        (tmp_path / "tsconfig.json").write_text(tsconfig_jsonc)
+
+        extractor = TypeScriptExtractor(tmp_path)
+        blocks = extractor.extract_all()
+        ts_block = next((b for b in blocks if "TypeScript Configuration" in b.title), None)
+        assert ts_block is not None
+        assert "strict: true" in ts_block.body
+        assert "target: ES2022" in ts_block.body
+
     def test_is_ts_project_package(self, tmp_path: Path) -> None:
         """Test TS project detection via package.json."""
         (tmp_path / "package.json").write_text('{"name": "test"}')

@@ -120,3 +120,38 @@ class TestLocalWorker:
         worker.stop()
         time.sleep(0.2)
         assert worker._thread is None or not worker._thread.is_alive()
+
+    def test_cleanup_completed_removes_finished_jobs(self, mock_config: MockConfig) -> None:
+        """Ensure finished jobs are removed from active list."""
+        from orx.dashboard.worker.local import LocalWorker, RunJob
+
+        worker = LocalWorker(mock_config)
+        finished_proc = MagicMock()
+        finished_proc.poll.return_value = 0
+        finished_proc.returncode = 0
+
+        job = RunJob(run_id="test", task="t", repo_path=str(mock_config.runs_root.parent))
+        job.process = finished_proc
+        with worker._lock:
+            worker._active_jobs[job.run_id] = job
+
+        worker._cleanup_completed()
+
+        with worker._lock:
+            assert "test" not in worker._active_jobs
+
+    def test_cancel_run_by_pid_from_state(self, mock_config: MockConfig) -> None:
+        """Cancel should fall back to pid from state.json when job not tracked."""
+        from orx.dashboard.worker.local import LocalWorker
+
+        run_id = "20260108_000000_deadbeef"
+        run_dir = mock_config.runs_root / run_id
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "state.json").write_text('{"pid": 12345}')
+
+        worker = LocalWorker(mock_config)
+
+        with patch("os.killpg") as killpg, patch("os.kill") as kill:
+            killpg.return_value = None
+            kill.side_effect = ProcessLookupError()
+            assert worker.cancel_run(run_id) is True
