@@ -107,6 +107,11 @@
         }
     }
     
+    // Get production engines (non-test only)
+    function getProductionEngines(engines) {
+        return engines.filter(e => !e.is_test);
+    }
+    
     // Build per-stage engine selects dynamically
     function buildStageEngineSelects(stages, engines) {
         const grid = document.getElementById('stage-engines-grid');
@@ -171,13 +176,16 @@
                 { value: 'fix', label: 'Fix' },
                 { value: 'review', label: 'Review' }
             ];
-            populateEngineSelect('engine', fallbackEngines, true, true);
-            buildStageEngineSelects(fallbackStages, fallbackEngines);
+            // Only show production engines in main dropdown
+            populateEngineSelect('engine', getProductionEngines(fallbackEngines), true, false);
+            buildStageEngineSelects(fallbackStages, getProductionEngines(fallbackEngines));
             return;
         }
         
-        populateEngineSelect('engine', config.engines, true, true);
-        buildStageEngineSelects(config.stages, config.engines);
+        // Only show production engines in main dropdown (exclude test engines like fake)
+        const productionEngines = getProductionEngines(config.engines);
+        populateEngineSelect('engine', productionEngines, true, false);
+        buildStageEngineSelects(config.stages, productionEngines);
     }
     
     // Collect per-stage engine overrides
