@@ -1120,7 +1120,6 @@ class Runner:
                         gate_duration += int(
                             (time.perf_counter() - retry_start) * 1000
                         )
-                        log_path = retry_log
 
                 # Extract test counts for pytest
                 tests_failed = None
