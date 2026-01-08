@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 
 @dataclass
@@ -102,10 +102,7 @@ def extract_spec_highlights(spec: str, max_lines: int = 120) -> str:
         if capturing:
             selected.append(line)
 
-    if not selected:
-        selected = lines[:max_lines]
-    else:
-        selected = selected[:max_lines]
+    selected = lines[:max_lines] if not selected else selected[:max_lines]
 
     return "\n".join(selected).strip()
 

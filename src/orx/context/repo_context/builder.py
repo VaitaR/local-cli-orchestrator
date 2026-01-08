@@ -57,7 +57,7 @@ class RepoContextBuilder:
     def __init__(
         self,
         worktree: Path,
-        gates: list["Gate"] | None = None,
+        gates: list[Gate] | None = None,
         *,
         profile_budget: int = 3000,
         full_budget: int = 11000,
@@ -183,7 +183,7 @@ class RepoContextBuilder:
 
 def build_repo_context(
     worktree: Path,
-    gates: list["Gate"] | None = None,
+    gates: list[Gate] | None = None,
 ) -> RepoContextResult:
     """Convenience function to build repo context.
 

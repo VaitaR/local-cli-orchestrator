@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 import signal
-import subprocess
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -25,14 +24,14 @@ from orx.executors.codex import CodexExecutor
 from orx.executors.fake import FakeExecutor
 from orx.executors.gemini import GeminiExecutor
 from orx.executors.router import ModelRouter
-from orx.gates.base import Gate
+from orx.gates.base import Gate, GateResult
 from orx.gates.docker import DockerGate
 from orx.gates.generic import GenericGate
 from orx.gates.pytest import PytestGate
 from orx.gates.ruff import RuffGate
-from orx.metrics.events import EventLogger
 from orx.infra.command import CommandRunner
 from orx.metrics.collector import MetricsCollector
+from orx.metrics.events import EventLogger
 from orx.metrics.schema import FailureCategory, StageStatus
 from orx.metrics.writer import MetricsWriter, append_to_index
 from orx.paths import RunPaths
@@ -901,20 +900,16 @@ class Runner:
             inputs.append(self.paths.task_md)
 
         # Stage-specific inputs
-        if stage in ("spec", "decompose", "implement", "fix", "review"):
-            if self.paths.plan_md.exists():
-                inputs.append(self.paths.plan_md)
-        if stage in ("decompose", "implement", "fix", "review"):
-            if self.paths.spec_md.exists():
-                inputs.append(self.paths.spec_md)
-        if stage in ("implement", "fix", "review"):
-            if self.paths.backlog_yaml.exists():
-                inputs.append(self.paths.backlog_yaml)
-
+        if stage in ("spec", "decompose", "implement", "fix", "review") and self.paths.plan_md.exists():
+            inputs.append(self.paths.plan_md)
+        if stage in ("decompose", "implement", "fix", "review") and self.paths.spec_md.exists():
+            inputs.append(self.paths.spec_md)
+        if stage in ("implement", "fix", "review") and self.paths.backlog_yaml.exists():
+            inputs.append(self.paths.backlog_yaml)
         if inputs:
             self.metrics.record_inputs_fingerprint(*inputs)
 
-    def _record_stage_outputs(self, stage: str, result: StageResult) -> None:
+    def _record_stage_outputs(self, stage: str, result: StageResult) -> None:  # noqa: ARG002
         """Record output fingerprints and artifacts for a stage.
 
         Args:
@@ -1037,7 +1032,6 @@ class Runner:
 
             # Implementation/fix loop
             success = False
-            first_attempt_gates_passed = False
 
             for attempt in range(1, max_attempts + 1):
                 item.increment_attempts()
@@ -1126,7 +1120,6 @@ class Runner:
 
                     # Track first green
                     if attempt == 1 and verify_mode == "full":
-                        first_attempt_gates_passed = True
                         self.metrics.mark_first_green()
 
                     break
@@ -1506,7 +1499,7 @@ class Runner:
         attempt: int,
         *,
         mode: str,
-    ) -> tuple["GateResult", int]:
+    ) -> tuple[GateResult, int]:
         """Run ruff with --fix to auto-apply lint changes."""
         args = list(getattr(gate, "args", []) or ["check", "."])
         if "--fix" not in args:

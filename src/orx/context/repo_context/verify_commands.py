@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from orx.gates.base import Gate
 
 
-def build_verify_commands(gates: list["Gate"]) -> ContextBlock | None:
+def build_verify_commands(gates: list[Gate]) -> ContextBlock | None:
     """Build a context block describing verify commands.
 
     Args:
@@ -39,12 +39,7 @@ def build_verify_commands(gates: list["Gate"]) -> ContextBlock | None:
             command = getattr(gate, "command", name)
             args = getattr(gate, "args", [])
 
-            if args:
-                full_cmd = f"{command} {' '.join(args)}"
-            else:
-                full_cmd = str(command)
-
-        # Truncate long commands
+            full_cmd = f"{command} {' '.join(args)}" if args else str(command)
         if len(full_cmd) > 80:
             full_cmd = full_cmd[:77] + "..."
 
@@ -63,7 +58,7 @@ def build_verify_commands(gates: list["Gate"]) -> ContextBlock | None:
     )
 
 
-def render_verify_commands_markdown(gates: list["Gate"]) -> str:
+def render_verify_commands_markdown(gates: list[Gate]) -> str:
     """Render verify commands as standalone markdown.
 
     Args:

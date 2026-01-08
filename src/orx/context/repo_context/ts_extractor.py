@@ -22,7 +22,7 @@ logger = structlog.get_logger()
 
 def _parse_jsonc(path: Path) -> dict[str, Any]:
     """Parse a JSONC file (JSON with comments), returning empty dict on failure.
-    
+
     Handles:
     - Single-line comments (// ...)
     - Multi-line comments (/* ... */)
@@ -139,7 +139,7 @@ def _parse_jsonc(path: Path) -> dict[str, Any]:
 
 def _parse_json(path: Path) -> dict[str, Any]:
     """Parse a JSON file, returning empty dict on failure.
-    
+
     Note: This now uses JSONC parsing for better compatibility.
     """
     return _parse_jsonc(path)

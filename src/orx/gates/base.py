@@ -98,7 +98,7 @@ class BaseGate:
 
     def render_command(self) -> str:
         """Render the command with arguments.
-        
+
         Override in subclasses that construct commands dynamically.
         """
         if self.args:

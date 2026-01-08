@@ -220,7 +220,7 @@ class TestContextPackIntegration:
 class TestRepoContextInRunner:
     """Test repo context integration in Runner."""
 
-    def test_runner_builds_context_on_run(self, python_project: Path, tmp_path: Path) -> None:
+    def test_runner_builds_context_on_run(self, python_project: Path, tmp_path: Path) -> None:  # noqa: ARG002
         """Test that runner builds repo context during run setup."""
         # Initialize git repo in project
         import subprocess
@@ -272,9 +272,11 @@ class TestRepoContextInRunner:
         runner.workspace.remove()
 
     def test_runner_skips_existing_context_on_resume(
-        self, python_project: Path, tmp_path: Path
+        self, python_project: Path, tmp_path: Path  # noqa: ARG002
     ) -> None:
         """Test that runner doesn't overwrite context on resume."""
+
+
         # Initialize git repo
         import subprocess
 

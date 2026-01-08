@@ -6,8 +6,6 @@ import json
 from pathlib import Path
 from textwrap import dedent
 
-import pytest
-
 from orx.context.repo_context.blocks import ContextBlock, ContextPriority, merge_blocks
 from orx.context.repo_context.builder import RepoContextBuilder
 from orx.context.repo_context.packer import ContextPacker, pack_for_stage

@@ -45,7 +45,7 @@ class LocalWorker:
     - Concurrency limiting
     """
 
-    def __init__(self, config: "DashboardConfig") -> None:
+    def __init__(self, config: DashboardConfig) -> None:
         """Initialize the worker.
 
         Args:
@@ -297,9 +297,6 @@ class LocalWorker:
             )
 
         existing_run_ids = self._snapshot_run_ids(runs_dir)
-
-        # Set working directory
-        cwd = str(base_dir)
 
         # Prepare environment - inherit current env and preserve ORX_RUNS_ROOT
         env = os.environ.copy()

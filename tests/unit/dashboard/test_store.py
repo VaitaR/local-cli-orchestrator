@@ -14,7 +14,7 @@ def runs_root(tmp_path: Path) -> Path:
     """Create a temporary runs directory with test data."""
     runs = tmp_path / "runs"
     runs.mkdir()
-    
+
     # Create a completed run
     run1 = runs / "test-run-001"
     run1.mkdir()
@@ -51,7 +51,7 @@ def runs_root(tmp_path: Path) -> Path:
     logs1 = run1 / "logs"
     logs1.mkdir()
     (logs1 / "run.log").write_text("INFO Starting run\nINFO Complete\n")
-    
+
     # Create a running run
     run2 = runs / "test-run-002"
     run2.mkdir()
@@ -66,6 +66,10 @@ def runs_root(tmp_path: Path) -> Path:
     (run2 / "state.json").write_text(json.dumps({
         "current_stage": "implement",  # Not "done" = running
         "created_at": "2025-01-15T11:00:00Z",
+        "last_failure_evidence": {
+            "ruff_failed": True,
+            "ruff_log": "F401 unused import\\nmore",
+        },
         "stage_statuses": {
             "plan": {"status": "success"},
             "spec": {"status": "success"},
@@ -80,7 +84,7 @@ def runs_root(tmp_path: Path) -> Path:
     logs2 = run2 / "logs"
     logs2.mkdir()
     (logs2 / "run.log").write_text("INFO Starting run\nINFO Running implement\n")
-    
+
     return runs
 
 
@@ -116,6 +120,13 @@ class TestFileSystemRunStore:
         assert active[0].run_id == "test-run-002"
         assert active[0].status == RunStatus.RUNNING
 
+    def test_running_run_hides_last_error(self, store: FileSystemRunStore) -> None:
+        """Running runs should not surface last error."""
+        detail = store.get_run("test-run-002")
+        assert detail is not None
+        assert detail.is_active is True
+        assert detail.last_error is None
+
     def test_list_recent_runs(self, store: FileSystemRunStore) -> None:
         """Test filtering for recent (completed/failed) runs."""
         # Get all runs and filter completed ones
@@ -132,6 +143,7 @@ class TestFileSystemRunStore:
         assert detail.run_id == "test-run-001"
         assert "plan" in detail.stage_statuses or detail.current_stage is not None
         assert len(detail.artifacts) > 0
+        assert detail.last_error is None
 
     def test_get_run_detail_not_found(self, store: FileSystemRunStore) -> None:
         """Test getting a non-existent run returns None."""
@@ -169,7 +181,7 @@ class TestFileSystemRunStore:
         run_dir = store.runs_dir / "test-run-001" / "artifacts"
         run_dir.mkdir(parents=True, exist_ok=True)
         (run_dir / "patch.diff").write_text("diff --git a/test.py b/test.py\n+# test")
-        
+
         diff = store.get_diff("test-run-001")
         assert diff is not None
         assert "diff --git" in diff
@@ -186,7 +198,7 @@ class TestFileSystemRunStore:
         log_dir = store.runs_dir / "test-run-001" / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
         (log_dir / "run.log").write_text("INFO Starting run\nINFO Complete\n")
-        
+
         chunk = store.tail_log("test-run-001", "run.log", cursor=0)
         assert chunk is not None
         assert "Starting run" in chunk.content
@@ -198,11 +210,11 @@ class TestFileSystemRunStore:
         log_dir = store.runs_dir / "test-run-001" / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
         (log_dir / "run.log").write_text("Line 1\nLine 2\nLine 3\n")
-        
+
         # First read
         chunk1 = store.tail_log("test-run-001", "run.log", cursor=0)
         assert chunk1 is not None
-        
+
         # Read from end should return empty or less content
         chunk2 = store.tail_log("test-run-001", "run.log", cursor=chunk1.cursor)
         # At end of file, content should be empty

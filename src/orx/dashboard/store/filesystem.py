@@ -45,7 +45,7 @@ class FileSystemRunStore:
 
     def __init__(
         self,
-        config_or_path: "DashboardConfig | Path",
+        config_or_path: DashboardConfig | Path,
     ) -> None:
         """Initialize the store.
 
@@ -242,6 +242,43 @@ class FileSystemRunStore:
             task_preview=task_preview,
         )
 
+    def _summarize_failure(
+        self, evidence: dict[str, Any], fail_category: str | None
+    ) -> str | None:
+        """Build a readable failure message from evidence."""
+        if evidence.get("message"):
+            return str(evidence["message"])
+
+        if evidence.get("ruff_failed"):
+            message = "Ruff failed"
+            ruff_log = evidence.get("ruff_log")
+            if isinstance(ruff_log, str) and ruff_log.strip():
+                first_line = ruff_log.strip().splitlines()[0].strip()
+                return f"{message}: {first_line}"
+            return message
+
+        if evidence.get("pytest_failed"):
+            message = "Pytest failed"
+            pytest_log = evidence.get("pytest_log")
+            if isinstance(pytest_log, str) and pytest_log.strip():
+                first_line = pytest_log.strip().splitlines()[0].strip()
+                return f"{message}: {first_line}"
+            return message
+
+        if evidence.get("diff_empty"):
+            return "No changes produced"
+
+        if evidence.get("guardrail_violation"):
+            return "Guardrail violation"
+
+        if fail_category:
+            return fail_category.replace("_", " ")
+
+        if evidence:
+            return "Run failed"
+
+        return None
+
     def list_runs(
         self,
         *,
@@ -322,10 +359,11 @@ class FileSystemRunStore:
         # Build last error info
         last_error = None
         evidence = state.get("last_failure_evidence", {})
-        if evidence or summary.fail_category:
+        if (evidence or summary.fail_category) and not summary.is_active:
+            message = self._summarize_failure(evidence, summary.fail_category)
             last_error = LastError(
                 category=summary.fail_category,
-                message=evidence.get("message"),
+                message=message,
                 evidence_paths=list(evidence.keys()),
             )
 
@@ -344,12 +382,9 @@ class FileSystemRunStore:
         task_content = None
         task_path = run_dir / "context" / "task.md"
         if task_path.exists():
-            try:
-                task_content = task_path.read_text()
-            except OSError:
-                pass
-
-        # Load metrics summary if available
+              import contextlib
+              with contextlib.suppress(OSError):
+                  task_content = task_path.read_text()
         metrics_summary = None
         if has_metrics:
             metrics_summary = self._read_json(run_dir / "metrics" / "run.json")
@@ -500,7 +535,6 @@ class FileSystemRunStore:
             LogChunk with content and pagination info.
         """
         run_dir = self._runs_dir / run_id
-        log_path = run_dir / "logs" / log_name
 
         # Validate path
         safe = self._safe_path(run_dir, f"logs/{log_name}")

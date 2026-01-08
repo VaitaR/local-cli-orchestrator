@@ -13,16 +13,12 @@ import pytest
 from orx.config import (
     EngineConfig,
     EngineType,
-    ExecutorConfig,
-    ExecutorDefaults,
     ExecutorsConfig,
     FallbackMatchConfig,
     FallbackPolicyConfig,
     FallbackRule,
     FallbackSwitchConfig,
     ModelSelector,
-    OrxConfig,
-    StageExecutorConfig,
     StagesConfig,
 )
 from orx.executors.base import LogPaths
@@ -422,7 +418,7 @@ class TestArtifactCreation:
         selector = ModelSelector(model="gpt-5.2")
 
         # Run executor (will use the fake binary)
-        result = executor.run_apply(
+        executor.run_apply(
             cwd=tmp_path,
             prompt_path=prompt_file,
             logs=logs,

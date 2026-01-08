@@ -14,10 +14,9 @@ from orx.config import (
     ExecutorsConfig,
     FallbackPolicyConfig,
     ModelSelector,
-    StageExecutorConfig,
     StagesConfig,
 )
-from orx.executors.base import ExecResult, Executor, LogPaths, ResolvedInvocation
+from orx.executors.base import ExecResult, Executor, ResolvedInvocation
 from orx.executors.codex import CodexExecutor
 from orx.executors.fake import FakeExecutor
 from orx.executors.gemini import GeminiExecutor
@@ -124,7 +123,7 @@ class ModelRouter:
         executors: ExecutorsConfig,
         stages: StagesConfig,
         fallback: FallbackPolicyConfig,
-        cmd: "CommandRunner",
+        cmd: CommandRunner,
         dry_run: bool = False,
     ) -> None:
         """Initialize the model router.
@@ -396,7 +395,7 @@ class ModelRouter:
 
     def create_attempts_dir(
         self,
-        paths: "RunPaths",
+        paths: RunPaths,
         stage: str,
         attempt: int,
     ) -> Path:

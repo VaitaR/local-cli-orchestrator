@@ -9,9 +9,9 @@ from orx.context.pack import ContextPack
 from orx.executors.base import ExecResult, LogPaths
 from orx.paths import RunPaths
 from orx.prompts.renderer import PromptRenderer
-from orx.state import StateManager
 from orx.stages.base import StageContext
 from orx.stages.decompose import DecomposeStage
+from orx.state import StateManager
 
 
 class StubWorkspace:

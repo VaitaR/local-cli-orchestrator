@@ -1,14 +1,13 @@
 """Integration tests for dashboard API endpoints."""
 
 import json
-from datetime import datetime, timezone
+from collections.abc import Generator
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Generator
 
 import pytest
 from fastapi.testclient import TestClient
 
-from orx.dashboard.config import DashboardConfig
 from orx.dashboard.server import create_app
 
 
@@ -17,7 +16,7 @@ def runs_root(tmp_path: Path) -> Path:
     """Create a temporary runs directory with test data."""
     runs = tmp_path / "runs"
     runs.mkdir()
-    
+
     # Create a completed run
     run1 = runs / "test-run-001"
     run1.mkdir()
@@ -52,7 +51,7 @@ def runs_root(tmp_path: Path) -> Path:
     logs = run1 / "logs"
     logs.mkdir()
     (logs / "run.log").write_text("INFO Starting\nINFO Done\n")
-    
+
     return runs
 
 
@@ -63,7 +62,7 @@ def client(runs_root: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[TestCl
     monkeypatch.setenv("ORX_RUNS_ROOT", str(runs_root))
     monkeypatch.setenv("ORX_DASHBOARD_HOST", "127.0.0.1")
     monkeypatch.setenv("ORX_DASHBOARD_PORT", "8421")
-    
+
     app = create_app()
     with TestClient(app) as test_client:
         yield test_client
@@ -170,12 +169,12 @@ class TestPartialEndpoints:
             "run_id": run_id,
             "task": "Still running task",
             "base_branch": "main",
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
         }))
         (run_dir / "state.json").write_text(json.dumps({
             "current_stage": "implement",
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
             "stage_statuses": {
                 "plan": {"status": "success"},
                 "implement": {"status": "running"},
@@ -237,7 +236,7 @@ class TestAPIEndpoints:
                     "run_id": run_id,
                     "task": "Running but missing pid",
                     "base_branch": "main",
-                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "created_at": datetime.now(UTC).isoformat(),
                 }
             )
         )
@@ -245,8 +244,8 @@ class TestAPIEndpoints:
             json.dumps(
                 {
                     "current_stage": "implement",
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "created_at": datetime.now(UTC).isoformat(),
+                    "updated_at": datetime.now(UTC).isoformat(),
                     "stage_statuses": {
                         "plan": {"status": "success"},
                         "implement": {"status": "running"},

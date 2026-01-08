@@ -51,7 +51,7 @@ def main() -> int:
 
     # Build config from env vars and CLI args
     config = DashboardConfig()
-    
+
     # CLI args override env vars
     if args.host:
         config.host = args.host

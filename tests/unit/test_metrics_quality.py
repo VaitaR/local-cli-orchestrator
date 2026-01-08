@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from orx.metrics.quality import (
     analyze_backlog_quality,
     analyze_diff_hygiene,

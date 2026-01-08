@@ -20,7 +20,7 @@ from orx.config import (
     StageExecutorConfig,
     StagesConfig,
 )
-from orx.executors.base import ExecResult, LogPaths, ResolvedInvocation
+from orx.executors.base import ExecResult, LogPaths
 from orx.executors.router import ModelRouter
 from orx.infra.command import CommandRunner
 

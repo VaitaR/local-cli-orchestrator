@@ -87,7 +87,7 @@ class GeminiExecutor(BaseExecutor):
         self,
         *,
         prompt_path: Path,
-        model_selector: "ModelSelector | None" = None,
+        model_selector: ModelSelector | None = None,
     ) -> tuple[list[str], dict[str, str | None]]:
         """Build the gemini command line.
 
@@ -132,10 +132,10 @@ class GeminiExecutor(BaseExecutor):
         self,
         *,
         prompt_path: Path,
-        cwd: Path,
+        cwd: Path,  # noqa: ARG002
         logs: LogPaths,
         out_path: Path | None = None,
-        model_selector: "ModelSelector | None" = None,
+        model_selector: ModelSelector | None = None,
     ) -> ResolvedInvocation:
         """Resolve the command invocation without executing.
 
@@ -217,7 +217,7 @@ class GeminiExecutor(BaseExecutor):
         out_path: Path,
         logs: LogPaths,
         timeout: int | None = None,
-        model_selector: "ModelSelector | None" = None,
+        model_selector: ModelSelector | None = None,
     ) -> ExecResult:
         """Run gemini to produce text output.
 
@@ -311,7 +311,7 @@ class GeminiExecutor(BaseExecutor):
         prompt_path: Path,
         logs: LogPaths,
         timeout: int | None = None,
-        model_selector: "ModelSelector | None" = None,
+        model_selector: ModelSelector | None = None,
     ) -> ExecResult:
         """Run gemini to apply filesystem changes.
 

@@ -86,7 +86,7 @@ class CodexExecutor(BaseExecutor):
         *,
         prompt_path: Path,
         cwd: Path,
-        model_selector: "ModelSelector | None" = None,
+        model_selector: ModelSelector | None = None,
         out_path: Path | None = None,
         text_only: bool = False,
     ) -> tuple[list[str], dict[str, str | None]]:
@@ -152,7 +152,7 @@ class CodexExecutor(BaseExecutor):
         cwd: Path,
         logs: LogPaths,
         out_path: Path | None = None,
-        model_selector: "ModelSelector | None" = None,
+        model_selector: ModelSelector | None = None,
         text_only: bool = False,
     ) -> ResolvedInvocation:
         """Resolve the command invocation without executing.
@@ -204,7 +204,7 @@ class CodexExecutor(BaseExecutor):
         out_path: Path,
         logs: LogPaths,
         timeout: int | None = None,
-        model_selector: "ModelSelector | None" = None,
+        model_selector: ModelSelector | None = None,
     ) -> ExecResult:
         """Run codex to produce text output.
 
@@ -251,11 +251,10 @@ class CodexExecutor(BaseExecutor):
 
             # For text mode without --output-last-message, output goes to stdout
             # If we're using --output-last-message, output goes to out_path directly
-            if not any("--output-last-message" in arg for arg in invocation.cmd):
-                if logs.stdout.exists():
-                    content = logs.stdout.read_text()
-                    out_path.parent.mkdir(parents=True, exist_ok=True)
-                    out_path.write_text(content)
+            if not any("--output-last-message" in arg for arg in invocation.cmd) and logs.stdout.exists():
+                content = logs.stdout.read_text()
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                out_path.write_text(content)
 
             if result.returncode != 0:
                 log.warning("Codex returned non-zero exit code", code=result.returncode)
@@ -291,7 +290,7 @@ class CodexExecutor(BaseExecutor):
         prompt_path: Path,
         logs: LogPaths,
         timeout: int | None = None,
-        model_selector: "ModelSelector | None" = None,
+        model_selector: ModelSelector | None = None,
     ) -> ExecResult:
         """Run codex to apply filesystem changes.
 

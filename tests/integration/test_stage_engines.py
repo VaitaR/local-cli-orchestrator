@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from orx.config import EngineType, ModelSelector, OrxConfig, StageExecutorConfig
+from orx.config import ModelSelector, OrxConfig
 from orx.executors.base import ExecResult, LogPaths
 from orx.runner import Runner
 from orx.state import Stage
@@ -27,11 +27,11 @@ class RecordingExecutor:
     def run_text(
         self,
         *,
-        cwd: Path,
+        cwd: Path,  # noqa: ARG002
         prompt_path: Path,
         out_path: Path,
         logs: LogPaths,
-        timeout: int | None = None,
+        timeout: int | None = None,  # noqa: ARG002
         model_selector: ModelSelector | None = None,
     ) -> ExecResult:
         stage = prompt_path.stem
@@ -55,10 +55,10 @@ class RecordingExecutor:
     def run_apply(
         self,
         *,
-        cwd: Path,
+        cwd: Path,  # noqa: ARG002
         prompt_path: Path,
         logs: LogPaths,
-        timeout: int | None = None,
+        timeout: int | None = None,  # noqa: ARG002
         model_selector: ModelSelector | None = None,
     ) -> ExecResult:
         stage = prompt_path.stem

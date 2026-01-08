@@ -4,13 +4,9 @@ from __future__ import annotations
 
 import time
 
-import pytest
-
 from orx.metrics.collector import MetricsCollector, StageTimer
 from orx.metrics.schema import (
     FailureCategory,
-    GateMetrics,
-    QualityMetrics,
     StageStatus,
 )
 
@@ -31,9 +27,8 @@ class FakeGateResult:
         self.returncode = returncode
         self._log_tail = log_tail
 
-    def get_log_tail(self, lines: int = 20) -> str:
+    def get_log_tail(self, lines: int = 20) -> str:  # noqa: ARG002
         return self._log_tail
-
 
 class TestStageTimer:
     """Tests for StageTimer dataclass."""

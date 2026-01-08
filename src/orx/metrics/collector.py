@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterator
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -186,7 +187,7 @@ class MetricsCollector:
         model: str | None = None,
         profile: str | None = None,
         reasoning_effort: str | None = None,
-        model_selector: "ModelSelector | None" = None,
+        model_selector: ModelSelector | None = None,
     ) -> None:
         """Record the model selection for the current stage.
 
@@ -248,7 +249,7 @@ class MetricsCollector:
     def record_gate(
         self,
         name: str,
-        result: "GateResult",
+        result: GateResult,
         duration_ms: int,
         tests_failed: int | None = None,
         tests_total: int | None = None,

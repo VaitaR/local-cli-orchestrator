@@ -154,12 +154,7 @@ def pack_for_stage(
     """
     # Stage-specific budgets
     if char_budget is None:
-        if stage in ("plan", "spec"):
-            # Stack-only for planning stages
-            char_budget = 3000
-        else:
-            # Full context for implement/fix
-            char_budget = DEFAULT_CHAR_BUDGET
+        char_budget = 3000 if stage in ("plan", "spec") else DEFAULT_CHAR_BUDGET
 
     packer = ContextPacker(char_budget=char_budget)
     result = packer.pack(blocks)

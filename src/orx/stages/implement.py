@@ -7,7 +7,11 @@ from typing import Any
 import structlog
 
 from orx.context.backlog import WorkItem
-from orx.context.snippets import build_file_snippets, compact_text, extract_spec_highlights
+from orx.context.snippets import (
+    build_file_snippets,
+    compact_text,
+    extract_spec_highlights,
+)
 from orx.stages.base import ApplyStage, StageContext
 
 logger = structlog.get_logger()

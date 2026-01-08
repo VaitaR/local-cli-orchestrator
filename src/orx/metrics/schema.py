@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -410,10 +409,7 @@ def compute_fingerprint(*contents: str | bytes | Path) -> str:
     hasher = hashlib.sha256()
     for content in contents:
         if isinstance(content, Path):
-            if content.exists():
-                content = content.read_bytes()
-            else:
-                content = b""
+            content = content.read_bytes() if content.exists() else b""
         if isinstance(content, str):
             content = content.encode("utf-8")
         hasher.update(content)

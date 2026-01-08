@@ -12,7 +12,6 @@ from typing import Any
 import structlog
 
 from orx.metrics.schema import RunMetrics, StageMetrics, StageStatus
-from orx.metrics.writer import MetricsWriter
 
 logger = structlog.get_logger()
 

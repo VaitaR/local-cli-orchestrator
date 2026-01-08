@@ -44,7 +44,7 @@ class ModelSelector(BaseModel):
     reasoning_effort: Literal["low", "medium", "high"] | None = None
 
     @model_validator(mode="after")
-    def validate_model_or_profile(self) -> "ModelSelector":
+    def validate_model_or_profile(self) -> ModelSelector:
         """Validate that model and profile are not both set."""
         if self.model and self.profile:
             msg = "Cannot specify both 'model' and 'profile'"
@@ -96,7 +96,7 @@ class StageExecutorConfig(BaseModel):
     reasoning_effort: Literal["low", "medium", "high"] | None = None
 
     @model_validator(mode="after")
-    def validate_model_or_profile(self) -> "StageExecutorConfig":
+    def validate_model_or_profile(self) -> StageExecutorConfig:
         """Validate that model and profile are not both set."""
         if self.model and self.profile:
             msg = "Cannot specify both 'model' and 'profile' for a stage"

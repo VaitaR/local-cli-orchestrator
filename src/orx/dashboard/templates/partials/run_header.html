@@ -42,7 +42,7 @@
         {% endif %}
     </div>
     
-    {% if run.last_error %}
+    {% if run.last_error and not run.is_active %}
     <div class="error-banner">
         <strong>Error:</strong> 
         {% if run.last_error.category %}{{ run.last_error.category }}: {% endif %}
