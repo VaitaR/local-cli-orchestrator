@@ -74,7 +74,7 @@ async def run_header(request: Request, run_id: str):
 async def run_tab(
     request: Request,
     run_id: str,
-    tab: str = Query("overview", regex="^(overview|artifacts|diff|logs|metrics)$"),
+    tab: str = Query("overview", pattern="^(overview|artifacts|diff|logs|metrics)$"),
 ):
     """Render a tab content for run detail page."""
     templates = request.app.state.templates
