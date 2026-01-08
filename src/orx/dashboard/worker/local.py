@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from orx.infra.command import CommandRunner
+
 if TYPE_CHECKING:
     from orx.dashboard.config import DashboardConfig
 
@@ -56,6 +58,7 @@ class LocalWorker:
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
         self._log = logger.bind(component="LocalWorker")
+        self._cmd = CommandRunner()
 
     def start(self) -> None:
         """Start the background worker thread."""
@@ -119,10 +122,12 @@ class LocalWorker:
         ts = datetime.now(tz=UTC).strftime("%Y%m%d_%H%M%S")
         run_id = f"{ts}_{uuid.uuid4().hex[:8]}"
 
+        resolved_repo = self._resolve_repo_path(repo_path)
+
         job = RunJob(
             run_id=run_id,
             task=task,
-            repo_path=repo_path,
+            repo_path=str(resolved_repo),
             base_branch=base_branch,
             config_overrides=config_overrides or {},
         )
@@ -240,20 +245,31 @@ class LocalWorker:
         if job.base_branch:
             cmd.extend(["--base-branch", job.base_branch])
 
+        base_dir = self._resolve_repo_path(job.repo_path)
+        runs_dir = base_dir / "runs"
+        if self.config.runs_root.resolve() != runs_dir.resolve():
+            self._log.warning(
+                "Dashboard runs_root differs from orx runs directory",
+                runs_root=str(self.config.runs_root),
+                expected_runs=str(runs_dir),
+            )
+
+        existing_run_ids = self._snapshot_run_ids(runs_dir)
+
         # Set working directory
-        cwd = job.repo_path or str(Path.cwd())
+        cwd = str(base_dir)
 
         # Prepare environment - inherit current env and preserve ORX_RUNS_ROOT
         env = os.environ.copy()
 
         try:
+            cmd.extend(["--dir", str(base_dir)])
+
             # Start subprocess
-            process = subprocess.Popen(
+            process = self._cmd.start_process(
                 cmd,
-                cwd=cwd,
+                cwd=base_dir,
                 env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
                 start_new_session=True,  # Allow proper signal handling
             )
 
@@ -270,8 +286,57 @@ class LocalWorker:
                 cmd=" ".join(cmd),
             )
 
+            actual_run_id = self._wait_for_run_id(
+                runs_dir,
+                existing_run_ids,
+            )
+            if actual_run_id and actual_run_id != job.run_id:
+                with self._lock:
+                    self._active_jobs.pop(job.run_id, None)
+                    job.run_id = actual_run_id
+                    self._active_jobs[job.run_id] = job
+                self._log.info("Resolved run id", run_id=job.run_id)
+
         except Exception as e:
             self._log.error("Failed to start run", run_id=job.run_id, error=str(e))
+
+    def _resolve_repo_path(self, repo_path: str | None) -> Path:
+        """Resolve repo path to use for runs."""
+        if repo_path:
+            resolved = Path(repo_path).expanduser().resolve()
+        else:
+            resolved = self.config.runs_root.parent.resolve()
+
+        if not resolved.exists():
+            msg = f"Repository path does not exist: {resolved}"
+            raise ValueError(msg)
+        if not resolved.is_dir():
+            msg = f"Repository path is not a directory: {resolved}"
+            raise ValueError(msg)
+        return resolved
+
+    def _snapshot_run_ids(self, runs_dir: Path) -> set[str]:
+        """Capture current run ids in runs directory."""
+        if not runs_dir.exists():
+            return set()
+        return {
+            entry.name
+            for entry in runs_dir.iterdir()
+            if entry.is_dir() and not entry.name.startswith(".")
+        }
+
+    def _wait_for_run_id(self, runs_dir: Path, existing: set[str]) -> str | None:
+        """Wait briefly for a new run directory to appear."""
+        deadline = time.time() + self.config.run_id_timeout_seconds
+        while time.time() < deadline:
+            if runs_dir.exists():
+                for entry in runs_dir.iterdir():
+                    if not entry.is_dir() or entry.name.startswith("."):
+                        continue
+                    if entry.name not in existing:
+                        return entry.name
+            time.sleep(self.config.run_id_poll_interval)
+        return None
 
     def _cleanup_completed(self) -> None:
         """Remove completed jobs from active list."""

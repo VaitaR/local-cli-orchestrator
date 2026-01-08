@@ -201,6 +201,81 @@ class CommandRunner:
             if stderr_handle and stderr_handle != subprocess.DEVNULL:
                 stderr_handle.close()  # type: ignore[union-attr]
 
+    def start_process(
+        self,
+        command: list[str],
+        *,
+        cwd: Path | None = None,
+        stdout_path: Path | None = None,
+        stderr_path: Path | None = None,
+        env: dict[str, str] | None = None,
+        start_new_session: bool = True,
+    ) -> subprocess.Popen[bytes]:
+        """Start a subprocess and return the process handle.
+
+        Args:
+            command: Command and arguments to run.
+            cwd: Working directory for the command.
+            stdout_path: Path to write stdout to.
+            stderr_path: Path to write stderr to.
+            env: Environment variables (merged with current env).
+            start_new_session: Whether to start a new process session.
+
+        Returns:
+            subprocess.Popen handle for the started process.
+
+        Raises:
+            CommandError: If dry_run is enabled or command cannot be started.
+        """
+        log = logger.bind(command=command, cwd=str(cwd) if cwd else None)
+        log.info("Starting process")
+
+        if self.dry_run:
+            msg = f"CommandRunner.start_process does not support dry_run: {' '.join(command)}"
+            raise CommandError(msg, command=command, cwd=cwd)
+
+        stdout_handle: IO[bytes] | int | None = None
+        stderr_handle: IO[bytes] | int | None = None
+
+        try:
+            if stdout_path:
+                stdout_path.parent.mkdir(parents=True, exist_ok=True)
+                stdout_handle = stdout_path.open("wb")
+            else:
+                stdout_handle = subprocess.DEVNULL
+
+            if stderr_path:
+                stderr_path.parent.mkdir(parents=True, exist_ok=True)
+                stderr_handle = stderr_path.open("wb")
+            else:
+                stderr_handle = subprocess.DEVNULL
+
+            import os
+
+            full_env = os.environ.copy()
+            if env:
+                full_env.update(env)
+
+            process = subprocess.Popen(
+                command,
+                cwd=cwd,
+                stdout=stdout_handle,
+                stderr=stderr_handle,
+                env=full_env,
+                start_new_session=start_new_session,
+            )
+            log.info("Process started", pid=process.pid)
+            return process
+        except Exception as e:
+            msg = f"Failed to start process: {' '.join(command)}"
+            log.error("Failed to start process", error=str(e))
+            raise CommandError(msg, command=command, cwd=cwd) from e
+        finally:
+            if stdout_handle and stdout_handle != subprocess.DEVNULL:
+                stdout_handle.close()  # type: ignore[union-attr]
+            if stderr_handle and stderr_handle != subprocess.DEVNULL:
+                stderr_handle.close()  # type: ignore[union-attr]
+
     def run_capture(
         self,
         command: list[str],

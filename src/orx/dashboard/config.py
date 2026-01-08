@@ -60,6 +60,14 @@ class DashboardConfig(BaseSettings):
         default=5,
         description="Seconds to wait after SIGTERM before SIGKILL",
     )
+    run_id_timeout_seconds: float = Field(
+        default=5.0,
+        description="Seconds to wait for a run directory to appear",
+    )
+    run_id_poll_interval: float = Field(
+        default=0.1,
+        description="Polling interval while waiting for run directory",
+    )
 
     # UI
     log_tail_lines: int = Field(

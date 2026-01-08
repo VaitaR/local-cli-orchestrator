@@ -1,6 +1,7 @@
 """Integration tests for dashboard API endpoints."""
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Generator
 
@@ -159,6 +160,40 @@ class TestPartialEndpoints:
         response = client.get("/partials/log-tail/test-run-001?name=run.log&cursor=0")
         assert response.status_code == 200
 
+    def test_active_runs_shows_running_run(self, client: TestClient) -> None:
+        """Ensure active runs partial renders a running run."""
+        runs_dir = client.app.state.store.runs_dir
+        run_id = "running-run-001"
+        run_dir = runs_dir / run_id
+        run_dir.mkdir()
+        (run_dir / "meta.json").write_text(json.dumps({
+            "run_id": run_id,
+            "task": "Still running task",
+            "base_branch": "main",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }))
+        (run_dir / "state.json").write_text(json.dumps({
+            "current_stage": "implement",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "stage_statuses": {
+                "plan": {"status": "success"},
+                "implement": {"status": "running"},
+            },
+        }))
+        (run_dir / "context").mkdir()
+        (run_dir / "context" / "task.md").write_text("Running task description")
+
+        response = client.get("/partials/active-runs")
+        assert response.status_code == 200
+        assert run_id in response.text
+
+    def test_start_run_form_defaults_repo_path(self, client: TestClient) -> None:
+        """Ensure start run form defaults repo path based on runs root."""
+        runs_root = client.app.state.config.runs_root
+        response = client.get("/partials/start-run-form")
+        assert response.status_code == 200
+        assert str(runs_root.parent) in response.text
 
 class TestAPIEndpoints:
     """Tests for the control API endpoints."""

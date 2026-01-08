@@ -44,10 +44,14 @@ async def recent_runs(request: Request, limit: int = Query(20, le=100)):
 async def start_run_form(request: Request):
     """Render the start run form."""
     templates = request.app.state.templates
+    config = request.app.state.config
 
     return templates.TemplateResponse(
         "partials/start_run_form.html",
-        {"request": request},
+        {
+            "request": request,
+            "default_repo_path": str(config.runs_root.parent),
+        },
     )
 
 
