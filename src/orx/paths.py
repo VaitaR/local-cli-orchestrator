@@ -123,6 +123,16 @@ class RunPaths:
         """Path to lessons.md."""
         return self.context_dir / "lessons.md"
 
+    @property
+    def tooling_snapshot_md(self) -> Path:
+        """Path to tooling_snapshot.md (repo context pack)."""
+        return self.context_dir / "tooling_snapshot.md"
+
+    @property
+    def verify_commands_md(self) -> Path:
+        """Path to verify_commands.md (repo context pack)."""
+        return self.context_dir / "verify_commands.md"
+
     # Artifact files
     @property
     def patch_diff(self) -> Path:

@@ -50,6 +50,10 @@ class ImplementStage(ApplyStage):
             max_files=8,
         )
 
+        # Get repo context for implement stage
+        repo_context = ctx.pack.read_tooling_snapshot() or ""
+        verify_commands = ctx.pack.read_verify_commands() or ""
+
         return {
             "task_summary": task_summary,
             "spec_highlights": spec_highlights,
@@ -59,6 +63,8 @@ class ImplementStage(ApplyStage):
             "acceptance": item.acceptance,
             "files_hint": item.files_hint,
             "file_snippets": snippets,
+            "repo_context": repo_context,
+            "verify_commands": verify_commands,
         }
 
 
@@ -118,6 +124,10 @@ class FixStage(ApplyStage):
             max_files=8,
         )
 
+        # Get repo context for fix stage
+        repo_context = ctx.pack.read_tooling_snapshot() or ""
+        verify_commands = ctx.pack.read_verify_commands() or ""
+
         return {
             "task_summary": task_summary,
             "spec_highlights": spec_highlights,
@@ -134,6 +144,8 @@ class FixStage(ApplyStage):
             "patch_diff": patch_diff,
             "files_hint": item.files_hint,
             "file_snippets": snippets,
+            "repo_context": repo_context,
+            "verify_commands": verify_commands,
         }
 
     def execute_fix(

@@ -129,13 +129,15 @@ Artifact management layer. Handles read/write of all context files.
 
 ```
 runs/<run_id>/context/
-    ├── task.md          # Input task
-    ├── plan.md          # Generated plan
-    ├── spec.md          # Technical specification
-    ├── backlog.yaml     # Work items (Pydantic-validated)
-    ├── project_map.md   # Project structure
-    ├── decisions.md     # Design decisions
-    └── lessons.md       # Lessons learned
+    ├── task.md              # Input task
+    ├── plan.md              # Generated plan
+    ├── spec.md              # Technical specification
+    ├── backlog.yaml         # Work items (Pydantic-validated)
+    ├── project_map.md       # Project structure (stack-only profile)
+    ├── tooling_snapshot.md  # Full tooling context
+    ├── verify_commands.md   # Gate verification commands
+    ├── decisions.md         # Design decisions
+    └── lessons.md           # Lessons learned
 ```
 
 ### 7. State Management
@@ -308,7 +310,9 @@ runs/<run_id>/
     │   ├── plan.md
     │   ├── spec.md
     │   ├── backlog.yaml
-    │   ├── project_map.md
+    │   ├── project_map.md      # Stack-only context profile
+    │   ├── tooling_snapshot.md # Full tooling context
+    │   ├── verify_commands.md  # Gate verification commands
     │   ├── decisions.md
     │   └── lessons.md
     │
@@ -417,7 +421,75 @@ Stage keys: `plan`, `spec`, `decompose`, `implement`, `fix`, `review`, `knowledg
 ### 6. Base Branch Validation
 Validates that worktree baseline SHA matches the expected base branch. Logs warnings on mismatch to catch configuration discrepancies early.
 
-### 7. Self-Improvement (Knowledge Update Stage)
+### 7. Repo Context Pack (v0.6)
+
+Automatic injection of high-signal, compact repository context into prompts. Reduces lint/verify errors by providing agents with stack and tooling configuration upfront.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Repo Context Pack Flow                        │
+│                                                                  │
+│  Worktree Created → RepoContextBuilder.build()                  │
+│                           │                                      │
+│         ┌─────────────────┼─────────────────┐                   │
+│         ▼                 ▼                 ▼                   │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
+│  │   Python     │  │  TypeScript  │  │    Gates     │          │
+│  │  Extractor   │  │  Extractor   │  │  Commands    │          │
+│  └──────────────┘  └──────────────┘  └──────────────┘          │
+│         │                 │                 │                   │
+│         └─────────────────┼─────────────────┘                   │
+│                           ▼                                      │
+│                    ContextPacker                                 │
+│                  (priority + budget)                            │
+│                           │                                      │
+│         ┌─────────────────┼─────────────────┐                   │
+│         ▼                 ▼                 ▼                   │
+│  project_map.md    tooling_snapshot.md   verify_commands.md    │
+│  (stack-only)      (full context)        (gate commands)        │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Module Structure:**
+```
+src/orx/context/repo_context/
+├── __init__.py          # Package exports
+├── blocks.py            # ContextBlock dataclass, priority enum
+├── packer.py            # Budget-aware context packing
+├── python_extractor.py  # pyproject.toml, ruff, mypy, pytest
+├── ts_extractor.py      # package.json, tsconfig, eslint, prettier
+├── verify_commands.py   # Build verify commands from gates
+└── builder.py           # RepoContextBuilder coordinator
+```
+
+**Context Profiles:**
+
+| Stage | Profile | Budget | Content |
+|-------|---------|--------|---------|
+| plan, spec | stack-only | ~3000 chars | Stack name + basics |
+| implement, fix | full | ~11000 chars | Full tooling config |
+
+**Priority System:**
+
+| Priority | Value | Content |
+|----------|-------|---------|
+| VERIFY_COMMANDS | 100 | Gate commands (always included) |
+| PYTHON_CORE | 80 | pyproject.toml [project], ruff, mypy |
+| TS_CORE | 75 | package.json, tsconfig |
+| LAYOUT | 50 | Project structure |
+| FORMATTER | 30 | prettier, eslint |
+| EXTRAS | 10 | Additional config |
+
+**Extractors:**
+- **PythonExtractor**: Reads pyproject.toml (project deps, ruff, mypy, pytest)
+- **TypeScriptExtractor**: Reads package.json, tsconfig.json, eslint config, prettierrc
+
+**Integration:**
+- Context built once after workspace creation
+- Artifacts persisted for resume (deterministic)
+- Prompt templates conditionally include `{% if repo_context %}...{% endif %}`
+
+### 8. Self-Improvement (Knowledge Update Stage)
 Automatic updates to AGENTS.md and ARCHITECTURE.md after successful task completion.
 
 ```
@@ -441,7 +513,7 @@ Automatic updates to AGENTS.md and ARCHITECTURE.md after successful task complet
 - **Guardrails**: Max lines changed, deletion limits, allowlist files
 - **Non-fatal**: Failures don't break the run
 
-### 8. Metrics & Monitoring (v0.4)
+### 9. Metrics & Monitoring (v0.4)
 
 Comprehensive observability for data-driven improvements. Tracks stage-level and run-level metrics.
 
@@ -630,7 +702,7 @@ python -m orx.dashboard --host 0.0.0.0 --port 8080 --runs-root ./runs
 # Environment variables
 ORX_RUNS_ROOT=./runs
 ORX_DASHBOARD_HOST=127.0.0.1
-ORX_DASHBOARD_PORT=8000
+ORX_DASHBOARD_PORT=8421
 ```
 
 ---

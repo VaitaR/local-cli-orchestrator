@@ -96,6 +96,15 @@ class BaseGate:
         self.args = args or []
         self.required = required
 
+    def render_command(self) -> str:
+        """Render the command with arguments.
+        
+        Override in subclasses that construct commands dynamically.
+        """
+        if self.args:
+            return f"{self.command} {' '.join(self.args)}"
+        return self.command
+
     @property
     def name(self) -> str:
         """Name of the gate."""

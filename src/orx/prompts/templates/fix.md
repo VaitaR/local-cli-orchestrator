@@ -12,6 +12,22 @@ You are fixing issues found in the previous implementation attempt.
 {{ spec_highlights }}
 {% endif %}
 
+{% if repo_context is defined and repo_context %}
+## Repo Context
+
+{{ repo_context }}
+{% endif %}
+
+{% if verify_commands is defined and verify_commands %}
+## VERIFY Will Run
+
+The pipeline will run these checks after your changes:
+
+{{ verify_commands }}
+
+Ensure your fixes pass all these gates.
+{% endif %}
+
 ## Current Work Item
 
 **ID**: {{ item_id }}
