@@ -99,7 +99,7 @@ Ensure your fixes pass all these gates.
 ## Common Issues
 
 - **Ruff failures**: Fix syntax errors, import sorting, unused imports (keep imports ordered)
-- **Pytest failures**: Fix failing assertions, missing fixtures, import errors
+- **Pytest failures**: Fix failing assertions, missing fixtures, import errors (ensure local modules resolve)
 - **Empty diff**: Ensure you're actually modifying files, not just outputting code
 
 ## Output
