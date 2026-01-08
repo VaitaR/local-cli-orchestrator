@@ -129,7 +129,9 @@ class TestAnalyzeDiffHygiene:
             lines_added=50,
             lines_removed=10,
         )
-        qm = analyze_diff_hygiene(diff_stats, max_files=10, max_loc_added=500, max_loc_removed=200)
+        qm = analyze_diff_hygiene(
+            diff_stats, max_files=10, max_loc_added=500, max_loc_removed=200
+        )
         assert qm.diff_within_limits is True
 
     def test_large_diff(self) -> None:
@@ -139,7 +141,9 @@ class TestAnalyzeDiffHygiene:
             lines_added=100,
             lines_removed=50,
         )
-        qm = analyze_diff_hygiene(diff_stats, max_files=50, max_loc_added=500, max_loc_removed=200)
+        qm = analyze_diff_hygiene(
+            diff_stats, max_files=50, max_loc_added=500, max_loc_removed=200
+        )
         assert qm.diff_within_limits is False
 
     def test_diff_exceeds_loc(self) -> None:
@@ -149,7 +153,9 @@ class TestAnalyzeDiffHygiene:
             lines_added=600,  # Exceeds max_loc_added=500
             lines_removed=50,
         )
-        qm = analyze_diff_hygiene(diff_stats, max_files=50, max_loc_added=500, max_loc_removed=200)
+        qm = analyze_diff_hygiene(
+            diff_stats, max_files=50, max_loc_added=500, max_loc_removed=200
+        )
         assert qm.diff_within_limits is False
 
     def test_empty_diff(self) -> None:
@@ -159,7 +165,9 @@ class TestAnalyzeDiffHygiene:
             lines_added=0,
             lines_removed=0,
         )
-        qm = analyze_diff_hygiene(diff_stats, max_files=10, max_loc_added=500, max_loc_removed=200)
+        qm = analyze_diff_hygiene(
+            diff_stats, max_files=10, max_loc_added=500, max_loc_removed=200
+        )
         assert qm.diff_within_limits is True
 
 

@@ -18,26 +18,34 @@ def runs_root(tmp_path: Path) -> Path:
     # Create a completed run
     run1 = runs / "test-run-001"
     run1.mkdir()
-    (run1 / "meta.json").write_text(json.dumps({
-        "run_id": "test-run-001",
-        "task": "Test task one",
-        "base_branch": "main",
-        "work_branch": "feature/test",
-        "engine": "codex",
-        "created_at": "2025-01-15T10:00:00Z",
-    }))
-    (run1 / "state.json").write_text(json.dumps({
-        "current_stage": "done",  # "done" = success
-        "created_at": "2025-01-15T10:00:00Z",
-        "updated_at": "2025-01-15T10:30:00Z",
-        "stage_statuses": {
-            "plan": {"status": "success"},
-            "spec": {"status": "success"},
-            "implement": {"status": "success"},
-            "verify": {"status": "success"},
-            "ship": {"status": "success"},
-        },
-    }))
+    (run1 / "meta.json").write_text(
+        json.dumps(
+            {
+                "run_id": "test-run-001",
+                "task": "Test task one",
+                "base_branch": "main",
+                "work_branch": "feature/test",
+                "engine": "codex",
+                "created_at": "2025-01-15T10:00:00Z",
+            }
+        )
+    )
+    (run1 / "state.json").write_text(
+        json.dumps(
+            {
+                "current_stage": "done",  # "done" = success
+                "created_at": "2025-01-15T10:00:00Z",
+                "updated_at": "2025-01-15T10:30:00Z",
+                "stage_statuses": {
+                    "plan": {"status": "success"},
+                    "spec": {"status": "success"},
+                    "implement": {"status": "success"},
+                    "verify": {"status": "success"},
+                    "ship": {"status": "success"},
+                },
+            }
+        )
+    )
     # Create context directory
     context1 = run1 / "context"
     context1.mkdir()
@@ -55,26 +63,34 @@ def runs_root(tmp_path: Path) -> Path:
     # Create a running run
     run2 = runs / "test-run-002"
     run2.mkdir()
-    (run2 / "meta.json").write_text(json.dumps({
-        "run_id": "test-run-002",
-        "task": "Test task two",
-        "base_branch": "main",
-        "work_branch": "feature/test2",
-        "engine": "gemini",
-        "created_at": "2025-01-15T11:00:00Z",
-    }))
-    (run2 / "state.json").write_text(json.dumps({
-        "current_stage": "implement",  # Not "done" = running
-        "created_at": "2025-01-15T11:00:00Z",
-        "last_failure_evidence": {
-            "ruff_failed": True,
-            "ruff_log": "F401 unused import\\nmore",
-        },
-        "stage_statuses": {
-            "plan": {"status": "success"},
-            "spec": {"status": "success"},
-        },
-    }))
+    (run2 / "meta.json").write_text(
+        json.dumps(
+            {
+                "run_id": "test-run-002",
+                "task": "Test task two",
+                "base_branch": "main",
+                "work_branch": "feature/test2",
+                "engine": "gemini",
+                "created_at": "2025-01-15T11:00:00Z",
+            }
+        )
+    )
+    (run2 / "state.json").write_text(
+        json.dumps(
+            {
+                "current_stage": "implement",  # Not "done" = running
+                "created_at": "2025-01-15T11:00:00Z",
+                "last_failure_evidence": {
+                    "ruff_failed": True,
+                    "ruff_log": "F401 unused import\\nmore",
+                },
+                "stage_statuses": {
+                    "plan": {"status": "success"},
+                    "spec": {"status": "success"},
+                },
+            }
+        )
+    )
     # Create context directory
     context2 = run2 / "context"
     context2.mkdir()

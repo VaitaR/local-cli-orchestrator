@@ -59,6 +59,7 @@ def main() -> int:
         config.port = args.port
     if args.runs_root:
         from pathlib import Path
+
         config.runs_root = Path(args.runs_root)
     if args.debug:
         config.debug = True

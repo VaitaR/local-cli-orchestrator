@@ -14,7 +14,9 @@ def test_collect_pytest_targets_from_files_hint(
 ) -> None:
     worktree = tmp_path / "worktree"
     (worktree / "tests").mkdir(parents=True)
-    (worktree / "tests" / "test_widget.py").write_text("def test_ok():\n    assert True\n")
+    (worktree / "tests" / "test_widget.py").write_text(
+        "def test_ok():\n    assert True\n"
+    )
 
     item = WorkItem(
         id="W001",
@@ -79,9 +81,7 @@ def test_collect_pytest_targets_skips_deleted_changed_files(
         def get_changed_files(self) -> list[str]:
             return self._changed
 
-    runner.workspace = StubWorkspace(
-        ["tests/test_missing.py", "tests/test_present.py"]
-    )
+    runner.workspace = StubWorkspace(["tests/test_missing.py", "tests/test_present.py"])
 
     targets = runner._collect_pytest_targets(item, worktree)
     assert targets == ["tests/test_present.py"]

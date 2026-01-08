@@ -302,10 +302,12 @@ class MetricsAggregator:
 
         for m in self._stage_metrics:
             for g in m.gates:
-                gates[g.name].append({
-                    "passed": g.passed,
-                    "duration_ms": g.duration_ms,
-                })
+                gates[g.name].append(
+                    {
+                        "passed": g.passed,
+                        "duration_ms": g.duration_ms,
+                    }
+                )
 
         result: dict[str, GateStats] = {}
         for name, runs in gates.items():
@@ -429,11 +431,13 @@ class MetricsAggregator:
             )
 
         if report.gate_stats:
-            lines.extend([
-                "",
-                "Gate Performance:",
-                "-" * 40,
-            ])
+            lines.extend(
+                [
+                    "",
+                    "Gate Performance:",
+                    "-" * 40,
+                ]
+            )
             for name, stats in sorted(report.gate_stats.items()):
                 pass_pct = (
                     stats.pass_count / stats.total_runs * 100
@@ -447,11 +451,13 @@ class MetricsAggregator:
                 )
 
         if report.top_failure_reasons:
-            lines.extend([
-                "",
-                "Top Failure Reasons:",
-                "-" * 40,
-            ])
+            lines.extend(
+                [
+                    "",
+                    "Top Failure Reasons:",
+                    "-" * 40,
+                ]
+            )
             for reason, count in report.top_failure_reasons[:5]:
                 lines.append(f"  [{count:>3}x] {reason[:50]}")
 

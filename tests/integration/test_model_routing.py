@@ -33,7 +33,7 @@ def fake_codex_script(tmp_path: Path) -> Path:
     fake_bin = tmp_path / "bin" / "fake_codex"
     fake_bin.parent.mkdir(parents=True, exist_ok=True)
 
-    script = '''#!/bin/bash
+    script = """#!/bin/bash
 # Fake Codex CLI for testing
 
 # Write all arguments to a JSON file
@@ -70,7 +70,7 @@ fi
 # Normal output
 echo "Fake codex executed successfully"
 echo "Model selection recorded"
-'''
+"""
     fake_bin.write_text(script)
     fake_bin.chmod(fake_bin.stat().st_mode | stat.S_IEXEC)
     return fake_bin
@@ -82,7 +82,7 @@ def fake_gemini_script(tmp_path: Path) -> Path:
     fake_bin = tmp_path / "bin" / "fake_gemini"
     fake_bin.parent.mkdir(parents=True, exist_ok=True)
 
-    script = '''#!/bin/bash
+    script = """#!/bin/bash
 # Fake Gemini CLI for testing
 
 # Write all arguments to a JSON file
@@ -118,7 +118,7 @@ fi
 
 # Normal JSON output
 echo "{\\"response\\": \\"Fake gemini response\\", \\"status\\": \\"success\\"}"
-'''
+"""
     fake_bin.write_text(script)
     fake_bin.chmod(fake_bin.stat().st_mode | stat.S_IEXEC)
     return fake_bin

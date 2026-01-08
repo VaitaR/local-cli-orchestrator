@@ -9,6 +9,7 @@ import pytest
 
 class MockConfig:
     """Mock configuration for worker tests."""
+
     max_concurrency: int = 2
     cancel_grace_seconds: float = 2.0
     orx_bin: str = "orx"
@@ -49,7 +50,9 @@ class TestLocalWorker:
         # After stop, thread should be None or not alive
         assert worker._thread is None or not worker._thread.is_alive()
 
-    def test_worker_can_queue_run(self, mock_config: MockConfig, repo_root: Path) -> None:
+    def test_worker_can_queue_run(
+        self, mock_config: MockConfig, repo_root: Path
+    ) -> None:
         """Test that worker can queue a run."""
         from orx.dashboard.worker.local import LocalWorker
 
@@ -79,7 +82,9 @@ class TestLocalWorker:
         pid = worker.get_run_pid("unknown-run-id")
         assert pid is None
 
-    def test_worker_handles_multiple_runs(self, mock_config: MockConfig, repo_root: Path) -> None:
+    def test_worker_handles_multiple_runs(
+        self, mock_config: MockConfig, repo_root: Path
+    ) -> None:
         """Test that worker can handle multiple run requests."""
         from orx.dashboard.worker.local import LocalWorker
 
@@ -105,7 +110,9 @@ class TestLocalWorker:
         with pytest.raises(ValueError, match="Task cannot be empty"):
             worker.start_run("   ")
 
-    def test_worker_stops_gracefully(self, mock_config: MockConfig, repo_root: Path) -> None:
+    def test_worker_stops_gracefully(
+        self, mock_config: MockConfig, repo_root: Path
+    ) -> None:
         """Test that worker stops gracefully even with pending work."""
         from orx.dashboard.worker.local import LocalWorker
 
@@ -121,7 +128,9 @@ class TestLocalWorker:
         time.sleep(0.2)
         assert worker._thread is None or not worker._thread.is_alive()
 
-    def test_cleanup_completed_removes_finished_jobs(self, mock_config: MockConfig) -> None:
+    def test_cleanup_completed_removes_finished_jobs(
+        self, mock_config: MockConfig
+    ) -> None:
         """Ensure finished jobs are removed from active list."""
         from orx.dashboard.worker.local import LocalWorker, RunJob
 
@@ -130,7 +139,9 @@ class TestLocalWorker:
         finished_proc.poll.return_value = 0
         finished_proc.returncode = 0
 
-        job = RunJob(run_id="test", task="t", repo_path=str(mock_config.runs_root.parent))
+        job = RunJob(
+            run_id="test", task="t", repo_path=str(mock_config.runs_root.parent)
+        )
         job.process = finished_proc
         with worker._lock:
             worker._active_jobs[job.run_id] = job

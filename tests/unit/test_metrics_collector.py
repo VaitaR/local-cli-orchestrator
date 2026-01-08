@@ -30,6 +30,7 @@ class FakeGateResult:
     def get_log_tail(self, lines: int = 20) -> str:  # noqa: ARG002
         return self._log_tail
 
+
 class TestStageTimer:
     """Tests for StageTimer dataclass."""
 
@@ -151,7 +152,9 @@ class TestMetricsCollector:
         collector = MetricsCollector("run5")
 
         with collector.stage("implement"):
-            collector.record_model_selection(executor="codex", profile="pro", model="claude-3")
+            collector.record_model_selection(
+                executor="codex", profile="pro", model="claude-3"
+            )
             collector.record_success()
 
         stages = collector.get_stage_metrics()

@@ -51,7 +51,9 @@ class StubExecutor:
         output = self._outputs[min(self.calls, len(self._outputs) - 1)]
         out_path.write_text(output)
         self.calls += 1
-        return ExecResult(returncode=0, stdout_path=logs.stdout, stderr_path=logs.stderr)
+        return ExecResult(
+            returncode=0, stdout_path=logs.stdout, stderr_path=logs.stderr
+        )
 
     def run_apply(
         self,
@@ -103,17 +105,17 @@ def test_decompose_retries_on_invalid_yaml(tmp_path: Path) -> None:
     valid = (
         'run_id: "run_decompose"\n'
         "items:\n"
-        "  - id: \"W001\"\n"
-        "    title: \"Task\"\n"
-        "    objective: \"Do the thing\"\n"
+        '  - id: "W001"\n'
+        '    title: "Task"\n'
+        '    objective: "Do the thing"\n'
         "    acceptance:\n"
-        "      - \"It works\"\n"
+        '      - "It works"\n'
         "    files_hint:\n"
-        "      - \"src/app.py\"\n"
+        '      - "src/app.py"\n'
         "    depends_on: []\n"
-        "    status: \"todo\"\n"
+        '    status: "todo"\n'
         "    attempts: 0\n"
-        "    notes: \"\"\n"
+        '    notes: ""\n'
     )
     executor = StubExecutor([invalid, valid])
     ctx = _build_context(tmp_path, executor)

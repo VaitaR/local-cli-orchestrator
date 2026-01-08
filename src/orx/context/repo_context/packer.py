@@ -82,7 +82,9 @@ class ContextPacker:
 
         for block in sorted_blocks:
             # Decide rendering mode
-            budget_used_pct = current_chars / self.char_budget if self.char_budget > 0 else 0
+            budget_used_pct = (
+                current_chars / self.char_budget if self.char_budget > 0 else 0
+            )
 
             if budget_used_pct >= self.compact_threshold:
                 # Use compact rendering
@@ -122,7 +124,9 @@ class ContextPacker:
             included_blocks=included,
             excluded_blocks=excluded,
             total_chars=current_chars,
-            budget_used_pct=current_chars / self.char_budget if self.char_budget > 0 else 0,
+            budget_used_pct=current_chars / self.char_budget
+            if self.char_budget > 0
+            else 0,
         )
 
         logger.debug(

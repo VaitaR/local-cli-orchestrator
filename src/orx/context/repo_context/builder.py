@@ -113,13 +113,19 @@ class RepoContextBuilder:
 
         # Build project_map (profile only, for plan/spec)
         profile_blocks = self._filter_profile_blocks(all_blocks)
-        project_map = pack_for_stage(profile_blocks, "plan", char_budget=self.profile_budget)
+        project_map = pack_for_stage(
+            profile_blocks, "plan", char_budget=self.profile_budget
+        )
 
         # Build tooling_snapshot (full, for implement/fix)
-        tooling_snapshot = pack_for_stage(all_blocks, "implement", char_budget=self.full_budget)
+        tooling_snapshot = pack_for_stage(
+            all_blocks, "implement", char_budget=self.full_budget
+        )
 
         # Build verify_commands separately for easy access
-        verify_commands = verify_block.render(include_sources=False) if verify_block else ""
+        verify_commands = (
+            verify_block.render(include_sources=False) if verify_block else ""
+        )
 
         log.info(
             "Repo context pack built",
@@ -176,7 +182,8 @@ class RepoContextBuilder:
             Blocks suitable for profile-only display.
         """
         return [
-            b for b in blocks
+            b
+            for b in blocks
             if b.priority <= ContextPriority.LAYOUT or "Profile" in b.title
         ]
 

@@ -900,9 +900,15 @@ class Runner:
             inputs.append(self.paths.task_md)
 
         # Stage-specific inputs
-        if stage in ("spec", "decompose", "implement", "fix", "review") and self.paths.plan_md.exists():
+        if (
+            stage in ("spec", "decompose", "implement", "fix", "review")
+            and self.paths.plan_md.exists()
+        ):
             inputs.append(self.paths.plan_md)
-        if stage in ("decompose", "implement", "fix", "review") and self.paths.spec_md.exists():
+        if (
+            stage in ("decompose", "implement", "fix", "review")
+            and self.paths.spec_md.exists()
+        ):
             inputs.append(self.paths.spec_md)
         if stage in ("implement", "fix", "review") and self.paths.backlog_yaml.exists():
             inputs.append(self.paths.backlog_yaml)
@@ -1006,7 +1012,9 @@ class Runner:
         try:
             backlog = Backlog.load(self.paths.backlog_yaml)
         except Exception as e:
-            return _finish(StageResult(success=False, message=f"Failed to load backlog: {e}"))
+            return _finish(
+                StageResult(success=False, message=f"Failed to load backlog: {e}")
+            )
 
         # Track items for metrics
         self.metrics.set_items_count(total=len(backlog.items))
@@ -1041,7 +1049,9 @@ class Runner:
                 stage_name = "implement" if attempt == 1 else "fix"
                 ctx = implement_ctx if attempt == 1 else fix_ctx
 
-                with self.metrics.stage(stage_name, item_id=item.id, attempt=attempt) as timer:
+                with self.metrics.stage(
+                    stage_name, item_id=item.id, attempt=attempt
+                ) as timer:
                     # Record model selection
                     self.metrics.record_model_selection(
                         executor=ctx.executor.name,
@@ -1268,9 +1278,7 @@ class Runner:
                             cwd=ctx.workspace.worktree_path,
                             log_path=retry_log,
                         )
-                        gate_duration += int(
-                            (time.perf_counter() - retry_start) * 1000
-                        )
+                        gate_duration += int((time.perf_counter() - retry_start) * 1000)
                         log_path = retry_log
 
                 # Extract test counts for pytest
@@ -1303,7 +1311,9 @@ class Runner:
 
                 if result.failed:
                     timer.end_verify()
-                    self.metrics.record_failure(FailureCategory.GATE_FAILURE, result.message)
+                    self.metrics.record_failure(
+                        FailureCategory.GATE_FAILURE, result.message
+                    )
                     if self.events:
                         self.events.log(
                             "verify_end",
@@ -1356,7 +1366,9 @@ class Runner:
 
         diff = ctx.pack.read_patch_diff()
         if diff:
-            evidence["patch_diff"] = diff[:5000] + ("\n... (truncated)" if len(diff) > 5000 else "")
+            evidence["patch_diff"] = diff[:5000] + (
+                "\n... (truncated)" if len(diff) > 5000 else ""
+            )
 
         return evidence
 
@@ -1466,7 +1478,10 @@ class Runner:
             if gate.name != "pytest":
                 continue
 
-            if not pytest_targets and self.config.run.fast_verify_skip_pytest_if_no_targets:
+            if (
+                not pytest_targets
+                and self.config.run.fast_verify_skip_pytest_if_no_targets
+            ):
                 if self.events:
                     self.events.log(
                         "gate_skipped",

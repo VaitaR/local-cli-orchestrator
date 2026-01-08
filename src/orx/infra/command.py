@@ -63,7 +63,9 @@ class CommandRunner:
         self.heartbeat_interval = heartbeat_interval
 
     @staticmethod
-    def _heartbeat_logger(log: structlog.BoundLogger, stop_event: threading.Event, interval: int) -> None:
+    def _heartbeat_logger(
+        log: structlog.BoundLogger, stop_event: threading.Event, interval: int
+    ) -> None:
         """Log heartbeat messages while a command is running.
 
         Args:
@@ -142,7 +144,9 @@ class CommandRunner:
             # Start heartbeat logging if enabled and timeout is long enough
             stop_heartbeat = threading.Event()
             heartbeat_thread = None
-            if self.heartbeat_interval > 0 and (timeout is None or timeout > self.heartbeat_interval):
+            if self.heartbeat_interval > 0 and (
+                timeout is None or timeout > self.heartbeat_interval
+            ):
                 heartbeat_thread = threading.Thread(
                     target=self._heartbeat_logger,
                     args=(log, stop_heartbeat, self.heartbeat_interval),

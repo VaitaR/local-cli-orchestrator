@@ -86,7 +86,12 @@ def extract_spec_highlights(spec: str, max_lines: int = 120) -> str:
     if not spec:
         return ""
 
-    headings = {"acceptance", "acceptance criteria", "constraints", "technical constraints"}
+    headings = {
+        "acceptance",
+        "acceptance criteria",
+        "constraints",
+        "technical constraints",
+    }
     lines = spec.splitlines()
     selected: list[str] = []
     capturing = False

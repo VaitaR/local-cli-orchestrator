@@ -123,7 +123,10 @@ class TestRepoContextIntegration:
         assert "line-length" in result.tooling_snapshot
 
         # Check mypy is detected
-        assert "Mypy" in result.tooling_snapshot or "mypy" in result.tooling_snapshot.lower()
+        assert (
+            "Mypy" in result.tooling_snapshot
+            or "mypy" in result.tooling_snapshot.lower()
+        )
 
     def test_typescript_project_context(self, ts_project: Path) -> None:
         """Test context extraction from TypeScript project."""
@@ -145,7 +148,9 @@ class TestRepoContextIntegration:
         """Test that gates are included in context."""
 
         class MockGate:
-            def __init__(self, name: str, command: str, args: list[str], required: bool):
+            def __init__(
+                self, name: str, command: str, args: list[str], required: bool
+            ):
                 self._name = name
                 self.command = command
                 self.args = args
@@ -220,12 +225,16 @@ class TestContextPackIntegration:
 class TestRepoContextInRunner:
     """Test repo context integration in Runner."""
 
-    def test_runner_builds_context_on_run(self, python_project: Path, tmp_path: Path) -> None:  # noqa: ARG002
+    def test_runner_builds_context_on_run(
+        self, python_project: Path, tmp_path: Path  # noqa: ARG002
+    ) -> None:
         """Test that runner builds repo context during run setup."""
         # Initialize git repo in project
         import subprocess
 
-        subprocess.run(["git", "init"], cwd=python_project, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "init"], cwd=python_project, check=True, capture_output=True
+        )
         subprocess.run(
             ["git", "config", "user.email", "test@test.com"],
             cwd=python_project,
@@ -238,7 +247,9 @@ class TestRepoContextInRunner:
             check=True,
             capture_output=True,
         )
-        subprocess.run(["git", "add", "."], cwd=python_project, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "add", "."], cwd=python_project, check=True, capture_output=True
+        )
         subprocess.run(
             ["git", "commit", "-m", "Initial"],
             cwd=python_project,
@@ -272,15 +283,18 @@ class TestRepoContextInRunner:
         runner.workspace.remove()
 
     def test_runner_skips_existing_context_on_resume(
-        self, python_project: Path, tmp_path: Path  # noqa: ARG002
+        self,
+        python_project: Path,
+        tmp_path: Path,  # noqa: ARG002
     ) -> None:
         """Test that runner doesn't overwrite context on resume."""
-
 
         # Initialize git repo
         import subprocess
 
-        subprocess.run(["git", "init"], cwd=python_project, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "init"], cwd=python_project, check=True, capture_output=True
+        )
         subprocess.run(
             ["git", "config", "user.email", "test@test.com"],
             cwd=python_project,
@@ -293,7 +307,9 @@ class TestRepoContextInRunner:
             check=True,
             capture_output=True,
         )
-        subprocess.run(["git", "add", "."], cwd=python_project, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "add", "."], cwd=python_project, check=True, capture_output=True
+        )
         subprocess.run(
             ["git", "commit", "-m", "Initial"],
             cwd=python_project,

@@ -215,7 +215,9 @@ class PythonExtractor:
             if len(select) <= 8:
                 facts.append(f"- select: {', '.join(select)}")
             else:
-                facts.append(f"- select: {', '.join(select[:5])}... ({len(select)} rules)")
+                facts.append(
+                    f"- select: {', '.join(select[:5])}... ({len(select)} rules)"
+                )
 
         # Ignored rules
         ignore = lint.get("ignore") or ruff_config.get("ignore")
@@ -223,7 +225,9 @@ class PythonExtractor:
             if len(ignore) <= 5:
                 facts.append(f"- ignore: {', '.join(ignore)}")
             else:
-                facts.append(f"- ignore: {', '.join(ignore[:3])}... ({len(ignore)} rules)")
+                facts.append(
+                    f"- ignore: {', '.join(ignore[:3])}... ({len(ignore)} rules)"
+                )
 
         # Per-file ignores (common gotcha)
         pfi = lint.get("per-file-ignores") or ruff_config.get("per-file-ignores")
@@ -308,7 +312,9 @@ class PythonExtractor:
     def _extract_pytest(self) -> ContextBlock | None:
         """Extract pytest configuration."""
         # Try pyproject.toml first
-        pytest_config = self.pyproject.get("tool", {}).get("pytest", {}).get("ini_options", {})
+        pytest_config = (
+            self.pyproject.get("tool", {}).get("pytest", {}).get("ini_options", {})
+        )
         source = "pyproject.toml"
 
         # Try pytest.ini

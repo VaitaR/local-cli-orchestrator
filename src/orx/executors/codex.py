@@ -251,7 +251,10 @@ class CodexExecutor(BaseExecutor):
 
             # For text mode without --output-last-message, output goes to stdout
             # If we're using --output-last-message, output goes to out_path directly
-            if not any("--output-last-message" in arg for arg in invocation.cmd) and logs.stdout.exists():
+            if (
+                not any("--output-last-message" in arg for arg in invocation.cmd)
+                and logs.stdout.exists()
+            ):
                 content = logs.stdout.read_text()
                 out_path.parent.mkdir(parents=True, exist_ok=True)
                 out_path.write_text(content)

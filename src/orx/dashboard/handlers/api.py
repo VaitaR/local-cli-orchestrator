@@ -50,7 +50,11 @@ async def cancel_run(request: Request, run_id: str):
 
     if success:
         return JSONResponse(
-            {"status": "cancelled", "run_id": run_id, "message": "Cancellation initiated"}
+            {
+                "status": "cancelled",
+                "run_id": run_id,
+                "message": "Cancellation initiated",
+            }
         )
 
     # If the worker cannot cancel, fall back to the store to distinguish:
@@ -135,7 +139,11 @@ async def get_available_engines():
 
     # Get available engines (exclude FAKE for production UI)
     engines = [
-        {"value": e.value, "label": e.value.capitalize(), "is_test": e == EngineType.FAKE}
+        {
+            "value": e.value,
+            "label": e.value.capitalize(),
+            "is_test": e == EngineType.FAKE,
+        }
         for e in EngineType
     ]
 

@@ -20,24 +20,32 @@ def runs_root(tmp_path: Path) -> Path:
     # Create a completed run
     run1 = runs / "test-run-001"
     run1.mkdir()
-    (run1 / "meta.json").write_text(json.dumps({
-        "run_id": "test-run-001",
-        "task": "Integration test task",
-        "base_branch": "main",
-        "work_branch": "feature/test",
-        "engine": "codex",
-        "created_at": "2025-01-15T10:00:00Z",
-    }))
-    (run1 / "state.json").write_text(json.dumps({
-        "current_stage": "done",
-        "created_at": "2025-01-15T10:00:00Z",
-        "updated_at": "2025-01-15T10:30:00Z",
-        "stage_statuses": {
-            "plan": {"status": "success"},
-            "implement": {"status": "success"},
-            "ship": {"status": "success"},
-        },
-    }))
+    (run1 / "meta.json").write_text(
+        json.dumps(
+            {
+                "run_id": "test-run-001",
+                "task": "Integration test task",
+                "base_branch": "main",
+                "work_branch": "feature/test",
+                "engine": "codex",
+                "created_at": "2025-01-15T10:00:00Z",
+            }
+        )
+    )
+    (run1 / "state.json").write_text(
+        json.dumps(
+            {
+                "current_stage": "done",
+                "created_at": "2025-01-15T10:00:00Z",
+                "updated_at": "2025-01-15T10:30:00Z",
+                "stage_statuses": {
+                    "plan": {"status": "success"},
+                    "implement": {"status": "success"},
+                    "ship": {"status": "success"},
+                },
+            }
+        )
+    )
     # Create context directory
     context = run1 / "context"
     context.mkdir()
@@ -56,7 +64,9 @@ def runs_root(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def client(runs_root: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, None]:
+def client(
+    runs_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> Generator[TestClient, None, None]:
     """Create a test client for the dashboard app."""
     # Set environment variables for config
     monkeypatch.setenv("ORX_RUNS_ROOT", str(runs_root))
@@ -145,7 +155,9 @@ class TestPartialEndpoints:
 
     def test_artifact_preview_not_found(self, client: TestClient) -> None:
         """Test artifact preview for non-existent file."""
-        response = client.get("/partials/artifact/test-run-001?path=context/nonexistent.md")
+        response = client.get(
+            "/partials/artifact/test-run-001?path=context/nonexistent.md"
+        )
         assert response.status_code == 404
 
     def test_diff_partial(self, client: TestClient) -> None:
@@ -165,21 +177,29 @@ class TestPartialEndpoints:
         run_id = "running-run-001"
         run_dir = runs_dir / run_id
         run_dir.mkdir()
-        (run_dir / "meta.json").write_text(json.dumps({
-            "run_id": run_id,
-            "task": "Still running task",
-            "base_branch": "main",
-            "created_at": datetime.now(UTC).isoformat(),
-        }))
-        (run_dir / "state.json").write_text(json.dumps({
-            "current_stage": "implement",
-            "created_at": datetime.now(UTC).isoformat(),
-            "updated_at": datetime.now(UTC).isoformat(),
-            "stage_statuses": {
-                "plan": {"status": "success"},
-                "implement": {"status": "running"},
-            },
-        }))
+        (run_dir / "meta.json").write_text(
+            json.dumps(
+                {
+                    "run_id": run_id,
+                    "task": "Still running task",
+                    "base_branch": "main",
+                    "created_at": datetime.now(UTC).isoformat(),
+                }
+            )
+        )
+        (run_dir / "state.json").write_text(
+            json.dumps(
+                {
+                    "current_stage": "implement",
+                    "created_at": datetime.now(UTC).isoformat(),
+                    "updated_at": datetime.now(UTC).isoformat(),
+                    "stage_statuses": {
+                        "plan": {"status": "success"},
+                        "implement": {"status": "running"},
+                    },
+                }
+            )
+        )
         (run_dir / "context").mkdir()
         (run_dir / "context" / "task.md").write_text("Running task description")
 
@@ -193,6 +213,7 @@ class TestPartialEndpoints:
         response = client.get("/partials/start-run-form")
         assert response.status_code == 200
         assert str(runs_root.parent) in response.text
+
 
 class TestAPIEndpoints:
     """Tests for the control API endpoints."""
@@ -224,7 +245,9 @@ class TestAPIEndpoints:
         assert data["status"] == "not_running"
         assert data["run_id"] == "test-run-001"
 
-    def test_cancel_run_missing_pid_returns_cannot_cancel(self, client: TestClient) -> None:
+    def test_cancel_run_missing_pid_returns_cannot_cancel(
+        self, client: TestClient
+    ) -> None:
         """Runs that look active but lack pid can't be cancelled by the dashboard."""
         runs_dir = client.app.state.store.runs_dir
         run_id = "running-no-pid-001"

@@ -146,7 +146,9 @@ class DecomposeStage(TextOutputStage):
 
         if result.failed:
             log.error("Auto-fix executor failed", error=result.error_message)
-            return self._failure(f"Executor failed during auto-fix: {result.error_message}")
+            return self._failure(
+                f"Executor failed during auto-fix: {result.error_message}"
+            )
 
         if not out_path.exists():
             log.error("Auto-fix produced no output")
@@ -161,7 +163,9 @@ class DecomposeStage(TextOutputStage):
             log.error("Auto-fix produced invalid YAML", error=str(e))
             return self._failure(f"Invalid backlog YAML after auto-fix: {e}")
 
-        return self._success("Auto-fix produced valid backlog", data={"backlog": backlog})
+        return self._success(
+            "Auto-fix produced valid backlog", data={"backlog": backlog}
+        )
 
     def _validate_backlog(self, ctx: StageContext, backlog: Backlog) -> StageResult:
         """Validate the backlog structure, dependencies, and cycles."""
@@ -192,7 +196,9 @@ class DecomposeStage(TextOutputStage):
                 cycles = backlog.detect_cycles()
                 if cycles:
                     log.error("Merged backlog has cycles", cycles=cycles)
-                    return self._failure(f"Merged backlog has cycles: {'; '.join(cycles)}")
+                    return self._failure(
+                        f"Merged backlog has cycles: {'; '.join(cycles)}"
+                    )
                 ctx.paths.backlog_yaml.write_text(backlog.to_yaml())
                 log.info(
                     "Backlog coalesced",

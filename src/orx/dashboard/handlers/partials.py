@@ -124,7 +124,9 @@ async def artifact_preview(
 
     content = store.get_artifact(run_id, path)
     if content is None:
-        return HTMLResponse("<div>Artifact not found or not allowed</div>", status_code=404)
+        return HTMLResponse(
+            "<div>Artifact not found or not allowed</div>", status_code=404
+        )
 
     # Try to decode as text
     try:

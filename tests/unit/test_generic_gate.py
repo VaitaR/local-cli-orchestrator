@@ -96,7 +96,9 @@ def test_generic_gate_custom_name(mock_cmd_runner: MagicMock, tmp_path: Path) ->
     assert gate.name == "my-custom-check"
 
 
-def test_generic_gate_required_false(mock_cmd_runner: MagicMock, tmp_path: Path) -> None:
+def test_generic_gate_required_false(
+    mock_cmd_runner: MagicMock, tmp_path: Path
+) -> None:
     """Test GenericGate with required=False."""
     log_path = tmp_path / "optional-check.log"
 

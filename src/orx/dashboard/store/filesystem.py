@@ -39,9 +39,9 @@ class FileSystemRunStore:
     """
 
     # Default allowed extensions for safety
-    DEFAULT_ALLOWED_EXTENSIONS: frozenset[str] = frozenset({
-        ".md", ".json", ".yaml", ".yml", ".txt", ".log", ".diff"
-    })
+    DEFAULT_ALLOWED_EXTENSIONS: frozenset[str] = frozenset(
+        {".md", ".json", ".yaml", ".yml", ".txt", ".log", ".diff"}
+    )
 
     def __init__(
         self,
@@ -382,9 +382,10 @@ class FileSystemRunStore:
         task_content = None
         task_path = run_dir / "context" / "task.md"
         if task_path.exists():
-              import contextlib
-              with contextlib.suppress(OSError):
-                  task_content = task_path.read_text()
+            import contextlib
+
+            with contextlib.suppress(OSError):
+                task_content = task_path.read_text()
         metrics_summary = None
         if has_metrics:
             metrics_summary = self._read_json(run_dir / "metrics" / "run.json")
@@ -593,6 +594,8 @@ class FileSystemRunStore:
                 if line.strip():
                     metrics.append(json.loads(line))
         except (json.JSONDecodeError, OSError) as e:
-            self._log.warning("Failed to read stage metrics", run_id=run_id, error=str(e))
+            self._log.warning(
+                "Failed to read stage metrics", run_id=run_id, error=str(e)
+            )
 
         return metrics

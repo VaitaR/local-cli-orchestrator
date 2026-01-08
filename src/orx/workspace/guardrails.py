@@ -118,7 +118,9 @@ class Guardrails:
             regex_pattern = normalized_pattern.replace(".", r"\.")  # Escape dots
             regex_pattern = regex_pattern.replace("**/", "(.*/)?")  # ** matches 0+ dirs
             regex_pattern = regex_pattern.replace("/**", "(/.*)?")  # ** at end
-            regex_pattern = regex_pattern.replace("*", "[^/]*")  # * matches within segment
+            regex_pattern = regex_pattern.replace(
+                "*", "[^/]*"
+            )  # * matches within segment
             regex_pattern = f"^{regex_pattern}$"
 
             if re.match(regex_pattern, normalized_path):

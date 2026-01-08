@@ -468,7 +468,9 @@ class TypeScriptExtractor:
             if len(extends) <= 4:
                 facts.append(f"- extends: {', '.join(extends)}")
             else:
-                facts.append(f"- extends: {', '.join(extends[:2])}... ({len(extends)} configs)")
+                facts.append(
+                    f"- extends: {', '.join(extends[:2])}... ({len(extends)} configs)"
+                )
 
         # Parser
         parser = config.get("parser")

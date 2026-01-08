@@ -40,7 +40,12 @@ class ContextBlock:
     def __post_init__(self) -> None:
         """Calculate estimated_chars if not provided."""
         if self.estimated_chars == 0:
-            self.estimated_chars = len(self.title) + len(self.body) + sum(len(s) for s in self.sources) + 50
+            self.estimated_chars = (
+                len(self.title)
+                + len(self.body)
+                + sum(len(s) for s in self.sources)
+                + 50
+            )
 
     def render(self, *, include_sources: bool = True) -> str:
         """Render the block as markdown.
