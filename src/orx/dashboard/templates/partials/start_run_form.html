@@ -48,6 +48,8 @@ document.getElementById('start-run-form').addEventListener('submit', async (e) =
     const repo_path = document.getElementById('repo_path').value || null;
     const base_branch = document.getElementById('base_branch').value || null;
     
+    console.log('Submitting form with:', { task, repo_path, base_branch });
+    
     try {
         const response = await fetch('/api/runs/start', {
             method: 'POST',
@@ -63,12 +65,22 @@ document.getElementById('start-run-form').addEventListener('submit', async (e) =
         });
         
         if (!response.ok) {
-            const error = await response.json();
-            alert(`Error: ${error.detail || 'Failed to start run'}`);
+            let error_detail = 'Failed to start run';
+            try {
+                const error = await response.json();
+                error_detail = error.detail || JSON.stringify(error);
+            } catch (e) {
+                // Response is not JSON
+                const text = await response.text();
+                error_detail = `HTTP ${response.status}: ${text.substring(0, 200)}`;
+            }
+            console.error('API Error:', error_detail);
+            alert(`Error: ${error_detail}`);
             return;
         }
         
         const result = await response.json();
+        console.log('Run started:', result);
         alert(`Run started: ${result.run_id}`);
         document.getElementById('modal').classList.remove('active');
         
@@ -77,6 +89,7 @@ document.getElementById('start-run-form').addEventListener('submit', async (e) =
         htmx.ajax('GET', '/partials/recent-runs', {target: '#recent-runs', swap: 'innerHTML'});
         
     } catch (error) {
+        console.error('Request error:', error);
         alert(`Error: ${error.message}`);
     }
 });
