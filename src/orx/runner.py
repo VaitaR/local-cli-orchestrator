@@ -253,8 +253,8 @@ class Runner:
             dry_run=dry_run,
         )
 
-        # Create executor (legacy - kept for backward compatibility)
-        self.executor = self._create_executor()
+        # Use model router's primary executor (ensures consistent binary)
+        self.executor = self.model_router.get_primary_executor()
         self.stage_executors = self._create_stage_executors()
 
         # Create gates
@@ -296,23 +296,28 @@ class Runner:
         engine_config = engine_config or self.config.engine
 
         if engine_config.type == EngineType.CODEX:
+            codex_cfg = self.config.executors.codex
             return CodexExecutor(
                 cmd=self.cmd,
-                binary=engine_config.binary,
+                binary=engine_config.binary or codex_cfg.bin or "codex",
                 extra_args=engine_config.extra_args,
                 dry_run=self.dry_run,
-                default_model=engine_config.model,
+                default_model=engine_config.model or codex_cfg.default.model,
                 default_profile=engine_config.profile,
-                default_reasoning_effort=engine_config.reasoning_effort,
+                default_reasoning_effort=engine_config.reasoning_effort
+                or codex_cfg.default.reasoning_effort,
             )
         elif engine_config.type == EngineType.GEMINI:
+            gemini_cfg = self.config.executors.gemini
             return GeminiExecutor(
                 cmd=self.cmd,
-                binary=engine_config.binary,
+                binary=engine_config.binary or gemini_cfg.bin or "gemini",
                 extra_args=engine_config.extra_args,
                 dry_run=self.dry_run,
-                default_model=engine_config.model,
-                output_format=engine_config.output_format or "json",
+                default_model=engine_config.model or gemini_cfg.default.model,
+                output_format=engine_config.output_format
+                or gemini_cfg.default.output_format
+                or "json",
             )
         elif engine_config.type == EngineType.FAKE:
             return FakeExecutor()

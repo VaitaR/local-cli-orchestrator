@@ -115,6 +115,10 @@ class CodexExecutor(BaseExecutor):
         else:
             cmd.append("--full-auto")
 
+        # Enable Codex web search tool if requested for this stage.
+        if model_selector and getattr(model_selector, "web_search", False):
+            cmd.append("--search")
+
         # Add model or profile selection
         if resolved["model"]:
             cmd.extend(["-m", resolved["model"]])
@@ -193,6 +197,7 @@ class CodexExecutor(BaseExecutor):
                 "model": resolved["model"],
                 "profile": resolved["profile"],
                 "reasoning_effort": resolved["reasoning_effort"],
+                "web_search": bool(model_selector and getattr(model_selector, "web_search", False)),
             },
         )
 

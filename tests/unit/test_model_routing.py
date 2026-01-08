@@ -422,6 +422,26 @@ class TestCodexCommandBuilder:
         assert 'model_reasoning_effort="high"' in invocation.cmd[config_idx + 1]
         assert invocation.model_info["reasoning_effort"] == "high"
 
+    def test_codex_command_with_web_search(self, cmd: CommandRunner) -> None:
+        """Codex command includes --search when enabled."""
+        from orx.executors.codex import CodexExecutor
+
+        executor = CodexExecutor(cmd=cmd, dry_run=True)
+        selector = ModelSelector(model="gpt-5.2", web_search=True)
+
+        invocation = executor.resolve_invocation(
+            prompt_path=Path("/tmp/prompt.md"),
+            cwd=Path("/tmp/workspace"),
+            logs=LogPaths(
+                stdout=Path("/tmp/stdout.log"),
+                stderr=Path("/tmp/stderr.log"),
+            ),
+            model_selector=selector,
+        )
+
+        assert "--search" in invocation.cmd
+        assert invocation.model_info["web_search"] is True
+
 
 class TestGeminiCommandBuilder:
     """Test Gemini command building with model selection."""
@@ -524,6 +544,22 @@ class TestModelResolutionPriority:
         )
         _, selector2 = router2.get_executor_for_stage("spec")
         assert selector2.model == "executor-default-model"
+
+        # Stage flags should apply even when model comes from defaults.
+        stages_with_search = StagesConfig(
+            plan=StageExecutorConfig(web_search=True),
+        )
+        router_search = ModelRouter(
+            engine=engine,
+            executors=executors,
+            stages=stages_with_search,
+            fallback=FallbackPolicyConfig(enabled=False),
+            cmd=cmd,
+            dry_run=True,
+        )
+        _, selector_search = router_search.get_executor_for_stage("plan")
+        assert selector_search.profile == "executor-profile"
+        assert selector_search.web_search is True
 
         # Test 3: Engine model as fallback
         executors_no_default = ExecutorsConfig(

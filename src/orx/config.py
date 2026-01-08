@@ -37,11 +37,13 @@ class ModelSelector(BaseModel):
         model: Model name to use (e.g., "gpt-5.2", "gemini-2.5-pro").
         profile: Codex profile name (alternative to model).
         reasoning_effort: Codex reasoning effort level (low/medium/high).
+        web_search: Enable Codex web search tool for this stage.
     """
 
     model: str | None = None
     profile: str | None = None
     reasoning_effort: Literal["low", "medium", "high"] | None = None
+    web_search: bool = False
 
     @model_validator(mode="after")
     def validate_model_or_profile(self) -> ModelSelector:
@@ -88,12 +90,14 @@ class StageExecutorConfig(BaseModel):
         model: Model override for this stage.
         profile: Profile override (for Codex).
         reasoning_effort: Reasoning effort override (for Codex).
+        web_search: Enable Codex web search tool for this stage.
     """
 
     executor: EngineType | None = None
     model: str | None = None
     profile: str | None = None
     reasoning_effort: Literal["low", "medium", "high"] | None = None
+    web_search: bool = False
 
     @model_validator(mode="after")
     def validate_model_or_profile(self) -> StageExecutorConfig:
@@ -109,6 +113,7 @@ class StageExecutorConfig(BaseModel):
             model=self.model,
             profile=self.profile,
             reasoning_effort=self.reasoning_effort,
+            web_search=self.web_search,
         )
 
 

@@ -107,12 +107,11 @@ class GeminiExecutor(BaseExecutor):
         if resolved["model"]:
             cmd.extend(["--model", resolved["model"]])
 
-        # Add yolo mode for auto-approve
+        # Add approval mode (replaces --yolo flag)
+        # Gemini 0.17+ requires using --approval-mode instead of --yolo
         if self.use_yolo:
-            cmd.append("--yolo")
-
-        # Add approval mode
-        if self.approval_mode:
+            cmd.extend(["--approval-mode", "yolo"])
+        elif self.approval_mode:
             cmd.extend(["--approval-mode", self.approval_mode])
 
         # Add output format for machine parsing
