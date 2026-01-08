@@ -502,6 +502,129 @@ orx metrics show <run_id> -s     # Per-stage metrics
 - `analyze_diff_hygiene()`: Checks file count and LOC against limits
 - `analyze_pack_relevance()`: Ratio of pack files actually modified
 
+
+
+---
+
+## Dashboard Module (v0.5)
+
+Local web UI for monitoring and controlling orx runs. Built with FastAPI + HTMX for a server-rendered, low-JavaScript architecture.
+
+### Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     Dashboard Architecture                       │
+│                                                                  │
+│   Browser ──HTMX──► FastAPI ──► Store ──► FileSystem (runs/)    │
+│      │                │                                          │
+│      │                ├──► Worker ──► subprocess (orx run)      │
+│      │                │                                              │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Key Design Decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Frontend | HTMX + Jinja2 | No │                     Dashboard Architecture                       │
+│                                                         e-user local tool |
+| Binding | 127.0.0.1 only | Security - local use only |
+
+### Module Structure
+
+```
+src/orx/dashboard/
+├── __init__.py          # Package exports (create_app, DashboardConfig)
+├── __main__.py          # Entry point for python -m orx.dashboard
+├── config.py            with env var support
+├── server.py            # FastAPI app factory
+│
+├── store/               # Data access layer
+│   ├── models.py        # Pydantic models (RunSummary, RunDetail, etc.)
+│   ├── base.py          # Protocol definitions
+│   └── filesystem.py    # FileSystemRunStore implementation
+│
+├── handlers/            # Route handlers
+│   ├── pages.py         # Full page routes (/, /runs/{id})
+│   ├── partials.ol API (start/cancel)
+│
+├── worker/              # Background processing
+│   └── local.py         # LocalWorker with subprocess management
+│
+├── templates/           # Jinja2 templates
+│   ├── base.html
+│   ├── pages/           # Full page templates
+│   └── partials/        # HTMX partial templates
+│
+└── static/              # Static assets
+    ├── htmx.min.js
+    └── style.css
+```
+
+### Data Models
+
+```python
+# Key models from store/models.py
+
+class RunStatus(StrEnum):
+    PENDING = "p│
+├── store/               # Data access lass RunSummary:
+    run_id: str
+    task: str
+    status: │   ├── base.py          # Protocol definitions
+│   └── filesys_s?e: str | None
+
+class RunDetail(RunSummary):
+    completed_stages: list[str]
+    fix_loop_count: int
+    last_error: LastError | None
+    artifacts: list[ArtifactInfo]
+```
+
+### Security Measures
+
+1. **Localhost binding**: Dashboard only binds to 127.0.0.1
+2. **Path safety**: Artifact access uses allowlist extensions (.md, .json, .log, .diff, .txt, .yaml)
+3. **Path traversal prevention**: No ".." allowed in artifact paths
+4. **Run ID validation**: Run IDs must be valid directory names
+
+### Endpoints
+
+| Route | Method | Purpose |
+|-------|--------|---------|
+|  | GET | Runs list page |
+|  | GET | Run detail page |
+|  | GET | Active runs table (HTMX) |
+|  | GET | Recent runs table (HTMX) |
+|  | GET | Run status header (HTMX) |
+|  | GET | Tab content (HTMX) |
+|  | GET | Artifact preview (HTMX) |
+|  | GET | Diff view (HTMX) |
+|  | GET | Log tail with cursor (HTMX) |
+|  | POST | Start new run |
+|  | POST | Cancel running run |
+|  | GET | Get run status (JSON) |
+|  | GET | Health check |
+
+### Usage
+
+```bash
+# Install dashboard dependencies
+pip install -e ".[dashboard]"
+
+# Run the dashboard
+python -m orx.dashboard
+
+# With options
+python -m orx.dashboard --host 0.0.0.0 --port 8080 --runs-root ./runs
+
+# Environment variables
+ORX_RUNS_ROOT=./runs
+ORX_DASHBOARD_HOST=127.0.0.1
+ORX_DASHBOARD_PORT=8421
+```
+
 ---
 
 ## Extension Points

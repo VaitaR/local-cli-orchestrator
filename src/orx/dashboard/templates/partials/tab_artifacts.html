@@ -1,0 +1,30 @@
+<div class="tab-content">
+    {% if artifacts %}
+    <div class="artifacts-layout">
+        <div class="artifacts-list">
+            {% for artifact in artifacts %}
+            <div class="artifact-item"
+                 hx-get="/partials/artifact/{{ run_id }}?path={{ artifact.path | urlencode }}"
+                 hx-target="#artifact-preview"
+                 hx-swap="innerHTML">
+                <span class="artifact-icon">📄</span>
+                <div class="artifact-info">
+                    <span class="artifact-name">{{ artifact.name }}</span>
+                    <span class="artifact-path">{{ artifact.path }}</span>
+                </div>
+                <span class="artifact-size">{{ (artifact.size_bytes / 1024) | round(1) }}KB</span>
+            </div>
+            {% endfor %}
+        </div>
+        <div class="artifact-preview" id="artifact-preview">
+            <div class="empty-state">
+                <p>Select an artifact to preview</p>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <p>No artifacts available</p>
+    </div>
+    {% endif %}
+</div>

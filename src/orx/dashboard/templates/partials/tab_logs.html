@@ -1,0 +1,32 @@
+<div class="logs-container">
+    <div class="log-controls">
+        <label>
+            <input type="checkbox" id="auto-scroll" checked>
+            Auto-scroll
+        </label>
+        <button class="btn btn-secondary btn-sm" onclick="scrollToBottom()">
+            Scroll to Bottom
+        </button>
+    </div>
+    
+    <div class="log-output" id="log-output"
+         hx-get="/partials/log-tail/{{ run.run_id }}?cursor=0"
+         hx-trigger="load"
+         hx-swap="innerHTML">
+        <div class="loading">Loading logs...</div>
+    </div>
+</div>
+
+<script>
+function scrollToBottom() {
+    const output = document.getElementById('log-output');
+    output.scrollTop = output.scrollHeight;
+}
+
+// Auto-scroll on htmx swap
+document.body.addEventListener('htmx:afterSwap', function(evt) {
+    if (evt.detail.target.id === 'log-output' && document.getElementById('auto-scroll').checked) {
+        scrollToBottom();
+    }
+});
+</script>
