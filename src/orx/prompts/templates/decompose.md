@@ -14,7 +14,8 @@ You are a software architect breaking down a specification into atomic work item
 
 ## Instructions
 
-Decompose the specification into small, atomic work items that can be implemented independently.
+Decompose the specification into atomic work items that can be implemented independently.
+Prefer fewer, well-scoped items when changes are small or closely related.
 
 ## Output Requirements
 
@@ -44,7 +45,7 @@ items:
 
 1. IDs must be sequential: W001, W002, W003, etc.
 2. Each item must have measurable acceptance criteria
-3. Keep items small - prefer more small items over fewer large ones
+3. Target {{ max_items }} items or fewer; combine tightly related steps
 4. Specify dependencies when one item must complete before another
 5. files_hint should list likely files to be created/modified
 6. All items start with status: "todo", attempts: 0
