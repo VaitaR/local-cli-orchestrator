@@ -639,14 +639,27 @@ src/orx/dashboard/
 ```python
 # Key models from store/models.py
 
+from enum import StrEnum
+from dataclasses import dataclass
+
+
 class RunStatus(StrEnum):
-    PENDING = "p│
-├── store/               # Data access lass RunSummary:
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+@dataclass
+class RunSummary:
     run_id: str
     task: str
-    status: │   ├── base.py          # Protocol definitions
-│   └── filesys_s?e: str | None
+    status: RunStatus
+    filesystem_store: str | None
 
+
+@dataclass
 class RunDetail(RunSummary):
     completed_stages: list[str]
     fix_loop_count: int
