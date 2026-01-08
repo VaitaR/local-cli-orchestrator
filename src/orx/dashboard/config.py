@@ -44,6 +44,11 @@ class DashboardConfig(BaseSettings):
         validation_alias="ORX_DASHBOARD_PORT",
         description="Port to bind",
     )
+    debug: bool = Field(
+        default=False,
+        validation_alias="ORX_DASHBOARD_DEBUG",
+        description="Enable debug mode",
+    )
 
     # Worker
     max_concurrency: int = Field(
