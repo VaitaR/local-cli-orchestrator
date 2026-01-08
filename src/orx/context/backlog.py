@@ -7,8 +7,13 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+import structlog
 import yaml
 from pydantic import BaseModel, Field, field_validator
+
+from orx.context.yaml_extractor import YAMLExtractor, YAMLExtractionError
+
+logger = structlog.get_logger()
 
 
 def _strip_markdown_code_fence(text: str) -> str:
@@ -327,30 +332,46 @@ class Backlog(BaseModel):
         path.write_text(self.to_yaml())
 
     @classmethod
-    def from_yaml(cls, yaml_content: str) -> Backlog:
-        """Parse a backlog from YAML content.
+    def from_yaml(cls, yaml_content: str, *, strict: bool = False) -> Backlog:
+        """Parse a backlog from YAML content with robust extraction.
+
+        Uses multi-strategy extraction to handle:
+        - Clean YAML
+        - YAML in markdown code fences
+        - YAML wrapped in JSON responses
+        - YAML embedded in explanatory text
 
         Args:
-            yaml_content: YAML string to parse.
+            yaml_content: YAML string to parse (may contain noise).
+            strict: If True, only try direct parsing and fence stripping.
 
         Returns:
             Parsed Backlog instance.
 
         Raises:
-            ValueError: If the YAML is invalid.
+            ValueError: If the YAML cannot be extracted or validated.
         """
-        yaml_content = _strip_markdown_code_fence(yaml_content)
+        log = logger.bind(method="from_yaml")
+        extractor = YAMLExtractor(strict=strict)
+
         try:
-            data: dict[str, Any] = yaml.safe_load(yaml_content)
-        except yaml.YAMLError as e:
-            msg = f"Invalid YAML: {e}"
+            data = extractor.extract(yaml_content)
+        except YAMLExtractionError as e:
+            log.error(
+                "YAML extraction failed",
+                error=str(e),
+                preview=yaml_content[:500] if len(yaml_content) > 500 else yaml_content,
+            )
+            msg = f"Could not extract valid YAML: {e}"
             raise ValueError(msg) from e
 
-        if not isinstance(data, dict):
-            msg = "Backlog YAML must be a mapping"
-            raise ValueError(msg)
-
-        return cls.model_validate(data)
+        # Validate with Pydantic
+        try:
+            return cls.model_validate(data)
+        except Exception as e:
+            log.error("Backlog validation failed", error=str(e), data=data)
+            msg = f"Invalid backlog structure: {e}"
+            raise ValueError(msg) from e
 
     @classmethod
     def load(cls, path: Path) -> Backlog:

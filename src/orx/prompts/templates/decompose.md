@@ -52,7 +52,32 @@ items:
 
 ---
 
-**Important**:
-- Output ONLY the YAML content (a single YAML mapping).
-- Do NOT use Markdown, bullet lists, or code fences.
-- No extra commentary or headers.
+## OUTPUT FORMAT (CRITICAL)
+
+**Your ENTIRE response MUST be ONLY the YAML mapping.**
+
+**\u2713 CORRECT** (starts immediately with `run_id:`):
+```
+run_id: "{{ run_id }}"
+items:
+  - id: "W001"
+    ...
+```
+
+**\u2717 WRONG** (has any text before YAML):
+```
+Here is the decomposed backlog:
+```yaml
+run_id: ...
+```
+
+**\u2717 WRONG** (JSON wrapper):
+```
+{"response": "run_id: ..."}
+```
+
+**FINAL INSTRUCTION**:
+- The FIRST character of your response MUST be `r` (from `run_id:`)
+- Do NOT write ANY text before or after the YAML
+- Do NOT use markdown code fences (```yaml...```)
+- Do NOT explain your reasoning or provide commentary

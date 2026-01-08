@@ -81,11 +81,17 @@ class DecomposeStage(TextOutputStage):
 
         raw_output = ctx.paths.backlog_yaml.read_text()
 
-        # Validate the backlog, retry once on invalid YAML
+        # Validate the backlog with robust extraction, retry once on failure
         try:
-            backlog = Backlog.load(ctx.paths.backlog_yaml)
+            # First attempt: try with strict=False (all strategies)
+            backlog = Backlog.from_yaml(raw_output, strict=False)
+            log.info("Backlog parsed successfully with robust extraction")
         except Exception as e:
-            log.warning("Backlog YAML invalid, attempting auto-fix", error=str(e))
+            log.warning(
+                "Backlog YAML invalid after extraction, attempting auto-fix",
+                error=str(e),
+                raw_preview=raw_output[:500] if len(raw_output) > 500 else raw_output,
+            )
             fix_result = self._attempt_fix(ctx, error=str(e), invalid_output=raw_output)
             if not fix_result.success:
                 return fix_result
@@ -156,24 +162,28 @@ class DecomposeStage(TextOutputStage):
 
         content = out_path.read_text()
 
-        # Defensive check: ensure content is valid YAML, not JSON wrapper
-        content_stripped = content.strip()
-        if content_stripped.startswith("{") and '"response"' in content_stripped[:200]:
-            log.error(
-                "Auto-fix output appears to be JSON wrapper instead of YAML",
-                preview=content_stripped[:500],
-            )
+        # Check for explicit error marker
+        if content.strip() == "ERROR: CANNOT_FIX":
+            log.error("Auto-fix explicitly indicated it cannot fix the YAML")
             return self._failure(
-                "Auto-fix returned JSON wrapper instead of plain YAML. "
-                "This indicates the executor did not properly extract the response field."
+                "Auto-fix could not produce valid YAML. "
+                "The model explicitly indicated it cannot fix the error. "
+                f"Original error: {error}"
             )
 
+        # Write the fixed content
         ctx.paths.backlog_yaml.write_text(content)
 
+        # Try to parse with robust extraction
         try:
-            backlog = Backlog.load(ctx.paths.backlog_yaml)
+            backlog = Backlog.from_yaml(content, strict=False)
+            log.info("Auto-fix produced valid backlog with robust extraction")
         except Exception as e:
-            log.error("Auto-fix produced invalid YAML", error=str(e))
+            log.error(
+                "Auto-fix produced invalid YAML even after robust extraction",
+                error=str(e),
+                content_preview=content[:500] if len(content) > 500 else content,
+            )
             return self._failure(f"Invalid backlog YAML after auto-fix: {e}")
 
         return self._success(

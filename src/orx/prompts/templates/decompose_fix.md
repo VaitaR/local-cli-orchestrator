@@ -1,15 +1,22 @@
 # Decomposition Fix Prompt
 
-You previously produced invalid `backlog.yaml`. Fix it and return a valid YAML
-mapping that follows the required schema exactly.
+**CRITICAL**: You previously produced invalid `backlog.yaml`. You MUST fix it now.
 
-## Validation Error
+## What Went Wrong
 
 {{ error }}
 
-## Invalid Output (for reference only)
+## Your Previous Output (DO NOT REPEAT THIS)
 
 {{ invalid_output }}
+
+---
+
+## What You MUST Do Now
+
+1. **Analyze the error** - Understand what was wrong
+2. **Produce ONLY valid YAML** - No explanations, no markdown, no JSON wrapper
+3. **Start output with `run_id:`** - This is the first line of valid YAML
 
 ## Required Output Format
 
@@ -41,7 +48,37 @@ items:
 
 ---
 
-**Important**:
-- Output ONLY the YAML mapping.
-- Do NOT use Markdown, bullet lists, or code fences.
-- No extra commentary or headers.
+## OUTPUT REQUIREMENTS (MANDATORY)
+
+**✓ CORRECT OUTPUT** (starts immediately with YAML):
+```
+run_id: "{{ run_id }}"
+items:
+  - id: "W001"
+    title: "..."
+```
+
+**✗ WRONG OUTPUT** (has explanations/wrappers):
+```
+I've analyzed the error and here's the corrected YAML:
+```yaml
+run_id: "{{ run_id }}"
+```
+
+**✗ WRONG OUTPUT** (JSON wrapper):
+```
+{"response": "run_id: ..."}
+```
+
+**✗ WRONG OUTPUT** (explanatory text):
+```
+Let me fix the YAML for you. The issue was...
+```
+
+---
+
+**FINAL INSTRUCTION**: Your ENTIRE response must be ONLY the YAML mapping.
+The FIRST character of your response MUST be `r` (from `run_id`).
+Do NOT write ANY text before or after the YAML.
+Do NOT use markdown code fences.
+If you cannot produce valid YAML, output EXACTLY: `ERROR: CANNOT_FIX`
