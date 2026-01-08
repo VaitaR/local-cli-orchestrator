@@ -12,6 +12,22 @@ You are fixing issues found in the previous implementation attempt.
 {{ spec_highlights }}
 {% endif %}
 
+{% if repo_context is defined and repo_context %}
+## Repo Context
+
+{{ repo_context }}
+{% endif %}
+
+{% if verify_commands is defined and verify_commands %}
+## VERIFY Will Run
+
+The pipeline will run these checks after your changes:
+
+{{ verify_commands }}
+
+Ensure your fixes pass all these gates.
+{% endif %}
+
 ## Current Work Item
 
 **ID**: {{ item_id }}
@@ -83,7 +99,7 @@ You are fixing issues found in the previous implementation attempt.
 ## Common Issues
 
 - **Ruff failures**: Fix syntax errors, import sorting, unused imports (keep imports ordered)
-- **Pytest failures**: Fix failing assertions, missing fixtures, import errors (ensure local modules resolve)
+- **Pytest failures**: Fix failing assertions, missing fixtures, import errors
 - **Empty diff**: Ensure you're actually modifying files, not just outputting code
 
 ## Output

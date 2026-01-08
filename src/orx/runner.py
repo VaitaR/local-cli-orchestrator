@@ -15,6 +15,7 @@ import structlog
 from orx.config import EngineConfig, EngineType, ModelSelector, OrxConfig
 from orx.context.backlog import Backlog, WorkItem
 from orx.context.pack import ContextPack
+from orx.context.repo_context import RepoContextBuilder
 from orx.exceptions import GuardrailError
 from orx.executors.base import Executor
 from orx.executors.codex import CodexExecutor
@@ -502,6 +503,56 @@ class Runner:
         except Exception as e:
             logger.warning("Failed to save metrics", error=str(e))
 
+    def _build_repo_context(self, *, force_rebuild: bool = False) -> None:
+        """Build repo context pack from the worktree.
+
+        Collects stack, tooling configuration, and gate commands
+        and writes them to context files for use in prompts.
+
+        Args:
+            force_rebuild: If True, rebuild even if files exist.
+        """
+        log = logger.bind(run_id=self.paths.run_id)
+
+        # Skip if files already exist (for resume stability)
+        if (
+            not force_rebuild
+            and self.pack.tooling_snapshot_exists()
+            and self.pack.project_map_exists()
+        ):
+            log.debug("Repo context pack already exists, reusing")
+            return
+
+        try:
+            builder = RepoContextBuilder(
+                worktree=self.workspace.worktree_path,
+                gates=self.gates,
+            )
+            result = builder.build()
+
+            # Write project map (stack profile)
+            if result.project_map:
+                self.pack.write_project_map(result.project_map)
+
+            # Write tooling snapshot (full context)
+            if result.tooling_snapshot:
+                self.pack.write_tooling_snapshot(result.tooling_snapshot)
+
+            # Write verify commands
+            if result.verify_commands:
+                self.pack.write_verify_commands(result.verify_commands)
+
+            log.info(
+                "Repo context pack built",
+                stacks=result.detected_stacks,
+                profile_size=len(result.project_map),
+                tooling_size=len(result.tooling_snapshot),
+            )
+
+        except Exception as e:
+            # Non-fatal: log warning and continue
+            log.warning("Failed to build repo context pack", error=str(e))
+
     def run(self, task: str | Path) -> bool:
         """Run the full orchestration.
 
@@ -538,6 +589,9 @@ class Runner:
                 self.workspace.validate_base_branch(base_branch)
             except Exception as e:
                 log.warning("Base branch validation warning", error=str(e))
+
+            # Build repo context pack (stack, tooling, gates)
+            self._build_repo_context()
 
             # Execute stages
             success = self._execute_stages()
@@ -588,6 +642,9 @@ class Runner:
                 # Restore baseline
                 if self.state.state.baseline_sha:
                     self.workspace.reset(self.state.state.baseline_sha)
+
+            # Rebuild repo context pack if missing (for resume stability)
+            self._build_repo_context()
 
             # Continue from resume point
             success = self._execute_stages()

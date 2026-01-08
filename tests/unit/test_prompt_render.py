@@ -69,6 +69,7 @@ class TestPromptRenderer:
             spec="## Acceptance\n- Feature works",
             plan="Step 1: Implement",
             run_id="test_run_123",
+            max_items=5,
         )
 
         assert "test_run_123" in content

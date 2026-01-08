@@ -125,6 +125,31 @@ class ContextPack:
         new_content = f"{existing}\n{lesson}".strip() + "\n"
         self.write_lessons(new_content)
 
+    # Repo Context Pack (tooling snapshot)
+    def read_tooling_snapshot(self) -> str | None:
+        """Read the tooling snapshot."""
+        return self._read_file(self.paths.tooling_snapshot_md)
+
+    def write_tooling_snapshot(self, content: str) -> None:
+        """Write the tooling snapshot."""
+        self._write_file(self.paths.tooling_snapshot_md, content)
+
+    def tooling_snapshot_exists(self) -> bool:
+        """Check if tooling_snapshot.md exists."""
+        return self.paths.tooling_snapshot_md.exists()
+
+    def read_verify_commands(self) -> str | None:
+        """Read the verify commands."""
+        return self._read_file(self.paths.verify_commands_md)
+
+    def write_verify_commands(self, content: str) -> None:
+        """Write the verify commands."""
+        self._write_file(self.paths.verify_commands_md, content)
+
+    def verify_commands_exists(self) -> bool:
+        """Check if verify_commands.md exists."""
+        return self.paths.verify_commands_md.exists()
+
     # Artifacts
     def read_patch_diff(self) -> str | None:
         """Read the patch diff."""
@@ -197,6 +222,8 @@ class ContextPack:
             "spec.md": self.spec_exists(),
             "project_map.md": self.project_map_exists(),
             "backlog.yaml": self.paths.backlog_yaml.exists(),
+            "tooling_snapshot.md": self.tooling_snapshot_exists(),
+            "verify_commands.md": self.verify_commands_exists(),
         }
 
     def get_evidence_bundle(
