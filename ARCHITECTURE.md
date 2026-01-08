@@ -630,7 +630,7 @@ python -m orx.dashboard --host 0.0.0.0 --port 8080 --runs-root ./runs
 # Environment variables
 ORX_RUNS_ROOT=./runs
 ORX_DASHBOARD_HOST=127.0.0.1
-ORX_DASHBOARD_PORT=8421
+ORX_DASHBOARD_PORT=8000
 ```
 
 ---
