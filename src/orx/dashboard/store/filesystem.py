@@ -193,6 +193,8 @@ class FileSystemRunStore:
                 content = task_path.read_text()
                 task_preview = content[:100] + "..." if len(content) > 100 else content
             except OSError:
+                # Task preview is optional metadata; silently ignore read failures
+                # (e.g., permission issues, race conditions) and continue without it
                 pass
 
         return RunSummary(
