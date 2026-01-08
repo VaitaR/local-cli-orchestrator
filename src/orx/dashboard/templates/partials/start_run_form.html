@@ -72,7 +72,7 @@ document.getElementById('start-run-form').addEventListener('submit', async (e) =
         document.getElementById('modal').classList.remove('open');
         
         // Refresh the runs list
-        htmx.ajax('GET', '/partials/active_runs', {target: '#active-runs', swap: 'innerHTML'});
+        htmx.ajax('GET', '/partials/active-runs', {target: '#active-runs', swap: 'innerHTML'});
         
     } catch (error) {
         alert(`Error: ${error.message}`);

@@ -697,7 +697,7 @@ pip install -e ".[dashboard]"
 python -m orx.dashboard
 
 # With options
-python -m orx.dashboard --host 0.0.0.0 --port 8080 --runs-root ./runs
+python -m orx.dashboard --host 0.0.0.0 --port 8421 --runs-root ./runs
 
 # Environment variables
 ORX_RUNS_ROOT=./runs

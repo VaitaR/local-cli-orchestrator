@@ -642,7 +642,8 @@ tr:hover {
     justify-content: center;
 }
 
-.modal.active {
+.modal.active,
+.modal.open {
     display: flex;
 }
 
