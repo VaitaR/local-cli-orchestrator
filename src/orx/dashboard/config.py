@@ -40,7 +40,7 @@ class DashboardConfig(BaseSettings):
         description="Host to bind (127.0.0.1 for security)",
     )
     port: int = Field(
-        default=8000,
+        default=8421,
         validation_alias="ORX_DASHBOARD_PORT",
         description="Port to bind",
     )
