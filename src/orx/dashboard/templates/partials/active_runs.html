@@ -1,0 +1,49 @@
+{% if runs %}
+<table class="table">
+    <thead>
+        <tr>
+            <th>Run ID</th>
+            <th>Stage</th>
+            <th>Elapsed</th>
+            <th>Task</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for run in runs %}
+        <tr>
+            <td>
+                <a href="/runs/{{ run.run_id }}" class="run-link">
+                    {{ run.run_id[:20] }}...
+                </a>
+            </td>
+            <td>
+                <span class="badge badge-running">
+                    {{ run.current_stage or 'starting' }}
+                </span>
+            </td>
+            <td class="mono">{{ run.elapsed_human }}</td>
+            <td class="task-preview">{{ run.task_preview or '-' }}</td>
+            <td>
+                <button class="btn btn-sm btn-danger"
+                        hx-post="/api/runs/{{ run.run_id }}/cancel"
+                        hx-confirm="Cancel this run?"
+                        hx-swap="none">
+                    Cancel
+                </button>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+<script>
+    document.getElementById('active-count').textContent = '{{ runs|length }}';
+</script>
+{% else %}
+<div class="empty-state">
+    <p>No active runs</p>
+</div>
+<script>
+    document.getElementById('active-count').textContent = '0';
+</script>
+{% endif %}

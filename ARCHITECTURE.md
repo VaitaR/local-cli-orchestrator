@@ -599,8 +599,9 @@ Local web UI for monitoring and controlling orx runs. Built with FastAPI + HTMX 
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| Frontend | HTMX + Jinja2 | No │                     Dashboard Architecture                       │
-│                                                         e-user local tool |
+| Frontend | HTMX + Jinja2 | No build step, minimal JavaScript, server-rendered |
+| Backend | FastAPI | Async support, OpenAPI docs, fast |
+| State | FileSystem (runs/) | No database needed, simple one-user local tool |
 | Binding | 127.0.0.1 only | Security - local use only |
 
 ### Module Structure
@@ -609,7 +610,7 @@ Local web UI for monitoring and controlling orx runs. Built with FastAPI + HTMX 
 src/orx/dashboard/
 ├── __init__.py          # Package exports (create_app, DashboardConfig)
 ├── __main__.py          # Entry point for python -m orx.dashboard
-├── config.py            with env var support
+├── config.py            # DashboardConfig with env var support
 ├── server.py            # FastAPI app factory
 │
 ├── store/               # Data access layer
@@ -619,7 +620,8 @@ src/orx/dashboard/
 │
 ├── handlers/            # Route handlers
 │   ├── pages.py         # Full page routes (/, /runs/{id})
-│   ├── partials.ol API (start/cancel)
+│   ├── partials.py      # HTMX partials (active-runs, recent-runs, etc.)
+│   └── api.py           # JSON API (start/cancel)
 │
 ├── worker/              # Background processing
 │   └── local.py         # LocalWorker with subprocess management
@@ -639,27 +641,20 @@ src/orx/dashboard/
 ```python
 # Key models from store/models.py
 
-from enum import StrEnum
-from dataclasses import dataclass
-
-
-class RunStatus(StrEnum):
-    PENDING = "pending"
+class RunStatus(str, Enum):
     RUNNING = "running"
-    SUCCEEDED = "succeeded"
-    FAILED = "failed"
+    SUCCESS = "success"
+    FAIL = "fail"
     CANCELLED = "cancelled"
+    UNKNOWN = "unknown"
 
-
-@dataclass
-class RunSummary:
+class RunSummary(BaseModel):
     run_id: str
-    task: str
     status: RunStatus
-    filesystem_store: str | None
+    current_stage: str | None
+    created_at: datetime | None
+    task_preview: str | None
 
-
-@dataclass
 class RunDetail(RunSummary):
     completed_stages: list[str]
     fix_loop_count: int
@@ -678,19 +673,19 @@ class RunDetail(RunSummary):
 
 | Route | Method | Purpose |
 |-------|--------|---------|
-|  | GET | Runs list page |
-|  | GET | Run detail page |
-|  | GET | Active runs table (HTMX) |
-|  | GET | Recent runs table (HTMX) |
-|  | GET | Run status header (HTMX) |
-|  | GET | Tab content (HTMX) |
-|  | GET | Artifact preview (HTMX) |
-|  | GET | Diff view (HTMX) |
-|  | GET | Log tail with cursor (HTMX) |
-|  | POST | Start new run |
-|  | POST | Cancel running run |
-|  | GET | Get run status (JSON) |
-|  | GET | Health check |
+| `/` | GET | Runs list page |
+| `/runs/{run_id}` | GET | Run detail page |
+| `/active-runs` | GET | Active runs table (HTMX) |
+| `/recent-runs` | GET | Recent runs table (HTMX) |
+| `/run-header/{run_id}` | GET | Run status header (HTMX) |
+| `/run-tab/{run_id}` | GET | Tab content (HTMX) |
+| `/artifact/{run_id}` | GET | Artifact preview (HTMX) |
+| `/diff/{run_id}` | GET | Diff view (HTMX) |
+| `/log-tail/{run_id}` | GET | Log tail with cursor (HTMX) |
+| `/runs/start` | POST | Start new run |
+| `/runs/{run_id}/cancel` | POST | Cancel running run |
+| `/runs/{run_id}/status` | GET | Get run status (JSON) |
+| `/health` | GET | Health check |
 
 ### Usage
 
