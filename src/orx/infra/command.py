@@ -207,6 +207,7 @@ class CommandRunner:
         *,
         cwd: Path | None = None,
         timeout: int | None = None,
+        check: bool = False,
         env: dict[str, str] | None = None,
     ) -> tuple[int, str, str]:
         """Run a command and capture stdout/stderr in memory.
@@ -215,13 +216,14 @@ class CommandRunner:
             command: Command and arguments to run.
             cwd: Working directory for the command.
             timeout: Timeout in seconds.
+            check: If True, raise on non-zero exit code.
             env: Environment variables (merged with current env).
 
         Returns:
             Tuple of (returncode, stdout, stderr).
 
         Raises:
-            CommandError: If command cannot be started or times out.
+            CommandError: If command cannot be started or times out, or if check=True and command fails.
         """
         log = logger.bind(command=command, cwd=str(cwd) if cwd else None)
         log.info("Running command (capture mode)")
@@ -247,6 +249,16 @@ class CommandRunner:
                 check=False,
             )
             log.info("Command completed", returncode=result.returncode)
+
+            if check and result.returncode != 0:
+                msg = f"Command failed with exit code {result.returncode}: {' '.join(command)}"
+                raise CommandError(
+                    msg,
+                    command=command,
+                    returncode=result.returncode,
+                    cwd=cwd,
+                )
+
             return result.returncode, result.stdout, result.stderr
         except subprocess.TimeoutExpired as e:
             log.error("Command timed out", timeout=timeout)
