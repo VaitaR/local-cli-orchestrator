@@ -1,6 +1,5 @@
 """Tests for dashboard local worker."""
 
-import threading
 import time
 from unittest.mock import MagicMock, patch
 
@@ -41,7 +40,7 @@ class TestLocalWorker:
 
         worker = LocalWorker(mock_config)
         worker.start()
-        
+
         try:
             run_id = worker.start_run("Test task", repo_path="/tmp/test-repo")
             assert run_id is not None
@@ -71,13 +70,13 @@ class TestLocalWorker:
 
         worker = LocalWorker(mock_config)
         worker.start()
-        
+
         try:
             run_ids = []
             for i in range(3):
                 run_id = worker.start_run(f"Task {i}", repo_path="/tmp/test-repo")
                 run_ids.append(run_id)
-            
+
             # All run IDs should be unique
             assert len(set(run_ids)) == 3
         finally:
@@ -97,11 +96,11 @@ class TestLocalWorker:
 
         worker = LocalWorker(mock_config)
         worker.start()
-        
+
         # Queue some runs
         for i in range(3):
             worker.start_run(f"Task {i}", repo_path="/tmp/test-repo")
-        
+
         # Stop should not hang
         worker.stop()
         time.sleep(0.2)

@@ -173,6 +173,8 @@ class FileSystemRunStore:
             if "updated_at" in state:
                 updated_at = datetime.fromisoformat(state["updated_at"])
         except (ValueError, TypeError):
+            # Silently ignore malformed or invalid timestamp data; timestamps are optional
+            # and we want to gracefully degrade rather than fail the entire run summary
             pass
 
         # Calculate elapsed time
@@ -193,6 +195,8 @@ class FileSystemRunStore:
                 content = task_path.read_text()
                 task_preview = content[:100] + "..." if len(content) > 100 else content
             except OSError:
+                # Task preview is optional metadata; silently ignore read failures
+                # (e.g., permission issues, race conditions) and continue without it
                 pass
 
         return RunSummary(
