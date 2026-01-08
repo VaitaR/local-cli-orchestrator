@@ -318,6 +318,8 @@ class Runner:
                 output_format=engine_config.output_format
                 or gemini_cfg.default.output_format
                 or "json",
+                use_yolo=gemini_cfg.use_yolo,
+                approval_mode=gemini_cfg.approval_mode,
             )
         elif engine_config.type == EngineType.FAKE:
             return FakeExecutor()

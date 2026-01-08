@@ -170,6 +170,8 @@ class ModelRouter:
             dry_run=self.dry_run,
             default_model=gemini_cfg.default.model,
             output_format=gemini_cfg.default.output_format or "json",
+            use_yolo=gemini_cfg.use_yolo,
+            approval_mode=gemini_cfg.approval_mode,
         )
 
         # Fake executor (for testing)

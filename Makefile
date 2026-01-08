@@ -16,6 +16,9 @@ help:
 install:
 	python -m pip install -e ".[dev]"
 
+run:
+	python -m orx.dashboard
+
 fmt:
 	python -m ruff format .
 

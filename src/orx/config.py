@@ -75,11 +75,15 @@ class ExecutorConfig(BaseModel):
         bin: Path or name of the CLI binary.
         default: Default settings for this executor.
         profiles: Named profiles (for Codex) keyed by stage name.
+        use_yolo: For Gemini: enable YOLO mode (auto-approve all tool calls).
+        approval_mode: For Gemini: approval mode (e.g., "auto_edit", "reject_all").
     """
 
     bin: str | None = None
     default: ExecutorDefaults = Field(default_factory=ExecutorDefaults)
     profiles: dict[str, str] = Field(default_factory=dict)
+    use_yolo: bool = Field(default=True, description="Enable YOLO mode for Gemini")
+    approval_mode: str = Field(default="auto_edit", description="Approval mode for Gemini")
 
 
 class StageExecutorConfig(BaseModel):
