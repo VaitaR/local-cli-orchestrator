@@ -173,6 +173,8 @@ class FileSystemRunStore:
             if "updated_at" in state:
                 updated_at = datetime.fromisoformat(state["updated_at"])
         except (ValueError, TypeError):
+            # Silently ignore malformed or invalid timestamp data; timestamps are optional
+            # and we want to gracefully degrade rather than fail the entire run summary
             pass
 
         # Calculate elapsed time
