@@ -195,9 +195,15 @@ class GeminiExecutor(BaseExecutor):
         if not content:
             return {}
 
+        # First try to parse the entire content as JSON (handles multi-line JSON)
         try:
-            # Gemini may output multiple JSON objects (one per line)
-            # We want the last complete object
+            return json.loads(content)  # type: ignore[no-any-return]
+        except json.JSONDecodeError:
+            pass
+
+        # Fallback: Gemini may output multiple JSON objects (one per line)
+        # We want the last complete object
+        try:
             lines = content.split("\n")
             for line in reversed(lines):
                 line = line.strip()
@@ -267,10 +273,17 @@ class GeminiExecutor(BaseExecutor):
             if text_content:
                 out_path.parent.mkdir(parents=True, exist_ok=True)
                 out_path.write_text(text_content)
+                log.debug("Extracted response from JSON output", length=len(text_content))
             elif logs.stdout.exists():
                 # Fallback: copy raw stdout
+                raw_content = logs.stdout.read_text()
                 out_path.parent.mkdir(parents=True, exist_ok=True)
-                out_path.write_text(logs.stdout.read_text())
+                out_path.write_text(raw_content)
+                log.warning(
+                    "No response field in JSON, copied raw stdout",
+                    has_extra=bool(extra),
+                    stdout_length=len(raw_content),
+                )
 
             if result.returncode != 0:
                 log.warning(

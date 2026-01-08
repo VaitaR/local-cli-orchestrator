@@ -155,6 +155,19 @@ class DecomposeStage(TextOutputStage):
             return self._failure("Auto-fix produced no output")
 
         content = out_path.read_text()
+
+        # Defensive check: ensure content is valid YAML, not JSON wrapper
+        content_stripped = content.strip()
+        if content_stripped.startswith("{") and '"response"' in content_stripped[:200]:
+            log.error(
+                "Auto-fix output appears to be JSON wrapper instead of YAML",
+                preview=content_stripped[:500],
+            )
+            return self._failure(
+                "Auto-fix returned JSON wrapper instead of plain YAML. "
+                "This indicates the executor did not properly extract the response field."
+            )
+
         ctx.paths.backlog_yaml.write_text(content)
 
         try:
