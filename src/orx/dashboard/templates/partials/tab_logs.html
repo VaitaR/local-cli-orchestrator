@@ -1,6 +1,16 @@
 <div class="logs-container">
     <div class="log-controls">
-        <label>
+        {% if logs %}
+        <select id="log-selector" onchange="loadLog(this.value)">
+            {% for log_name in logs %}
+            <option value="{{ log_name }}">{{ log_name }}</option>
+            {% endfor %}
+        </select>
+        {% else %}
+        <div class="empty">No logs available</div>
+        {% endif %}
+        
+        <label style="margin-left: auto;">
             <input type="checkbox" id="auto-scroll" checked>
             Auto-scroll
         </label>
@@ -10,10 +20,12 @@
     </div>
     
     <div class="log-output" id="log-output"
-         hx-get="/partials/log-tail/{{ run.run_id }}?cursor=0"
+         {% if logs %}
+         hx-get="/partials/log-tail/{{ run.run_id }}?name={{ logs[0] }}&cursor=0"
+         {% endif %}
          hx-trigger="load"
          hx-swap="innerHTML">
-        <div class="loading">Loading logs...</div>
+        <div class="loading">{% if logs %}Loading logs...{% else %}No logs available{% endif %}</div>
     </div>
 </div>
 
@@ -23,6 +35,12 @@ function scrollToBottom() {
     output.scrollTop = output.scrollHeight;
 }
 
+function loadLog(logName) {
+    const runId = '{{ run.run_id }}';
+    htmx.ajax('GET', `/partials/log-tail/${runId}?name=${encodeURIComponent(logName)}&cursor=0`, {
+        target: '#log-output',
+        swap: 'innerHTML'
+    });
 // Auto-scroll on htmx swap
 document.body.addEventListener('htmx:afterSwap', function(evt) {
     if (evt.detail.target.id === 'log-output' && document.getElementById('auto-scroll').checked) {
