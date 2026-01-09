@@ -117,7 +117,7 @@ class CursorExecutor(BaseExecutor):
         # Mark out_path as used for linting compatibility
         _ = out_path
 
-        cmd = [self.binary]
+        cmd = [self.binary, "agent"]
 
         # Non-interactive print mode (required for automation)
         cmd.append("-p")

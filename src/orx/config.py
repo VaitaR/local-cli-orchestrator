@@ -285,7 +285,7 @@ class EngineConfig(BaseModel):
                 EngineType.GEMINI: "gemini",
                 EngineType.COPILOT: "copilot",
                 EngineType.CLAUDE_CODE: "claude",
-                EngineType.CURSOR: "agent",
+                EngineType.CURSOR: "cursor",
                 EngineType.FAKE: "",
             }
             object.__setattr__(self, "binary", defaults.get(self.type, ""))
