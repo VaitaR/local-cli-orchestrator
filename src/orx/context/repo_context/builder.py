@@ -199,6 +199,20 @@ class RepoContextBuilder:
             if b.priority <= ContextPriority.LAYOUT or "Profile" in b.title
         ]
 
+    def _filter_implement_blocks(self, blocks: list[ContextBlock]) -> list[ContextBlock]:
+        """Filter blocks for implement/fix stages.
+
+        Includes tooling config AND docs (AGENTS.md, ARCHITECTURE.md).
+
+        Args:
+            blocks: All context blocks.
+
+        Returns:
+            Blocks suitable for implementation stages.
+        """
+        # Include everything except very low priority extras
+        return [b for b in blocks if b.priority >= ContextPriority.EXTRAS]
+
 
 def build_repo_context(
     worktree: Path,

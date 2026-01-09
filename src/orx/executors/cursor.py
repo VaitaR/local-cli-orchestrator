@@ -96,9 +96,9 @@ class CursorExecutor(BaseExecutor):
         self,
         *,
         prompt_path: Path,
-        _cwd: Path,
+        cwd: Path,
         model_selector: ModelSelector | None = None,
-        _out_path: Path | None = None,
+        out_path: Path | None = None,
         text_only: bool = False,
     ) -> tuple[list[str], dict[str, Any]]:
         """Build the agent command line.
@@ -114,6 +114,9 @@ class CursorExecutor(BaseExecutor):
             Tuple of (command list, resolved model info dict).
         """
         resolved = self._resolve_model(model_selector)
+        # Reference unused parameters for linting compatibility
+        _ = cwd
+        _ = out_path
 
         cmd = [self.binary]
 

@@ -102,7 +102,7 @@ class CopilotExecutor(BaseExecutor):
         prompt_path: Path,
         cwd: Path,
         model_selector: ModelSelector | None = None,
-        _out_path: Path | None = None,
+        out_path: Path | None = None,
         text_only: bool = False,
     ) -> tuple[list[str], dict[str, Any]]:
         """Build the copilot command line.
@@ -118,6 +118,8 @@ class CopilotExecutor(BaseExecutor):
             Tuple of (command list, resolved model info dict).
         """
         resolved = self._resolve_model(model_selector)
+        # Mark out_path as used for linting compatibility (interface compatibility)
+        _ = out_path
 
         cmd = [self.binary]
 

@@ -112,7 +112,7 @@ class ClaudeCodeExecutor(BaseExecutor):
         prompt_path: Path,
         cwd: Path,
         model_selector: ModelSelector | None = None,
-        _out_path: Path | None = None,
+        out_path: Path | None = None,
         text_only: bool = False,
     ) -> tuple[list[str], dict[str, Any]]:
         """Build the claude command line.
@@ -128,6 +128,8 @@ class ClaudeCodeExecutor(BaseExecutor):
             Tuple of (command list, resolved model info dict).
         """
         resolved = self._resolve_model(model_selector)
+        # Keep out_path referenced to satisfy linters (interface compatibility)
+        _ = out_path
 
         cmd = [self.binary]
 

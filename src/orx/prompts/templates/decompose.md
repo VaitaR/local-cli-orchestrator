@@ -12,6 +12,22 @@ You are a software architect breaking down a specification into atomic work item
 {{ plan }}
 {% endif %}
 
+{% if architecture is defined and architecture %}
+## Architecture Overview
+
+{{ architecture }}
+
+Use this to understand where files should be placed and module dependencies.
+{% endif %}
+
+{% if file_tree is defined and file_tree %}
+## Current File Structure
+
+{{ file_tree }}
+
+Use this to specify accurate `files_hint` paths for each work item.
+{% endif %}
+
 ## Instructions
 
 Decompose the specification into atomic work items that can be implemented independently.

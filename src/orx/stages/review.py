@@ -6,6 +6,7 @@ from typing import Any
 
 import structlog
 
+from orx.context.sections import extract_section
 from orx.stages.base import StageContext, StageResult, TextOutputStage
 
 logger = structlog.get_logger()
@@ -44,7 +45,6 @@ class ReviewStage(TextOutputStage):
         for gate in ctx.gates:
             log_path = ctx.paths.log_path(gate.name)
             if log_path.exists():
-                # Try to determine if it passed
                 gate_results.append(
                     {
                         "name": gate.name,
@@ -53,10 +53,23 @@ class ReviewStage(TextOutputStage):
                     }
                 )
 
+        # Extract Definition of Done from AGENTS.md for review checklist
+        definition_of_done = ""
+        agents_path = ctx.workspace.worktree_path / "AGENTS.md"
+        if agents_path.exists():
+            try:
+                content = agents_path.read_text()
+                section = extract_section(content, "Definition of Done", source="AGENTS.md")
+                if section:
+                    definition_of_done = section.content
+            except Exception:
+                pass
+
         return {
             "spec": spec,
             "patch_diff": patch_diff,
             "gate_results": gate_results,
+            "definition_of_done": definition_of_done,
         }
 
     def save_output(self, ctx: StageContext, content: str) -> None:

@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from orx.context.sections import (
+    extract_agents_context,
+    extract_architecture_overview,
+)
 from orx.stages.base import StageContext, TextOutputStage
 
 
@@ -35,9 +39,16 @@ class PlanStage(TextOutputStage):
         task = ctx.pack.read_task() or ""
         project_context = ctx.pack.read_project_map() or ""
 
+        # Extract key sections from AGENTS.md and ARCHITECTURE.md
+        worktree = ctx.workspace.worktree_path
+        agents_context = extract_agents_context(worktree)
+        architecture_overview = extract_architecture_overview(worktree)
+
         return {
             "task": task,
             "project_context": project_context,
+            "agents_context": agents_context,
+            "architecture_overview": architecture_overview,
         }
 
     def save_output(self, ctx: StageContext, content: str) -> None:

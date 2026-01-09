@@ -6,12 +6,24 @@ You are a software architect planning the implementation of a coding task.
 
 {{ task }}
 
-{% if project_context %}
+{% if project_context is defined and project_context %}
 ## Project Context
 
 {{ project_context }}
+{% endif %}
 
-**IMPORTANT**: If AGENTS.md or ARCHITECTURE.md are included above, follow their guidelines strictly:
+{% if architecture_overview is defined and architecture_overview %}
+## Architecture Overview
+
+{{ architecture_overview }}
+{% endif %}
+
+{% if agents_context is defined and agents_context %}
+## Development Guidelines
+
+{{ agents_context }}
+
+**IMPORTANT**: Follow these guidelines strictly:
 - Respect module boundaries and dependency directions
 - Follow established coding patterns
 - Consider architecture constraints when planning

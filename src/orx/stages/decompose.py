@@ -7,6 +7,7 @@ from typing import Any
 import structlog
 
 from orx.context.backlog import Backlog
+from orx.context.sections import extract_architecture_overview, extract_file_tree
 from orx.stages.base import StageContext, StageResult, TextOutputStage
 
 logger = structlog.get_logger()
@@ -43,11 +44,18 @@ class DecomposeStage(TextOutputStage):
         run_config = ctx.config.get("run", {}) if ctx.config else {}
         max_items = run_config.get("max_backlog_items", 4)
 
+        # Extract file tree and architecture for better files_hint suggestions
+        worktree = ctx.workspace.worktree_path
+        file_tree = extract_file_tree(worktree, max_depth=3)
+        architecture = extract_architecture_overview(worktree)
+
         return {
             "spec": spec,
             "plan": plan,
             "run_id": ctx.paths.run_id,
             "max_items": max_items,
+            "file_tree": file_tree,
+            "architecture": architecture,
         }
 
     def save_output(self, ctx: StageContext, content: str) -> None:

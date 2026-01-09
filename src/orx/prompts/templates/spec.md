@@ -10,12 +10,18 @@ You are a software architect creating a technical specification.
 
 {{ plan }}
 
-{% if project_context %}
+{% if project_context is defined and project_context %}
 ## Project Context
 
 {{ project_context }}
+{% endif %}
 
-**IMPORTANT**: If AGENTS.md or ARCHITECTURE.md are included above, follow their guidelines strictly:
+{% if agents_context is defined and agents_context %}
+## Development Guidelines
+
+{{ agents_context }}
+
+**IMPORTANT**: Follow these guidelines strictly:
 - Respect module boundaries and dependency directions
 - Follow established coding patterns and conventions
 - Design within architecture constraints

@@ -12,16 +12,21 @@ You are implementing a specific work item from the backlog.
 {{ spec_highlights }}
 {% endif %}
 
+{% if agents_context is defined and agents_context %}
+## Development Guidelines (from AGENTS.md)
+
+{{ agents_context }}
+
+**MUST FOLLOW**:
+- Module Boundaries: Never introduce cross-import cycles
+- NOT TO DO: Avoid all listed anti-patterns
+- Coding Patterns: Use established helpers (CommandRunner, ContextPack, etc.)
+{% endif %}
+
 {% if repo_context is defined and repo_context %}
 ## Repo Context
 
 {{ repo_context }}
-
-**CRITICAL GUIDELINES**: If AGENTS.md or ARCHITECTURE.md are included above:
-- **Module Boundaries**: Never introduce cross-import cycles. Check dependency direction rules.
-- **Coding Patterns**: Follow established patterns (e.g., CommandRunner for subprocess, ContextPack for file I/O).
-- **Testing**: Add tests for every stage and resume behavior per AGENTS.md.
-- **Recent Learnings**: Review auto-updated learnings section for gotchas and best practices.
 {% endif %}
 
 {% if verify_commands is defined and verify_commands %}
@@ -70,8 +75,8 @@ Ensure your code passes all these gates.
 4. Follow the project's coding standards
 
 **FILE READING STRATEGY** (CRITICAL):
-- Look at "Files Hint" + ARCHITECTURE.md module map → identify the full file set
-- Read ALL needed files in ONE batch call (e.g., `read_file` with multiple paths or `grep_search`)
+- Look at "Files Hint" + module map → identify the full file set
+- Read ALL needed files in ONE batch call
 - Do NOT read files one at a time in separate tool calls
 - For related modules, read the whole directory at once
 
