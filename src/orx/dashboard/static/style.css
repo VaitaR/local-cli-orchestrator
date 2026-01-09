@@ -678,7 +678,7 @@ a:hover {
 }
 
 /* ===== Code & Pre ===== */
-.code-block {
+pre.code-block {
     background: var(--bg-tertiary);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
@@ -689,6 +689,16 @@ a:hover {
     overflow-x: auto;
     white-space: pre-wrap;
     word-break: break-word;
+}
+
+/* If a template ever uses `.code-block` on inline elements (e.g. `code`/`span`),
+   avoid multi-line “striped” backgrounds by keeping it unstyled. */
+code.code-block,
+span.code-block {
+    background: none;
+    border: 0;
+    border-radius: 0;
+    padding: 0;
 }
 
 pre {
@@ -1086,53 +1096,12 @@ pre {
 }
 
 
-/* Prism.js line numbers plugin overrides */
-.line-numbers {
-    position: relative;
-    padding-left: 3.5em;
-    counter-reset: linenumber;
-}
-
-.line-numbers > code {
-    position: relative;
-    white-space: inherit;
-}
-
-.line-numbers .line-numbers-rows {
-    position: absolute;
-    pointer-events: none;
-    top: 0;
-    font-size: inherit;
-    left: -3.5em;
-    width: 3em;
-    letter-spacing: -1px;
-    border-right: 1px solid var(--border-color);
-    background: var(--bg-secondary);
-    -webkit-user-select: none;
-    -moz-user-select: none;
-    -ms-user-select: none;
-    user-select: none;
-}
-
-.line-numbers-rows > span {
-    display: block;
-    counter-increment: linenumber;
-}
-
-.line-numbers-rows > span:before {
-    content: counter(linenumber);
-    color: var(--text-muted);
-    display: block;
-    padding-right: var(--space-md);
-    text-align: right;
-}
-
-/* Ensure Prism syntax highlighting uses our colors */
+/* Ensure Prism syntax highlighting uses our colors (keep defaults otherwise) */
 pre[class*="language-"] {
     margin: 0;
     padding: var(--space-md);
     font-family: var(--font-mono);
-    font-size: 0.85rem;
+    font-size: 0.9rem;
     line-height: 1.7;
     background: var(--bg-primary);
     overflow-x: auto;
@@ -1140,11 +1109,12 @@ pre[class*="language-"] {
     tab-size: 4;
     -moz-tab-size: 4;
     color: var(--text-primary);
+    position: relative;
 }
 
 code[class*="language-"] {
     font-family: var(--font-mono);
-    font-size: 0.85rem;
+    font-size: 0.9rem;
     line-height: 1.7;
     text-shadow: none;
     background: none;

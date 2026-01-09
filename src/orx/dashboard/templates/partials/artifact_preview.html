@@ -19,10 +19,11 @@
 {% elif content %}
 <pre class="line-numbers language-{{ language if language else 'plaintext' }}"><code class="language-{{ language if language else 'plaintext' }}">{{ content | e }}</code></pre>
 <script>
-    // Trigger Prism highlighting immediately after content is loaded
+    // Trigger Prism highlighting after content is loaded
     (function() {
-        const codeElement = document.currentScript.previousElementSibling.querySelector('code');
-        if (codeElement && typeof Prism !== 'undefined') {
+        const preElement = document.currentScript.previousElementSibling;
+        const codeElement = preElement.querySelector('code');
+        if (preElement && codeElement && typeof Prism !== 'undefined') {
             Prism.highlightElement(codeElement);
         }
     })();
