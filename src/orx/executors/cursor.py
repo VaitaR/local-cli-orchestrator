@@ -291,6 +291,7 @@ class CursorExecutor(BaseExecutor):
         prompt_path: Path,
         logs: LogPaths,
         out_path: Path,
+        timeout: int | None = None,
         model_selector: ModelSelector | None = None,
     ) -> ExecResult:
         """Run Cursor CLI in text-only mode (read-only).
@@ -332,12 +333,14 @@ class CursorExecutor(BaseExecutor):
                 success=True,
             )
 
+        # Use provided timeout if set, otherwise default to 10 minutes
+        text_timeout = timeout or 600
         result = self.cmd.run(
             cmd,
             cwd=cwd,
             stdout_path=logs.stdout,
             stderr_path=logs.stderr,
-            timeout=600,  # 10 min timeout for text generation
+            timeout=text_timeout,
             env=self._get_env(),
         )
 
@@ -366,6 +369,7 @@ class CursorExecutor(BaseExecutor):
         cwd: Path,
         prompt_path: Path,
         logs: LogPaths,
+        timeout: int | None = None,
         model_selector: ModelSelector | None = None,
     ) -> ExecResult:
         """Run Cursor CLI in apply mode (with --force for file modifications).
@@ -405,12 +409,14 @@ class CursorExecutor(BaseExecutor):
                 success=True,
             )
 
+        # Use provided timeout if set, otherwise default to 30 minutes
+        apply_timeout = timeout or 1800
         result = self.cmd.run(
             cmd,
             cwd=cwd,
             stdout_path=logs.stdout,
             stderr_path=logs.stderr,
-            timeout=1800,  # 30 min timeout for implementation
+            timeout=apply_timeout,
             env=self._get_env(),
         )
 
