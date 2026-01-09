@@ -257,6 +257,62 @@
         }
     }
     
+    // Update reasoning options for a per-stage selector based on model capabilities
+    function updateStageReasoningOptions(modelSelect, engineValue, reasoningSelect) {
+        const selectedOption = modelSelect.selectedOptions[0];
+        
+        // Reset to disabled state
+        reasoningSelect.disabled = true;
+        reasoningSelect.style.opacity = '0.5';
+        reasoningSelect.innerHTML = '<option value="">Default</option>';
+        
+        if (!selectedOption || !selectedOption.value || engineValue !== 'codex') {
+            return;
+        }
+        
+        // Check if model supports reasoning
+        const supportsReasoning = selectedOption.dataset.supportsReasoning === '1';
+        if (!supportsReasoning) {
+            return;
+        }
+        
+        // Get available reasoning levels for this model
+        const levels = JSON.parse(selectedOption.dataset.reasoningLevels || '[]');
+        if (levels.length === 0) {
+            return;
+        }
+        
+        // Enable and populate reasoning select
+        reasoningSelect.disabled = false;
+        reasoningSelect.style.opacity = '1';
+        
+        const currentValue = reasoningSelect.value;
+        const defaultReasoning = selectedOption.dataset.defaultReasoning || 'medium';
+        
+        // Keep "Default" option
+        reasoningSelect.innerHTML = '<option value="">Default</option>';
+        
+        // Add available levels
+        for (const level of levels) {
+            const opt = document.createElement('option');
+            opt.value = level;
+            opt.textContent = level.charAt(0).toUpperCase() + level.slice(1);
+            reasoningSelect.appendChild(opt);
+        }
+        
+        // Try to restore previous selection, or fall back to valid default
+        if (currentValue && levels.includes(currentValue)) {
+            reasoningSelect.value = currentValue;
+        } else if (currentValue && !levels.includes(currentValue)) {
+            // Previous selection not available - reset to default or first available
+            if (levels.includes(defaultReasoning)) {
+                reasoningSelect.value = '';  // Use default
+            } else {
+                reasoningSelect.value = levels[0];  // First available
+            }
+        }
+    }
+    
     // Get production engines (non-test only)
     function getProductionEngines(engines) {
         return engines.filter(e => !e.is_test);
@@ -278,7 +334,7 @@
             const row = document.createElement('div');
             row.className = 'stage-config-row';
             row.style.display = 'grid';
-            row.style.gridTemplateColumns = '100px 1fr 1fr';
+            row.style.gridTemplateColumns = '100px 1fr 1.2fr 1fr';
             row.style.gap = '0.5rem';
             row.style.alignItems = 'center';
             row.style.padding = '0.5rem';
@@ -348,6 +404,12 @@
                 const availableModels = selectedEngine ? (selectedEngine.models || selectedEngine.available_models) : [];
                 const stageDefaultModel = selectedEngine ? (selectedEngine.stage_models[stage.value] || '') : '';
                 populateModelSelect(modelSelect, availableModels, stageDefaultModel);
+                
+                // Update reasoning options when engine changes
+                const reasoningSelect = document.getElementById(`reasoning_effort_${stage.value}`);
+                if (reasoningSelect) {
+                    updateStageReasoningOptions(modelSelect, effectiveEngine, reasoningSelect);
+                }
             });
 
             modelSelect.addEventListener('change', (e) => {
@@ -370,11 +432,36 @@
                     }
                 }
                 setBoolDataAttr(modelSelect, 'overridden', overridden);
+                
+                // Update reasoning effort options for this stage based on selected model
+                const reasoningSelect = document.getElementById(`reasoning_effort_${stage.value}`);
+                if (reasoningSelect) {
+                    updateStageReasoningOptions(modelSelect, effectiveEngine, reasoningSelect);
+                }
             });
+            
+            // Reasoning Effort Select (per-stage)
+            const reasoningSelect = document.createElement('select');
+            reasoningSelect.id = `reasoning_effort_${stage.value}`;
+            reasoningSelect.name = `stages.${stage.value}.reasoning_effort`;
+            reasoningSelect.className = 'stage-reasoning-select';
+            reasoningSelect.style.fontSize = '0.8rem';
+            reasoningSelect.style.minWidth = '0';
+            reasoningSelect.dataset.stage = stage.value;
+            
+            const reasoningDefaultOpt = document.createElement('option');
+            reasoningDefaultOpt.value = '';
+            reasoningDefaultOpt.textContent = 'Default';
+            reasoningSelect.appendChild(reasoningDefaultOpt);
+            
+            // Initially hidden until model with reasoning support is selected
+            reasoningSelect.disabled = true;
+            reasoningSelect.style.opacity = '0.5';
             
             row.appendChild(label);
             row.appendChild(engineSelect);
             row.appendChild(modelSelect);
+            row.appendChild(reasoningSelect);
             grid.appendChild(row);
         }
     }
@@ -474,13 +561,23 @@
                 setBoolDataAttr(select, 'overridden', false);
                 const stage = select.dataset.stage;
                 const modelSelect = document.getElementById(`model_${stage}`);
+                const reasoningSelect = document.getElementById(`reasoning_effort_${stage}`);
                 if (selectedEngineData) {
                     const defaultModel = selectedEngineData.stage_models[stage] || '';
                     populateModelSelect(modelSelect, availableModels, defaultModel);
                     setBoolDataAttr(modelSelect, 'overridden', false);
+                    // Update reasoning options for the synced model
+                    if (reasoningSelect) {
+                        updateStageReasoningOptions(modelSelect, globalEngine, reasoningSelect);
+                    }
                 } else {
                     populateModelSelect(modelSelect, []);
                     setBoolDataAttr(modelSelect, 'overridden', false);
+                    // Disable reasoning when no engine
+                    if (reasoningSelect) {
+                        reasoningSelect.disabled = true;
+                        reasoningSelect.style.opacity = '0.5';
+                    }
                 }
             });
         });
@@ -524,20 +621,27 @@
         for (const stageName of configurable_stages) {
             const engineValue = document.getElementById(`engine_${stageName}`).value;
             const modelValue = document.getElementById(`model_${stageName}`).value;
+            const reasoningValue = document.getElementById(`reasoning_effort_${stageName}`).value;
 
             const engineSelect = document.getElementById(`engine_${stageName}`);
             const modelSelect = document.getElementById(`model_${stageName}`);
+            const reasoningSelect = document.getElementById(`reasoning_effort_${stageName}`);
+            
             const engineOverridden = getBoolDataAttr(engineSelect, 'overridden');
             const modelOverridden = getBoolDataAttr(modelSelect, 'overridden');
+            
+            // Reasoning is overridden if value is set and control is enabled (not disabled)
+            const reasoningOverridden = reasoningValue && !reasoningSelect.disabled;
 
-            if (!engineOverridden && !modelOverridden) {
+            if (!engineOverridden && !modelOverridden && !reasoningOverridden) {
                 continue;
             }
 
-            if (engineValue || modelValue) {
+            if (engineValue || modelValue || reasoningOverridden) {
                 stages[stageName] = {};
                 if (engineOverridden && engineValue) stages[stageName].executor = engineValue;
                 if (modelOverridden && modelValue) stages[stageName].model = modelValue;
+                if (reasoningOverridden) stages[stageName].reasoning_effort = reasoningValue;
             }
         }
         
