@@ -20,8 +20,8 @@ class StubCommandRunner:
         cwd: Path | None = None,
         stdout_path: Path | None = None,
         stderr_path: Path | None = None,
-        timeout: int | None = None,
-        check: bool = False,
+        timeout: int | None = None,  # noqa: ARG002
+        check: bool = False,  # noqa: ARG002
         env: dict[str, str] | None = None,
     ) -> CommandResult:
         self.last_env = env

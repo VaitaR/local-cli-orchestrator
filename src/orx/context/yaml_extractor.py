@@ -112,7 +112,7 @@ class YAMLExtractor:
 
     def _try_direct(self, content: str) -> dict[str, Any] | None:
         """Try parsing content directly as YAML.
-        
+
         Note: Skips if content looks like JSON (starts with {) since
         JSON is valid YAML but we want to try JSON extraction strategies first.
         """
@@ -120,7 +120,7 @@ class YAMLExtractor:
         stripped = content.strip()
         if stripped.startswith("{") and '"response"' in stripped[:300]:
             return None
-            
+
         try:
             data = yaml.safe_load(content)
             if isinstance(data, dict):
@@ -196,7 +196,7 @@ class YAMLExtractor:
 
     def _try_heuristic(self, content: str) -> dict[str, Any] | None:
         """Try heuristic extraction: find first valid YAML mapping.
-        
+
         Strategy: Find the first line that looks like a YAML key, then
         keep adding lines until we either find a complete valid YAML block
         or hit a line that breaks the YAML structure.
@@ -220,9 +220,7 @@ class YAMLExtractor:
         # YAML ends when we hit:
         # - Empty line followed by non-indented text
         # - Line that doesn't look like YAML (no colon, no dash, no indentation)
-        end_idx = start_idx + 1
         last_valid_data = None
-        last_valid_end = start_idx + 1
 
         for i in range(start_idx + 1, len(lines)):
             candidate = "\n".join(lines[start_idx : i + 1])
@@ -231,7 +229,6 @@ class YAMLExtractor:
                 if isinstance(data, dict) and data:
                     # Valid YAML so far
                     last_valid_data = data
-                    last_valid_end = i + 1
             except yaml.YAMLError:
                 # This line broke YAML, stop here
                 break

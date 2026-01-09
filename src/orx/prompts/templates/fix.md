@@ -98,7 +98,11 @@ Ensure your fixes pass all these gates.
 
 ## Common Issues
 
-- **Ruff failures**: Fix syntax errors, import sorting, unused imports (keep imports ordered)
+- **Ruff I001 (import sorting)**: Run `ruff check --select I001 --fix <file>` mentally and re-order imports: stdlib first, then third-party, then local. Use alphabetical order within groups.
+- **Ruff F401 (unused imports)**: Remove the unused import line entirely.
+- **Ruff F841 (unused variables)**: Remove the assignment or use the variable. If needed for side effects, prefix with `_`.
+- **Ruff W293 (blank line whitespace)**: Remove trailing whitespace from empty lines.
+- **Ruff ARG002 (unused arguments)**: Add `# noqa: ARG002` comment if the argument must exist for API compatibility.
 - **Pytest failures**: Fix failing assertions, missing fixtures, import errors (ensure local modules resolve)
 - **Empty diff**: Ensure you're actually modifying files, not just outputting code
 

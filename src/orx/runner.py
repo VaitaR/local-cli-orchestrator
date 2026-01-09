@@ -19,7 +19,7 @@ from orx.context.backlog import Backlog, WorkItem
 from orx.context.pack import ContextPack
 from orx.context.repo_context import RepoContextBuilder
 from orx.exceptions import GuardrailError
-from orx.executors.base import Executor, ExecResult
+from orx.executors.base import ExecResult, Executor
 from orx.executors.codex import CodexExecutor
 from orx.executors.fake import FakeExecutor
 from orx.executors.gemini import GeminiExecutor
@@ -1554,12 +1554,21 @@ class Runner:
         *,
         mode: str,
     ) -> tuple[GateResult, int]:
-        """Run ruff with --fix to auto-apply lint changes."""
+        """Run ruff with --fix to auto-apply lint changes.
+
+        Uses --fix and --unsafe-fixes for maximum automatic correction of:
+        - I001 (import sorting)
+        - F401 (unused imports)
+        - W293 (whitespace on blank lines)
+        - Other auto-fixable issues
+        """
         args = list(getattr(gate, "args", []) or ["check", "."])
-        # Defensive check: current callers ensure "--fix" is not in args,
-        # but we guard here to remain robust if call sites change.
+        # Add fix flags if not present
         if "--fix" not in args:
             args.append("--fix")
+        # Enable unsafe fixes for more aggressive auto-correction (e.g., removing unused imports)
+        if "--unsafe-fixes" not in args:
+            args.append("--unsafe-fixes")
 
         fix_gate = RuffGate(
             cmd=self.cmd,

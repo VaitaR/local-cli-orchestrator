@@ -5,13 +5,12 @@ from __future__ import annotations
 import math
 from enum import Enum
 from pathlib import Path
-from typing import Any
 
 import structlog
 import yaml
 from pydantic import BaseModel, Field, field_validator
 
-from orx.context.yaml_extractor import YAMLExtractor, YAMLExtractionError
+from orx.context.yaml_extractor import YAMLExtractionError, YAMLExtractor
 
 logger = structlog.get_logger()
 

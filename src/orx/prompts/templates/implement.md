@@ -68,7 +68,10 @@ Ensure your code passes all these gates.
 - Add docstrings with Google style
 - Keep functions focused and small
 - Handle errors appropriately
-- Keep imports sorted (ruff I001) when adding new files
+- **Import ordering (ruff I001)**: Standard library → third-party → local. Alphabetical within groups. Use `from __future__ import annotations` first.
+- **No unused imports (ruff F401)**: Only import what you use.
+- **No trailing whitespace (ruff W293)**: Keep blank lines truly empty.
+- When adding new files, ensure they have proper `__init__.py` exports if needed.
 
 ## Output
 
