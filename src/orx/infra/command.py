@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import IO
-import json
 
 import structlog
 
@@ -123,19 +123,19 @@ class CommandRunner:
                     # Attempt to infer run_id from cwd (worktree name), fallback to 'dry-run'.
                     run_id = str(cwd.name) if cwd else "dry-run"
                     sample_yaml = (
-                        f"run_id: \"{run_id}\"\n"
+                        f'run_id: "{run_id}"\n'
                         "items:\n"
-                        "  - id: \"W001\"\n"
-                        "    title: \"Example task\"\n"
-                        "    objective: \"Auto-generated task\"\n"
+                        '  - id: "W001"\n'
+                        '    title: "Example task"\n'
+                        '    objective: "Auto-generated task"\n'
                         "    acceptance:\n"
-                        "      - \"Auto-generated acceptance criterion\"\n"
+                        '      - "Auto-generated acceptance criterion"\n'
                         "    files_hint:\n"
-                        "      - \"src/example.py\"\n"
+                        '      - "src/example.py"\n'
                         "    depends_on: []\n"
-                        "    status: \"todo\"\n"
+                        '    status: "todo"\n'
                         "    attempts: 0\n"
-                        "    notes: \"\"\n"
+                        '    notes: ""\n'
                     )
                     payload = {
                         "type": "result",

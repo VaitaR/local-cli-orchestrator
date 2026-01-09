@@ -120,9 +120,7 @@ class TestMetricsWriterRobustness:
             # Should not raise
             writer.write_run(sample_run_metrics)
 
-    def test_write_stages_partial_failure(
-        self, writer: MetricsWriter
-    ) -> None:
+    def test_write_stages_partial_failure(self, writer: MetricsWriter) -> None:
         """write_stages continues writing even if one record fails serialization."""
         good_metrics = StageMetrics(
             run_id="test",
@@ -147,15 +145,11 @@ class TestMetricsWriterRobustness:
         lines = writer.stages_jsonl.read_text().strip().split("\n")
         assert len(lines) == 2  # Two good records written
 
-    def test_read_stages_returns_empty_if_missing(
-        self, writer: MetricsWriter
-    ) -> None:
+    def test_read_stages_returns_empty_if_missing(self, writer: MetricsWriter) -> None:
         """read_stages returns empty list if file doesn't exist."""
         assert writer.read_stages() == []
 
-    def test_read_run_returns_none_if_missing(
-        self, writer: MetricsWriter
-    ) -> None:
+    def test_read_run_returns_none_if_missing(self, writer: MetricsWriter) -> None:
         """read_run returns None if file doesn't exist."""
         assert writer.read_run() is None
 

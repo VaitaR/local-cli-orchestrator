@@ -50,7 +50,9 @@ class CapturingExecutor:
         logs.stderr.parent.mkdir(parents=True, exist_ok=True)
         logs.stdout.write_text("")
         logs.stderr.write_text("")
-        return ExecResult(returncode=0, stdout_path=logs.stdout, stderr_path=logs.stderr)
+        return ExecResult(
+            returncode=0, stdout_path=logs.stdout, stderr_path=logs.stderr
+        )
 
     def resolve_invocation(self, **kwargs):  # type: ignore[no-untyped-def]
         raise NotImplementedError

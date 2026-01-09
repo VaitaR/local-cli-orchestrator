@@ -59,9 +59,7 @@ class TestTransientErrorDetection:
 
     def test_resource_exhausted_is_transient(self, temp_logs: LogPaths) -> None:
         """RESOURCE_EXHAUSTED errors are transient."""
-        temp_logs.stderr.write_text(
-            'GaxiosError: status: "RESOURCE_EXHAUSTED"'
-        )
+        temp_logs.stderr.write_text('GaxiosError: status: "RESOURCE_EXHAUSTED"')
         result = ExecResult(
             returncode=1,
             stdout_path=temp_logs.stdout,

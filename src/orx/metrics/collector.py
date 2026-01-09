@@ -362,7 +362,9 @@ class MetricsCollector:
         """
         self._current_stage_data["agent_invocations"] = count
 
-    def record_fallback(self, original_model: str | None, new_model: str | None) -> None:
+    def record_fallback(
+        self, original_model: str | None, new_model: str | None
+    ) -> None:
         """Record that model fallback was applied.
 
         Args:

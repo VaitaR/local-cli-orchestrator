@@ -111,7 +111,11 @@ CODEX_MODELS: dict[str, ModelInfo] = {
         description="Most advanced agentic coding model, optimized for complex code changes and refactors",
         capabilities=ModelCapabilities(
             supports_reasoning=True,
-            reasoning_levels=[ReasoningLevel.LOW, ReasoningLevel.MEDIUM, ReasoningLevel.HIGH],
+            reasoning_levels=[
+                ReasoningLevel.LOW,
+                ReasoningLevel.MEDIUM,
+                ReasoningLevel.HIGH,
+            ],
             default_reasoning=ReasoningLevel.MEDIUM,
             supports_web_search=True,
             context_window=200000,
@@ -125,7 +129,11 @@ CODEX_MODELS: dict[str, ModelInfo] = {
         description="Full GPT-5.2 model",
         capabilities=ModelCapabilities(
             supports_reasoning=True,
-            reasoning_levels=[ReasoningLevel.LOW, ReasoningLevel.MEDIUM, ReasoningLevel.HIGH],
+            reasoning_levels=[
+                ReasoningLevel.LOW,
+                ReasoningLevel.MEDIUM,
+                ReasoningLevel.HIGH,
+            ],
             default_reasoning=ReasoningLevel.MEDIUM,
             supports_web_search=True,
             context_window=200000,
@@ -139,7 +147,11 @@ CODEX_MODELS: dict[str, ModelInfo] = {
         description="Previous generation Codex model",
         capabilities=ModelCapabilities(
             supports_reasoning=True,
-            reasoning_levels=[ReasoningLevel.LOW, ReasoningLevel.MEDIUM, ReasoningLevel.HIGH],
+            reasoning_levels=[
+                ReasoningLevel.LOW,
+                ReasoningLevel.MEDIUM,
+                ReasoningLevel.HIGH,
+            ],
             default_reasoning=ReasoningLevel.MEDIUM,
             supports_web_search=True,
             context_window=200000,
@@ -153,7 +165,11 @@ CODEX_MODELS: dict[str, ModelInfo] = {
         description="Previous generation full GPT-5 model",
         capabilities=ModelCapabilities(
             supports_reasoning=True,
-            reasoning_levels=[ReasoningLevel.LOW, ReasoningLevel.MEDIUM, ReasoningLevel.HIGH],
+            reasoning_levels=[
+                ReasoningLevel.LOW,
+                ReasoningLevel.MEDIUM,
+                ReasoningLevel.HIGH,
+            ],
             default_reasoning=ReasoningLevel.MEDIUM,
             supports_web_search=True,
             context_window=200000,
@@ -312,7 +328,11 @@ COPILOT_MODELS: dict[str, ModelInfo] = {
         description="OpenAI GPT-5 via Copilot",
         capabilities=ModelCapabilities(
             supports_reasoning=True,
-            reasoning_levels=[ReasoningLevel.LOW, ReasoningLevel.MEDIUM, ReasoningLevel.HIGH],
+            reasoning_levels=[
+                ReasoningLevel.LOW,
+                ReasoningLevel.MEDIUM,
+                ReasoningLevel.HIGH,
+            ],
             default_reasoning=ReasoningLevel.MEDIUM,
             context_window=200000,
             tier=1,
@@ -415,7 +435,11 @@ CURSOR_MODELS: dict[str, ModelInfo] = {
         description="OpenAI GPT-5.2 via Cursor",
         capabilities=ModelCapabilities(
             supports_reasoning=True,
-            reasoning_levels=[ReasoningLevel.LOW, ReasoningLevel.MEDIUM, ReasoningLevel.HIGH],
+            reasoning_levels=[
+                ReasoningLevel.LOW,
+                ReasoningLevel.MEDIUM,
+                ReasoningLevel.HIGH,
+            ],
             default_reasoning=ReasoningLevel.MEDIUM,
             context_window=272000,
             tier=1,
@@ -726,16 +750,25 @@ def get_fallback_model(
     available = get_available_models(engine, include_preview=False)
 
     # Find models in lower tiers (higher tier number = lower priority)
-    fallbacks = [m for m in available if m.capabilities.tier > current_tier and m.id != current_model]
+    fallbacks = [
+        m
+        for m in available
+        if m.capabilities.tier > current_tier and m.id != current_model
+    ]
 
     if not fallbacks:
         # No lower tier, try same tier but different model
-        fallbacks = [m for m in available if m.capabilities.tier == current_tier and m.id != current_model]
+        fallbacks = [
+            m
+            for m in available
+            if m.capabilities.tier == current_tier and m.id != current_model
+        ]
 
     if fallbacks:
         return fallbacks[0]
 
     return None
+
 
 def get_default_model(engine: str) -> str:
     """Get the default model for an engine.
@@ -746,17 +779,14 @@ def get_default_model(engine: str) -> str:
     Returns:
         Default model ID.
     """
-    if engine == "codex":
-        return "gpt-5.2-codex"
-    elif engine == "gemini":
-        return "gemini-2.5-flash"
-    elif engine == "copilot":
-        return "claude-haiku-4.5"  # Fast, efficient default
-    elif engine == "claude_code":
-        return "sonnet"  # Balanced default
-    elif engine == "cursor":
-        return "auto"  # Cursor auto-selects best model
-    return ""
+    defaults: dict[str, str] = {
+        "codex": "gpt-5.2-codex",
+        "gemini": "gemini-2.5-flash",
+        "copilot": "claude-haiku-4.5",
+        "claude_code": "sonnet",
+        "cursor": "auto",
+    }
+    return defaults.get(engine, "")
 
 
 def get_model_ids(engine: str, include_preview: bool = True) -> list[str]:
@@ -773,7 +803,9 @@ def get_model_ids(engine: str, include_preview: bool = True) -> list[str]:
     return [m.id for m in models]
 
 
-def serialize_models_for_api(engine: str, include_preview: bool = True) -> list[dict[str, Any]]:
+def serialize_models_for_api(
+    engine: str, include_preview: bool = True
+) -> list[dict[str, Any]]:
     """Serialize models for API response.
 
     Args:

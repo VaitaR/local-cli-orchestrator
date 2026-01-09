@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from typing import Any
 
+import structlog
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from orx.dashboard.store.models import StartRunRequest, StartRunResponse
 
 router = APIRouter(tags=["api"])
+
+logger = structlog.get_logger()
 
 
 @router.post("/runs/start", response_model=StartRunResponse)
@@ -226,8 +229,7 @@ async def get_available_engines(request: Request):
 
     # Reasoning levels for UI
     reasoning_levels = [
-        {"value": level.value, "label": level.name.title()}
-        for level in ReasoningLevel
+        {"value": level.value, "label": level.name.title()} for level in ReasoningLevel
     ]
 
     default_engine = orx_config.engine.type.value

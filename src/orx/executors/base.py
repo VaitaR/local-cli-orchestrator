@@ -215,8 +215,12 @@ class ExecResult:
             # Gemini format: usage.input_tokens, usage.output_tokens
             usage = self.extra.get("usage", {})
             if usage:
-                input_tokens = usage.get("input_tokens", 0) or usage.get("prompt_tokens", 0)
-                output_tokens = usage.get("output_tokens", 0) or usage.get("completion_tokens", 0)
+                input_tokens = usage.get("input_tokens", 0) or usage.get(
+                    "prompt_tokens", 0
+                )
+                output_tokens = usage.get("output_tokens", 0) or usage.get(
+                    "completion_tokens", 0
+                )
                 if input_tokens or output_tokens:
                     return {
                         "input": input_tokens,
@@ -252,8 +256,12 @@ class ExecResult:
                     data = json.loads(line)
                     usage = data.get("usage", {})
                     if usage:
-                        input_tokens = usage.get("input_tokens", 0) or usage.get("prompt_tokens", 0)
-                        output_tokens = usage.get("output_tokens", 0) or usage.get("completion_tokens", 0)
+                        input_tokens = usage.get("input_tokens", 0) or usage.get(
+                            "prompt_tokens", 0
+                        )
+                        output_tokens = usage.get("output_tokens", 0) or usage.get(
+                            "completion_tokens", 0
+                        )
                         if input_tokens or output_tokens:
                             return {
                                 "input": input_tokens,

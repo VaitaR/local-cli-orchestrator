@@ -205,7 +205,14 @@ class PythonExtractor:
             deps_list = []
             for dep in dependencies[:20]:  # Limit to 20 deps
                 # Extract just the package name
-                dep_name = dep.split("[")[0].split(">")[0].split("<")[0].split("=")[0].split("~")[0].strip()
+                dep_name = (
+                    dep.split("[")[0]
+                    .split(">")[0]
+                    .split("<")[0]
+                    .split("=")[0]
+                    .split("~")[0]
+                    .strip()
+                )
                 if dep_name:
                     deps_list.append(dep_name)
             if deps_list:
@@ -218,7 +225,14 @@ class PythonExtractor:
             if deps:
                 deps_list = []
                 for dep in deps[:10]:
-                    dep_name = dep.split("[")[0].split(">")[0].split("<")[0].split("=")[0].split("~")[0].strip()
+                    dep_name = (
+                        dep.split("[")[0]
+                        .split(">")[0]
+                        .split("<")[0]
+                        .split("=")[0]
+                        .split("~")[0]
+                        .strip()
+                    )
                     if dep_name:
                         deps_list.append(dep_name)
                 if deps_list:
@@ -235,8 +249,19 @@ class PythonExtractor:
                     deps_list = []
                     for line in lines[:20]:
                         line = line.strip()
-                        if line and not line.startswith("#") and not line.startswith("-"):
-                            dep_name = line.split("[")[0].split(">")[0].split("<")[0].split("=")[0].split("~")[0].strip()
+                        if (
+                            line
+                            and not line.startswith("#")
+                            and not line.startswith("-")
+                        ):
+                            dep_name = (
+                                line.split("[")[0]
+                                .split(">")[0]
+                                .split("<")[0]
+                                .split("=")[0]
+                                .split("~")[0]
+                                .strip()
+                            )
                             if dep_name:
                                 deps_list.append(dep_name)
                     if deps_list:

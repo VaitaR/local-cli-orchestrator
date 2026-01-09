@@ -102,7 +102,7 @@ class CopilotExecutor(BaseExecutor):
         prompt_path: Path,
         cwd: Path,
         model_selector: ModelSelector | None = None,
-        out_path: Path | None = None,
+        _out_path: Path | None = None,
         text_only: bool = False,
     ) -> tuple[list[str], dict[str, Any]]:
         """Build the copilot command line.

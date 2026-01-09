@@ -59,7 +59,9 @@ class ClaudeCodeExecutor(BaseExecutor):
     """
 
     # Read-only tools for text mode (planning, spec, review)
-    TEXT_MODE_TOOLS = "Read,Grep,Glob,LS,Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(wc:*)"
+    TEXT_MODE_TOOLS = (
+        "Read,Grep,Glob,LS,Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(wc:*)"
+    )
 
     def __init__(
         self,
@@ -110,7 +112,7 @@ class ClaudeCodeExecutor(BaseExecutor):
         prompt_path: Path,
         cwd: Path,
         model_selector: ModelSelector | None = None,
-        out_path: Path | None = None,
+        _out_path: Path | None = None,
         text_only: bool = False,
     ) -> tuple[list[str], dict[str, Any]]:
         """Build the claude command line.
@@ -279,9 +281,7 @@ class ClaudeCodeExecutor(BaseExecutor):
         # Fallback: return raw content
         return content, {}
 
-    def _check_result_errors(
-        self, result: ExecResult, extra: dict[str, Any]
-    ) -> None:
+    def _check_result_errors(self, _result: ExecResult, extra: dict[str, Any]) -> None:
         """Check for Claude Code specific errors in the result.
 
         Args:
@@ -368,7 +368,16 @@ class ClaudeCodeExecutor(BaseExecutor):
         # Parse JSON output and extract text
         text, extra = self._parse_output(logs.stdout)
         # Convert cmd_result to ExecResult-like check by passing to checker
-        self._check_result_errors(self._create_result(returncode=cmd_result.returncode, logs=logs, extra=extra, success=(cmd_result.returncode == 0), invocation=invocation), extra)
+        self._check_result_errors(
+            self._create_result(
+                returncode=cmd_result.returncode,
+                logs=logs,
+                extra=extra,
+                success=(cmd_result.returncode == 0),
+                invocation=invocation,
+            ),
+            extra,
+        )
 
         # Write extracted text to output file
         out_path.write_text(text)
@@ -451,7 +460,16 @@ class ClaudeCodeExecutor(BaseExecutor):
         # Parse output for metadata
         text, extra = self._parse_output(logs.stdout)
         # Check for Claude-specific errors
-        self._check_result_errors(self._create_result(returncode=cmd_result.returncode, logs=logs, extra=extra, success=(cmd_result.returncode == 0), invocation=invocation), extra)
+        self._check_result_errors(
+            self._create_result(
+                returncode=cmd_result.returncode,
+                logs=logs,
+                extra=extra,
+                success=(cmd_result.returncode == 0),
+                invocation=invocation,
+            ),
+            extra,
+        )
 
         # Build ExecResult from CommandResult
         exec_result = self._create_result(

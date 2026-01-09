@@ -92,7 +92,9 @@ class ExecutorConfig(BaseModel):
     available_models: list[str] = Field(default_factory=list)
     stage_models: dict[str, str] = Field(default_factory=dict)
     use_yolo: bool = Field(default=True, description="Enable YOLO mode for Gemini")
-    approval_mode: str = Field(default="auto_edit", description="Approval mode for Gemini")
+    approval_mode: str = Field(
+        default="auto_edit", description="Approval mode for Gemini"
+    )
 
 
 class StageExecutorConfig(BaseModel):
@@ -734,7 +736,9 @@ class OrxConfig(BaseModel):
         config.executors.gemini.available_models = gemini_models
         config.executors.gemini.default.model = gemini_default
         config.executors.gemini.default.output_format = "json"
-        config.executors.gemini.stage_models = dict.fromkeys(standard_stages, gemini_default)
+        config.executors.gemini.stage_models = dict.fromkeys(
+            standard_stages, gemini_default
+        )
 
         # Codex defaults from dynamic discovery
         codex_default = get_default_model("codex")
@@ -742,6 +746,8 @@ class OrxConfig(BaseModel):
         config.executors.codex.available_models = codex_models
         config.executors.codex.default.model = codex_default
         config.executors.codex.default.reasoning_effort = "medium"
-        config.executors.codex.stage_models = dict.fromkeys(standard_stages, codex_default)
+        config.executors.codex.stage_models = dict.fromkeys(
+            standard_stages, codex_default
+        )
 
         return config

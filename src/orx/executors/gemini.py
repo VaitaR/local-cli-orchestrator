@@ -292,7 +292,9 @@ class GeminiExecutor(BaseExecutor):
             if text_content:
                 out_path.parent.mkdir(parents=True, exist_ok=True)
                 out_path.write_text(text_content)
-                log.debug("Extracted response from JSON output", length=len(text_content))
+                log.debug(
+                    "Extracted response from JSON output", length=len(text_content)
+                )
             elif logs.stdout.exists():
                 # Fallback: copy raw stdout
                 raw_content = logs.stdout.read_text()

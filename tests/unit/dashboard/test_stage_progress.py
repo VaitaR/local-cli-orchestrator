@@ -32,6 +32,7 @@ def store(temp_runs_dir):
 def create_run(runs_dir: Path, run_id: str, current_stage: str, stage_statuses: dict):
     """Helper to create a test run."""
     import os
+
     run_dir = runs_dir / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -48,7 +49,7 @@ def create_run(runs_dir: Path, run_id: str, current_stage: str, stage_statuses: 
         "current_item_id": None,
         "current_iteration": 0,
         "baseline_sha": "abc123",
-        "last_failure_evidence": {}
+        "last_failure_evidence": {},
     }
     (run_dir / "state.json").write_text(json.dumps(state, indent=2))
 
@@ -57,7 +58,7 @@ def create_run(runs_dir: Path, run_id: str, current_stage: str, stage_statuses: 
         "task": "Test task",
         "repo_path": "/tmp/test",
         "base_branch": "main",
-        "created_at": "2026-01-08T10:00:00Z"
+        "created_at": "2026-01-08T10:00:00Z",
     }
     (run_dir / "meta.json").write_text(json.dumps(meta, indent=2))
 
@@ -76,7 +77,7 @@ def test_stage_progress_plan_running(store, temp_runs_dir):
         temp_runs_dir,
         run_id,
         "plan",
-        {"plan": {"status": "running", "started_at": "2026-01-08T10:00:00Z"}}
+        {"plan": {"status": "running", "started_at": "2026-01-08T10:00:00Z"}},
     )
 
     run = store.get_run(run_id)
@@ -96,8 +97,8 @@ def test_stage_progress_spec_running_after_plan(store, temp_runs_dir):
         "spec",
         {
             "plan": {"status": "completed", "completed_at": "2026-01-08T10:05:00Z"},
-            "spec": {"status": "running", "started_at": "2026-01-08T10:05:01Z"}
-        }
+            "spec": {"status": "running", "started_at": "2026-01-08T10:05:01Z"},
+        },
     )
 
     run = store.get_run(run_id)
@@ -119,8 +120,8 @@ def test_stage_progress_multiple_stages_completed(store, temp_runs_dir):
             "plan": {"status": "completed"},
             "spec": {"status": "completed"},
             "decompose": {"status": "completed"},
-            "implement": {"status": "running"}
-        }
+            "implement": {"status": "running"},
+        },
     )
 
     run = store.get_run(run_id)
@@ -142,8 +143,8 @@ def test_stage_progress_stage_failed(store, temp_runs_dir):
         "spec",
         {
             "plan": {"status": "completed"},
-            "spec": {"status": "failed", "error": "API capacity exhausted"}
-        }
+            "spec": {"status": "failed", "error": "API capacity exhausted"},
+        },
     )
 
     run = store.get_run(run_id)
@@ -167,8 +168,8 @@ def test_stage_progress_run_completed(store, temp_runs_dir):
             "decompose": {"status": "completed"},
             "implement": {"status": "completed"},
             "review": {"status": "completed"},
-            "ship": {"status": "completed"}
-        }
+            "ship": {"status": "completed"},
+        },
     )
 
     run = store.get_run(run_id)
@@ -182,12 +183,7 @@ def test_stage_progress_is_active(store, temp_runs_dir):
     """Test is_active property for running stages."""
     # Running stage
     run_id = "test_active"
-    create_run(
-        temp_runs_dir,
-        run_id,
-        "plan",
-        {"plan": {"status": "running"}}
-    )
+    create_run(temp_runs_dir, run_id, "plan", {"plan": {"status": "running"}})
 
     run = store.get_run(run_id)
     assert run is not None
@@ -195,12 +191,7 @@ def test_stage_progress_is_active(store, temp_runs_dir):
 
     # Completed run
     run_id2 = "test_inactive"
-    create_run(
-        temp_runs_dir,
-        run_id2,
-        "done",
-        {"plan": {"status": "completed"}}
-    )
+    create_run(temp_runs_dir, run_id2, "done", {"plan": {"status": "completed"}})
 
     run2 = store.get_run(run_id2)
     assert run2 is not None

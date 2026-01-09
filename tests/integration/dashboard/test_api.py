@@ -232,7 +232,9 @@ class TestPartialEndpoints:
         response = client.get("/partials/log-tail/test-run-001?name=run.log&cursor=0")
         assert response.status_code == 200
 
-    def test_run_tab_metrics_partial_aggregates_stage_metrics(self, client: TestClient) -> None:
+    def test_run_tab_metrics_partial_aggregates_stage_metrics(
+        self, client: TestClient
+    ) -> None:
         response = client.get("/partials/run-tab/test-run-001?tab=metrics")
         assert response.status_code == 200
         assert "Token Usage" in response.text
@@ -246,7 +248,7 @@ class TestPartialEndpoints:
         assert response.status_code == 200
         assert "name=run.log" in response.text
         assert "lines=1" in response.text
-        assert "hx-trigger=\"revealed\"" in response.text
+        assert 'hx-trigger="revealed"' in response.text
 
     def test_log_tail_partial_polls_while_running(self, client: TestClient) -> None:
         response = client.get(
@@ -254,7 +256,7 @@ class TestPartialEndpoints:
         )
         assert response.status_code == 200
         assert "Waiting for more output" in response.text
-        assert "hx-trigger=\"every 7s\"" in response.text
+        assert 'hx-trigger="every 7s"' in response.text
 
     def test_active_runs_shows_running_run(self, client: TestClient) -> None:
         """Ensure active runs partial renders a running run."""

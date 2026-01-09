@@ -318,6 +318,7 @@ class TestMetricsCollector:
                 suggested_action="Run ruff --fix",
             )
             from orx.metrics.schema import FailureCategory
+
             collector.record_failure(FailureCategory.GATE_FAILURE, "Ruff failed")
 
         stages = collector.get_stage_metrics()
@@ -361,4 +362,3 @@ class TestMetricsCollector:
         assert stages[0].llm_calls[0].tokens_out == 50
         assert stages[0].llm_calls[1].call_index == 1
         assert stages[0].llm_calls[1].tokens_in == 80
-

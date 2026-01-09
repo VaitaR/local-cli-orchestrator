@@ -76,7 +76,9 @@ class ProblemsSummary:
     problems: list[StageProblem] = field(default_factory=list)
     fix_attempts: list[FixAttempt] = field(default_factory=list)
     gate_failures: dict[str, int] = field(default_factory=dict)  # gate -> count
-    failure_categories: dict[str, int] = field(default_factory=dict)  # category -> count
+    failure_categories: dict[str, int] = field(
+        default_factory=dict
+    )  # category -> count
     total_fix_iterations: int = 0
     stages_failed: int = 0
     stages_retried: int = 0
@@ -104,13 +106,17 @@ class ProblemsSummary:
         lines.append(f"- Stages that failed: {self.stages_failed}")
         lines.append(f"- Fix iterations needed: {self.total_fix_iterations}")
         if self.gate_failures:
-            lines.append("- Gate failures: " + ", ".join(
-                f"{g}={c}" for g, c in sorted(self.gate_failures.items())
-            ))
+            lines.append(
+                "- Gate failures: "
+                + ", ".join(f"{g}={c}" for g, c in sorted(self.gate_failures.items()))
+            )
         if self.failure_categories:
-            lines.append("- Failure categories: " + ", ".join(
-                f"{c}={n}" for c, n in sorted(self.failure_categories.items())
-            ))
+            lines.append(
+                "- Failure categories: "
+                + ", ".join(
+                    f"{c}={n}" for c, n in sorted(self.failure_categories.items())
+                )
+            )
         lines.append("")
 
         # Problem details
@@ -129,7 +135,9 @@ class ProblemsSummary:
                     lines.append(f"- Suggested fix: {prob.suggested_fix}")
 
             if len(self.problems) > max_problems:
-                lines.append(f"\n... and {len(self.problems) - max_problems} more problems")
+                lines.append(
+                    f"\n... and {len(self.problems) - max_problems} more problems"
+                )
 
         # Fix attempts summary
         if self.fix_attempts:
@@ -144,9 +152,10 @@ class ProblemsSummary:
             for fa in self.fix_attempts:
                 triggers[fa.trigger] = triggers.get(fa.trigger, 0) + 1
             if triggers:
-                lines.append("- Triggers: " + ", ".join(
-                    f"{t}={c}" for t, c in sorted(triggers.items())
-                ))
+                lines.append(
+                    "- Triggers: "
+                    + ", ".join(f"{t}={c}" for t, c in sorted(triggers.items()))
+                )
 
         return "\n".join(lines)
 
@@ -328,7 +337,9 @@ class ProblemsCollector:
         # Check error_info for more details
         error_info = record.get("error_info", {})
         if error_info and not error_output:
-            error_output = error_info.get("stack_trace") or error_info.get("details", {}).get("output")
+            error_output = error_info.get("stack_trace") or error_info.get(
+                "details", {}
+            ).get("output")
 
         problem = StageProblem(
             stage=record.get("stage", "unknown"),

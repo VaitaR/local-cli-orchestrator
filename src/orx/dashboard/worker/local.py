@@ -407,7 +407,9 @@ class LocalWorker:
             for run_id in completed:
                 del self._active_jobs[run_id]
 
-    def _create_temp_config(self, base_dir: Path, overrides: dict[str, Any]) -> Path | None:
+    def _create_temp_config(
+        self, base_dir: Path, overrides: dict[str, Any]
+    ) -> Path | None:
         """Create a temporary config file from overrides.
 
         Args:

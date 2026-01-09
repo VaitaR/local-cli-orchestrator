@@ -96,9 +96,9 @@ class CursorExecutor(BaseExecutor):
         self,
         *,
         prompt_path: Path,
-        cwd: Path,
+        _cwd: Path,
         model_selector: ModelSelector | None = None,
-        out_path: Path | None = None,
+        _out_path: Path | None = None,
         text_only: bool = False,
     ) -> tuple[list[str], dict[str, Any]]:
         """Build the agent command line.
@@ -249,9 +249,7 @@ class CursorExecutor(BaseExecutor):
         # Fallback: return raw content
         return content, {}
 
-    def _check_result_errors(
-        self, result: ExecResult, extra: dict[str, Any]
-    ) -> None:
+    def _check_result_errors(self, _result: ExecResult, extra: dict[str, Any]) -> None:
         """Check for Cursor-specific errors in the result.
 
         Args:

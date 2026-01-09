@@ -166,7 +166,9 @@ class TestFileSystemRunStore:
         detail = store.get_run("non-existent")
         assert detail is None
 
-    def test_get_run_detail_synthesizes_metrics_summary_from_stages(self, store: FileSystemRunStore) -> None:
+    def test_get_run_detail_synthesizes_metrics_summary_from_stages(
+        self, store: FileSystemRunStore
+    ) -> None:
         """When run.json is missing, metrics_summary is derived from stages.jsonl."""
         run_id = "test-run-003"
         run_dir = store.runs_dir / run_id
@@ -226,10 +228,16 @@ class TestFileSystemRunStore:
         assert detail.has_metrics is True
         assert detail.metrics_summary is not None
         assert detail.metrics_summary["total_duration_ms"] == 300
-        assert detail.metrics_summary["tokens"] == {"input": 13, "output": 7, "total": 20}
+        assert detail.metrics_summary["tokens"] == {
+            "input": 13,
+            "output": 7,
+            "total": 20,
+        }
         assert detail.metrics_summary["stages_executed"] == 2
 
-    def test_get_run_detail_synthesizes_metrics_for_active_run(self, store: FileSystemRunStore) -> None:
+    def test_get_run_detail_synthesizes_metrics_for_active_run(
+        self, store: FileSystemRunStore
+    ) -> None:
         """Active runs should still surface partial metrics from stages.jsonl."""
         run_dir = store.runs_dir / "test-run-002"
         metrics_dir = run_dir / "metrics"

@@ -872,7 +872,9 @@ class Runner:
             self._record_stage_inputs(stage_name)
 
             # Time LLM call
-            timer.start_llm(model=ctx.model_selector.model if ctx.model_selector else None)
+            timer.start_llm(
+                model=ctx.model_selector.model if ctx.model_selector else None
+            )
             result = run_fn(ctx)
             # If stage failed, attempt model fallback and a single retry.
             fallback_applied = False
@@ -895,6 +897,7 @@ class Runner:
                     # These should be retried with backoff before trying fallback
                     if synthetic.is_transient_error():
                         import time
+
                         retry_after = synthetic.get_retry_after_seconds() or 30
                         # Cap backoff at 120 seconds for stage retry
                         backoff_seconds = min(retry_after, 120)
@@ -905,7 +908,11 @@ class Runner:
                         )
                         time.sleep(backoff_seconds)
                         # Retry with same model first
-                        timer.start_llm(model=ctx.model_selector.model if ctx.model_selector else None)
+                        timer.start_llm(
+                            model=ctx.model_selector.model
+                            if ctx.model_selector
+                            else None
+                        )
                         result = run_fn(ctx)
                         if result and result.success:
                             # Transient retry succeeded, skip fallback
@@ -921,11 +928,17 @@ class Runner:
                             logger.info(
                                 "Applying model fallback and retrying stage",
                                 stage=stage_name,
-                                original_model=(ctx.model_selector.model if ctx.model_selector else None),
+                                original_model=(
+                                    ctx.model_selector.model
+                                    if ctx.model_selector
+                                    else None
+                                ),
                                 fallback_model=new_selector.model,
                             )
                             # Record fallback
-                            self.metrics.record_fallback(original_model, new_selector.model)
+                            self.metrics.record_fallback(
+                                original_model, new_selector.model
+                            )
                             fallback_applied = True
                             # Update the stage context model selector and retry once
                             ctx.model_selector = new_selector

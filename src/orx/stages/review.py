@@ -147,7 +147,7 @@ class ReviewStage(TextOutputStage):
 
 ## Implementation Details
 
-{spec if spec else 'See spec.md for detailed specification.'}
+{spec if spec else "See spec.md for detailed specification."}
 
 ## Testing & Validation
 

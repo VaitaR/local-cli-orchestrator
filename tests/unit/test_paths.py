@@ -199,7 +199,10 @@ def test_worktree_prompt_paths(tmp_path: Path) -> None:
     assert paths.worktree_prompt_dir() == paths.worktree_path / ".orx-prompts"
 
     # worktree_prompt_path should be inside worktree_prompt_dir
-    assert paths.worktree_prompt_path("plan") == paths.worktree_path / ".orx-prompts" / "plan.md"
+    assert (
+        paths.worktree_prompt_path("plan")
+        == paths.worktree_path / ".orx-prompts" / "plan.md"
+    )
 
 
 def test_copy_prompt_to_worktree(tmp_path: Path) -> None:

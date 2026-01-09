@@ -377,7 +377,9 @@ class FileSystemRunStore:
 
         # Check for diff and metrics
         has_diff = (run_dir / "artifacts" / "patch.diff").exists()
-        has_metrics = (run_dir / "metrics" / "run.json").exists() or (run_dir / "metrics" / "stages.jsonl").exists()
+        has_metrics = (run_dir / "metrics" / "run.json").exists() or (
+            run_dir / "metrics" / "stages.jsonl"
+        ).exists()
 
         # Load task content
         task_content = None
@@ -397,9 +399,21 @@ class FileSystemRunStore:
                 if stage_metrics:
                     total_duration = sum(m.get("duration_ms", 0) for m in stage_metrics)
                     total_tokens = {
-                        "input": sum(m.get("tokens", {}).get("input", 0) for m in stage_metrics if m.get("tokens")),
-                        "output": sum(m.get("tokens", {}).get("output", 0) for m in stage_metrics if m.get("tokens")),
-                        "total": sum(m.get("tokens", {}).get("total", 0) for m in stage_metrics if m.get("tokens")),
+                        "input": sum(
+                            m.get("tokens", {}).get("input", 0)
+                            for m in stage_metrics
+                            if m.get("tokens")
+                        ),
+                        "output": sum(
+                            m.get("tokens", {}).get("output", 0)
+                            for m in stage_metrics
+                            if m.get("tokens")
+                        ),
+                        "total": sum(
+                            m.get("tokens", {}).get("total", 0)
+                            for m in stage_metrics
+                            if m.get("tokens")
+                        ),
                     }
                     metrics_summary = {
                         "total_duration_ms": total_duration,

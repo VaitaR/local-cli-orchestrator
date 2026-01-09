@@ -82,7 +82,8 @@ def _build_metrics_context(
                 "original_model": original_model,
                 "error": error_display,
                 "failure_category": stage_metric.get("failure_category"),
-                "llm_duration": float(stage_metric.get("llm_duration_ms") or 0) / 1000.0,
+                "llm_duration": float(stage_metric.get("llm_duration_ms") or 0)
+                / 1000.0,
                 "gates": stage_metric.get("gates", []),
             }
         )

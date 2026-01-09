@@ -197,7 +197,9 @@ class CodexExecutor(BaseExecutor):
                 "model": resolved["model"],
                 "profile": resolved["profile"],
                 "reasoning_effort": resolved["reasoning_effort"],
-                "web_search": bool(model_selector and getattr(model_selector, "web_search", False)),
+                "web_search": bool(
+                    model_selector and getattr(model_selector, "web_search", False)
+                ),
             },
         )
 

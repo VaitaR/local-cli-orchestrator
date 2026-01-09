@@ -42,4 +42,3 @@ def test_create_runner_model_override_updates_stage_models(tmp_path: Path) -> No
 
     # Explicit stage overrides are still respected by ModelRouter.
     assert runner.config.stages.plan.model == "explicit-plan"
-

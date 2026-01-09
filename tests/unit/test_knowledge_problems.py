@@ -126,9 +126,7 @@ class TestProblemsSummary:
 
     def test_get_lessons_learned_gate_failures(self) -> None:
         """Test lessons learned from gate failures."""
-        summary = ProblemsSummary(
-            gate_failures={"ruff": 3, "pytest": 1}
-        )
+        summary = ProblemsSummary(gate_failures={"ruff": 3, "pytest": 1})
         lessons = summary.get_lessons_learned()
 
         assert len(lessons) >= 1
@@ -136,18 +134,14 @@ class TestProblemsSummary:
 
     def test_get_lessons_learned_parse_errors(self) -> None:
         """Test lessons learned from parse errors."""
-        summary = ProblemsSummary(
-            failure_categories={"parse_error": 2}
-        )
+        summary = ProblemsSummary(failure_categories={"parse_error": 2})
         lessons = summary.get_lessons_learned()
 
         assert any("parse error" in lesson.lower() for lesson in lessons)
 
     def test_get_lessons_learned_timeout(self) -> None:
         """Test lessons learned from timeouts."""
-        summary = ProblemsSummary(
-            failure_categories={"timeout": 1}
-        )
+        summary = ProblemsSummary(failure_categories={"timeout": 1})
         lessons = summary.get_lessons_learned()
 
         assert any("timeout" in lesson.lower() for lesson in lessons)
@@ -253,7 +247,7 @@ class TestProblemsCollector:
         """Test handling of invalid JSON lines."""
         stages_jsonl = mock_paths.metrics / "stages.jsonl"
         stages_jsonl.write_text(
-            'not valid json\n'
+            "not valid json\n"
             '{"run_id": "test", "stage": "plan", "status": "success", "attempt": 1}\n'
         )
 
