@@ -4,11 +4,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import structlog
 
 from orx.context.pack import ContextPack
+from orx.knowledge.problems import ProblemsCollector, ProblemsSummary
 from orx.paths import RunPaths
+
+if TYPE_CHECKING:
+    pass
 
 logger = structlog.get_logger()
 
@@ -31,6 +36,7 @@ class EvidencePack:
         current_arch_md: Current contents of ARCHITECTURE.md.
         project_map: Project map (if available).
         decisions: Decisions log (if available).
+        problems: Summary of problems encountered during run.
     """
 
     spec: str = ""
@@ -43,15 +49,20 @@ class EvidencePack:
     current_arch_md: str = ""
     project_map: str = ""
     decisions: str = ""
+    problems: ProblemsSummary | None = None
 
     def summary(self) -> str:
         """Generate a summary of the evidence pack for logging."""
+        problems_info = ""
+        if self.problems and self.problems.has_problems():
+            problems_info = f", problems={len(self.problems.problems)}"
         return (
             f"EvidencePack: spec={len(self.spec)} chars, "
             f"patch={len(self.patch_diff)} chars, "
             f"changed_files={len(self.changed_files)}, "
             f"has_agents={bool(self.current_agents_md)}, "
             f"has_arch={bool(self.current_arch_md)}"
+            f"{problems_info}"
         )
 
 
@@ -94,6 +105,10 @@ class EvidenceCollector:
         log = logger.bind(run_id=self.paths.run_id)
         log.info("Collecting evidence for knowledge update")
 
+        # Collect problems from metrics
+        problems_collector = ProblemsCollector(self.paths)
+        problems = problems_collector.collect()
+
         evidence = EvidencePack(
             spec=self._read_spec(),
             backlog_yaml=self._read_backlog(),
@@ -105,6 +120,7 @@ class EvidenceCollector:
             current_arch_md=self._read_repo_file("ARCHITECTURE.md"),
             project_map=self.pack.read_project_map() or "",
             decisions=self.pack.read_decisions() or "",
+            problems=problems,
         )
 
         log.info("Evidence collected", summary=evidence.summary())

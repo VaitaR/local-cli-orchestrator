@@ -64,6 +64,7 @@ src/orx/
 │
 ├── knowledge/       # Self-improvement module
 │   ├── evidence.py  # Collect run artifacts
+│   ├── problems.py  # Extract problems from stages.jsonl
 │   ├── guardrails.py # Marker-scoped updates
 │   └── updater.py   # AGENTS.md + ARCHITECTURE.md updates
 │

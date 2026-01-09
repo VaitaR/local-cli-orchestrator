@@ -496,6 +496,13 @@ Automatic updates to AGENTS.md and ARCHITECTURE.md after successful task complet
 ┌─────────────────────────────────────────────────────────────────┐
 │                    Knowledge Update Flow                         │
 │                                                                  │
+│  stages.jsonl ──► ProblemsCollector ──► ProblemsSummary         │
+│       │                                       │                  │
+│       ▼                                       ▼                  │
+│  EvidenceCollector ──────────────────► EvidencePack             │
+│                                               │                  │
+│                    ┌──────────────────────────┘                 │
+│                    ▼                                             │
 │  VERIFY (success) → SHIP → KNOWLEDGE_UPDATE → DONE              │
 │                              │                                   │
 │                    ┌─────────┴─────────┐                        │
@@ -508,10 +515,29 @@ Automatic updates to AGENTS.md and ARCHITECTURE.md after successful task complet
 ```
 
 **Key Features:**
+- **Problem-driven learning**: Extracts problems from stages.jsonl (gate failures, parse errors, timeouts)
 - **Marker-scoped updates**: Only content within `<!-- ORX:START/END -->` markers is modified
 - **Architecture gatekeeping**: Only updates ARCHITECTURE.md if changes affect structure
 - **Guardrails**: Max lines changed, deletion limits, allowlist files
 - **Non-fatal**: Failures don't break the run
+
+**Problem Collection:**
+```python
+# Problems extracted from metrics include:
+- Gate failures (ruff, pytest) with error output
+- Parse errors (invalid YAML/JSON)
+- Timeouts and empty diffs
+- Fix iterations and their triggers
+```
+
+**Module Structure:**
+```
+src/orx/knowledge/
+├── evidence.py      # EvidencePack + EvidenceCollector
+├── problems.py      # ProblemsCollector + ProblemsSummary (NEW)
+├── guardrails.py    # Marker-scoped updates, change limits
+└── updater.py       # Coordinates AGENTS.md + ARCHITECTURE.md updates
+```
 
 ### 9. Metrics & Monitoring (v0.4)
 
