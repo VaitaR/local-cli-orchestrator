@@ -130,63 +130,92 @@ function showCopyFeedback() {
 }
 
 // Debounced search functionality for artifacts
-document.addEventListener('DOMContentLoaded', function() {
-    const searchInput = document.getElementById('artifact-search');
-    const artifactsList = document.getElementById('artifacts-list');
-    if (!searchInput || !artifactsList) return;
+// Initialize immediately for pages that include the tab at load,
+// and also initialize when HTMX injects the artifacts tab content.
+(function() {
+    function initArtifactSearch(root) {
+        const scope = root || document;
 
-    let searchTimeout;
+        const searchInput = (scope === document) ? document.getElementById('artifact-search') : scope.querySelector('#artifact-search');
+        const artifactsList = (scope === document) ? document.getElementById('artifacts-list') : scope.querySelector('#artifacts-list');
+        if (!searchInput || !artifactsList) return;
 
-    searchInput.addEventListener('input', function() {
-        clearTimeout(searchTimeout);
+        // Avoid double-initialization
+        if (searchInput.dataset.artifactSearchInit === '1') return;
+        searchInput.dataset.artifactSearchInit = '1';
 
-        searchTimeout = setTimeout(function() {
-            const searchTerm = searchInput.value.toLowerCase().trim();
-            const artifactItems = artifactsList.querySelectorAll('.artifact-item');
-            let visibleCount = 0;
+        let searchTimeout;
 
-            artifactItems.forEach(function(item) {
-                const nameElement = item.querySelector('.artifact-name');
-                if (!nameElement) return;
+        searchInput.addEventListener('input', function() {
+            clearTimeout(searchTimeout);
 
-                const name = nameElement.textContent.toLowerCase();
-                const path = nameElement.getAttribute('data-path') || '';
-                const extension = name.split('.').pop().toLowerCase();
+            searchTimeout = setTimeout(function() {
+                const searchTerm = searchInput.value.toLowerCase().trim();
+                const artifactItems = artifactsList.querySelectorAll('.artifact-item');
+                let visibleCount = 0;
 
-                const matchesSearch = name.includes(searchTerm) ||
-                                     path.includes(searchTerm) ||
-                                     extension.includes(searchTerm);
+                artifactItems.forEach(function(item) {
+                    const nameElement = item.querySelector('.artifact-name');
+                    if (!nameElement) return;
 
-                if (matchesSearch || searchTerm === '') {
-                    item.style.display = '';
-                    visibleCount++;
-                } else {
-                    item.style.display = 'none';
+                    const name = nameElement.textContent.toLowerCase();
+                    const path = nameElement.getAttribute('data-path') || '';
+                    const extension = name.split('.').pop().toLowerCase();
+
+                    const matchesSearch = name.includes(searchTerm) ||
+                                         path.includes(searchTerm) ||
+                                         extension.includes(searchTerm);
+
+                    if (matchesSearch || searchTerm === '') {
+                        item.style.display = '';
+                        visibleCount++;
+                    } else {
+                        item.style.display = 'none';
+                    }
+                });
+
+                // Show "no results" message if needed
+                let noResultsMsg = artifactsList.querySelector('.no-artifacts-message');
+                if (visibleCount === 0 && searchTerm !== '') {
+                    if (!noResultsMsg) {
+                        noResultsMsg = document.createElement('div');
+                        noResultsMsg.className = 'no-artifacts-message';
+                        noResultsMsg.innerHTML = '<p>No artifacts found</p>';
+                        artifactsList.appendChild(noResultsMsg);
+                    }
+                } else if (noResultsMsg) {
+                    noResultsMsg.remove();
                 }
-            });
+            }, 150);
+        });
 
-            // Show "no results" message if needed
-            let noResultsMsg = artifactsList.querySelector('.no-artifacts-message');
-            if (visibleCount === 0 && searchTerm !== '') {
-                if (!noResultsMsg) {
-                    noResultsMsg = document.createElement('div');
-                    noResultsMsg.className = 'no-artifacts-message';
-                    noResultsMsg.innerHTML = '<p>No artifacts found</p>';
-                    artifactsList.appendChild(noResultsMsg);
-                }
-            } else if (noResultsMsg) {
-                noResultsMsg.remove();
+        // Clear search on Escape key
+        searchInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                searchInput.value = '';
+                searchInput.dispatchEvent(new Event('input'));
+                searchInput.blur();
             }
-        }, 150);
-    });
+        });
+    }
 
-    // Clear search on Escape key
-    searchInput.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape') {
-            searchInput.value = '';
-            searchInput.dispatchEvent(new Event('input'));
-            searchInput.blur();
+    // Run on initial load if present
+    initArtifactSearch(document);
+
+    // Also initialize when HTMX swaps the tab content in
+    document.body.addEventListener('htmx:afterSwap', function(evt) {
+        try {
+            const target = evt && evt.detail && evt.detail.target;
+            if (!target) return;
+
+            // If the swap target is the artifacts list, the preview content,
+            // or contains the artifact search input, initialize handlers there.
+            if (target.id === 'artifacts-list' || target.id === 'artifact-preview-content' || (typeof target.querySelector === 'function' && target.querySelector('#artifact-search'))) {
+                initArtifactSearch(target);
+            }
+        } catch (e) {
+            console.error('Artifact search init failed after HTMX swap:', e);
         }
     });
-});
+})();
 </script>

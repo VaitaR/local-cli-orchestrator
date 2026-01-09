@@ -45,9 +45,23 @@
     <script src="/static/prism-diff.js"></script>
     <script>
         // Trigger Prism highlighting on HTMX content swap
+        // HTMX now swaps artifact previews into `#artifact-preview-content`.
+        // Accept either the old `artifact-preview` id or the new preview container,
+        // and also handle cases where the swap target contains the preview node.
         document.body.addEventListener('htmx:afterSwap', function(evt) {
-            if (evt.detail.target.id === 'artifact-preview') {
-                Prism.highlightAllUnder(evt.detail.target);
+            try {
+                const target = evt && evt.detail && evt.detail.target;
+                if (!target) return;
+
+                const hasPreviewDirect = target.id === 'artifact-preview' || target.id === 'artifact-preview-content';
+                const hasPreviewNested = typeof target.querySelector === 'function' && target.querySelector('#artifact-preview-content');
+
+                if (hasPreviewDirect || hasPreviewNested) {
+                    Prism.highlightAllUnder(target);
+                }
+            } catch (e) {
+                // Defensive: don't let Prism errors break HTMX swaps
+                console.error('Prism highlighting failed on afterSwap:', e);
             }
         });
     </script>
