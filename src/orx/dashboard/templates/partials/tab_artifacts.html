@@ -1,10 +1,23 @@
 <div class="tab-content">
     {% if artifacts %}
+    {# Map file extensions to icons #}
+    {% set file_icons = {
+        'md': '📝', 'markdown': '📝',
+        'yaml': '⚙️', 'yml': '⚙️',
+        'json': '📋', 'jsonl': '📋',
+        'py': '🐍', 'python': '🐍',
+        'js': '🟨', 'ts': '🔷', 'tsx': '🔷', 'jsx': '🟨',
+        'log': '📜', 'txt': '📄',
+        'diff': '🔀', 'patch': '🔀',
+        'sh': '💻', 'bash': '💻', 'zsh': '💻',
+        'html': '🌐', 'css': '🎨',
+        'toml': '⚙️', 'ini': '⚙️', 'cfg': '⚙️'
+    } %}
     <div class="artifacts-layout">
         {# File Explorer Sidebar #}
         <div class="artifacts-sidebar">
             <div class="artifacts-header">
-                <h3>📁 Files</h3>
+                <h3>Explorer</h3>
                 <span class="badge badge-info">{{ artifacts | length }}</span>
             </div>
             <div class="artifacts-search">
@@ -12,21 +25,26 @@
                     type="text"
                     id="artifact-search"
                     class="search-input"
-                    placeholder="Search files..."
+                    placeholder="⌘K Search files..."
                     autocomplete="off"
                 >
             </div>
             <div class="artifacts-list" id="artifacts-list">
                 {% for artifact in artifacts %}
+                {% set ext = artifact.name.split('.')[-1] | lower %}
+                {% set icon = file_icons.get(ext, '📄') %}
                 <div class="artifact-item {% if loop.first %}active{% endif %}"
                      hx-get="/partials/artifact/{{ run_id }}?path={{ artifact.path | urlencode }}"
                      hx-target="#artifact-preview-content"
                      hx-swap="innerHTML"
-                     hx-indicator=".artifact-loading">
+                     hx-indicator=".artifact-loading"
+                     data-filename="{{ artifact.name }}"
+                     data-path="{{ artifact.path }}"
+                     onclick="selectArtifact(this)">
                     <div class="artifact-info">
-                        <span class="artifact-icon">{{ artifact.icon | default('📄') }}</span>
+                        <span class="artifact-icon">{{ icon }}</span>
                         <div class="artifact-details">
-                            <span class="artifact-name">{{ artifact.name }}</span>
+                            <span class="artifact-name" data-path="{{ artifact.path }}">{{ artifact.name }}</span>
                             <span class="artifact-meta">{{ (artifact.size_bytes / 1024) | round(1) }} KB</span>
                         </div>
                     </div>
@@ -38,13 +56,18 @@
         {# Code Preview Panel #}
         <div class="artifacts-preview">
             <div class="preview-header">
-                <div class="preview-title">
-                    <span class="preview-icon">📄</span>
-                    <span class="preview-filename">{{ artifacts[0].name if artifacts else 'Select a file' }}</span>
+                <div class="preview-title" id="preview-title">
+                    {% set first_ext = artifacts[0].name.split('.')[-1] | lower if artifacts else '' %}
+                    {% set first_icon = file_icons.get(first_ext, '📄') %}
+                    <span class="preview-icon" id="preview-icon">{{ first_icon }}</span>
+                    <span class="preview-filename" id="preview-filename">{{ artifacts[0].name if artifacts else 'Select a file' }}</span>
+                    {% if artifacts and '/' in artifacts[0].path %}
+                    <span class="preview-path" id="preview-path">{{ artifacts[0].path | replace(artifacts[0].name, '') }}</span>
+                    {% endif %}
                 </div>
                 <div class="preview-actions">
-                    <button class="btn btn-sm btn-secondary" onclick="copyArtifactContent()" title="Copy to clipboard">
-                        📋 Copy
+                    <button class="btn btn-sm btn-secondary" onclick="copyArtifactContent()" title="Copy to clipboard (⌘C)">
+                        📋
                     </button>
                 </div>
             </div>
@@ -74,6 +97,49 @@
 </div>
 
 <script>
+// File icons map for dynamic updates
+const FILE_ICONS = {
+    'md': '📝', 'markdown': '📝',
+    'yaml': '⚙️', 'yml': '⚙️',
+    'json': '📋', 'jsonl': '📋',
+    'py': '🐍', 'python': '🐍',
+    'js': '🟨', 'ts': '🔷', 'tsx': '🔷', 'jsx': '🟨',
+    'log': '📜', 'txt': '📄',
+    'diff': '🔀', 'patch': '🔀',
+    'sh': '💻', 'bash': '💻', 'zsh': '💻',
+    'html': '🌐', 'css': '🎨',
+    'toml': '⚙️', 'ini': '⚙️', 'cfg': '⚙️'
+};
+
+function getFileIcon(filename) {
+    const ext = filename.split('.').pop().toLowerCase();
+    return FILE_ICONS[ext] || '📄';
+}
+
+function selectArtifact(element) {
+    // Remove active from all items
+    document.querySelectorAll('.artifact-item').forEach(item => {
+        item.classList.remove('active');
+    });
+    // Add active to clicked item
+    element.classList.add('active');
+    
+    // Update preview header
+    const filename = element.dataset.filename;
+    const path = element.dataset.path;
+    
+    const previewIcon = document.getElementById('preview-icon');
+    const previewFilename = document.getElementById('preview-filename');
+    const previewPath = document.getElementById('preview-path');
+    
+    if (previewIcon) previewIcon.textContent = getFileIcon(filename);
+    if (previewFilename) previewFilename.textContent = filename;
+    if (previewPath) {
+        const dirPath = path.replace(filename, '');
+        previewPath.textContent = dirPath || '';
+    }
+}
+
 function copyArtifactContent() {
     const codeElement = document.querySelector('#artifact-preview-content code');
     if (!codeElement) return;
@@ -85,11 +151,9 @@ function copyArtifactContent() {
         navigator.clipboard.writeText(text).then(() => {
             showCopyFeedback();
         }).catch(() => {
-            // Fallback to execCommand if modern API fails
             fallbackCopy(text);
         });
     } else {
-        // Fallback for older browsers
         fallbackCopy(text);
     }
 }
@@ -118,7 +182,7 @@ function showCopyFeedback() {
     if (!btn) return;
 
     const originalHTML = btn.innerHTML;
-    btn.innerHTML = '✓ Copied!';
+    btn.innerHTML = '✓';
     btn.style.background = 'var(--success)';
     btn.style.color = 'white';
 
@@ -126,12 +190,10 @@ function showCopyFeedback() {
         btn.innerHTML = originalHTML;
         btn.style.background = '';
         btn.style.color = '';
-    }, 2000);
+    }, 1500);
 }
 
 // Debounced search functionality for artifacts
-// Initialize immediately for pages that include the tab at load,
-// and also initialize when HTMX injects the artifacts tab content.
 (function() {
     function initArtifactSearch(root) {
         const scope = root || document;
@@ -155,16 +217,10 @@ function showCopyFeedback() {
                 let visibleCount = 0;
 
                 artifactItems.forEach(function(item) {
-                    const nameElement = item.querySelector('.artifact-name');
-                    if (!nameElement) return;
+                    const filename = (item.dataset.filename || '').toLowerCase();
+                    const path = (item.dataset.path || '').toLowerCase();
 
-                    const name = nameElement.textContent.toLowerCase();
-                    const path = nameElement.getAttribute('data-path') || '';
-                    const extension = name.split('.').pop().toLowerCase();
-
-                    const matchesSearch = name.includes(searchTerm) ||
-                                         path.includes(searchTerm) ||
-                                         extension.includes(searchTerm);
+                    const matchesSearch = filename.includes(searchTerm) || path.includes(searchTerm);
 
                     if (matchesSearch || searchTerm === '') {
                         item.style.display = '';
@@ -180,21 +236,45 @@ function showCopyFeedback() {
                     if (!noResultsMsg) {
                         noResultsMsg = document.createElement('div');
                         noResultsMsg.className = 'no-artifacts-message';
-                        noResultsMsg.innerHTML = '<p>No artifacts found</p>';
+                        noResultsMsg.innerHTML = '<p>No files match "' + searchTerm + '"</p>';
                         artifactsList.appendChild(noResultsMsg);
                     }
                 } else if (noResultsMsg) {
                     noResultsMsg.remove();
                 }
-            }, 150);
+            }, 100);
         });
 
-        // Clear search on Escape key
+        // Keyboard shortcuts
         searchInput.addEventListener('keydown', function(e) {
             if (e.key === 'Escape') {
                 searchInput.value = '';
                 searchInput.dispatchEvent(new Event('input'));
                 searchInput.blur();
+            }
+            // Arrow navigation
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                const items = Array.from(artifactsList.querySelectorAll('.artifact-item:not([style*="display: none"])'));
+                const currentActive = artifactsList.querySelector('.artifact-item.active');
+                const currentIndex = items.indexOf(currentActive);
+                
+                let nextIndex;
+                if (e.key === 'ArrowDown') {
+                    nextIndex = currentIndex < items.length - 1 ? currentIndex + 1 : 0;
+                } else {
+                    nextIndex = currentIndex > 0 ? currentIndex - 1 : items.length - 1;
+                }
+                
+                if (items[nextIndex]) {
+                    items[nextIndex].click();
+                    items[nextIndex].scrollIntoView({ block: 'nearest' });
+                }
+            }
+            // Enter to focus preview
+            if (e.key === 'Enter') {
+                const previewContent = document.getElementById('artifact-preview-content');
+                if (previewContent) previewContent.focus();
             }
         });
     }
@@ -208,13 +288,23 @@ function showCopyFeedback() {
             const target = evt && evt.detail && evt.detail.target;
             if (!target) return;
 
-            // If the swap target is the artifacts list, the preview content,
-            // or contains the artifact search input, initialize handlers there.
             if (target.id === 'artifacts-list' || target.id === 'artifact-preview-content' || (typeof target.querySelector === 'function' && target.querySelector('#artifact-search'))) {
                 initArtifactSearch(target);
             }
         } catch (e) {
             console.error('Artifact search init failed after HTMX swap:', e);
+        }
+    });
+    
+    // Global keyboard shortcut ⌘K / Ctrl+K to focus search
+    document.addEventListener('keydown', function(e) {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+            const searchInput = document.getElementById('artifact-search');
+            if (searchInput) {
+                e.preventDefault();
+                searchInput.focus();
+                searchInput.select();
+            }
         }
     });
 })();
