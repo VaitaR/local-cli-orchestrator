@@ -104,11 +104,11 @@ class ModelInfo:
 # ============================================================================
 
 CODEX_MODELS: dict[str, ModelInfo] = {
-    "gpt-5-codex": ModelInfo(
-        id="gpt-5-codex",
-        name="GPT-5 Codex",
+    "gpt-5.2-codex": ModelInfo(
+        id="gpt-5.2-codex",
+        name="GPT-5.2 Codex",
         engine="codex",
-        description="Default Codex model, optimized for code",
+        description="Most advanced agentic coding model, optimized for complex code changes and refactors",
         capabilities=ModelCapabilities(
             supports_reasoning=True,
             reasoning_levels=[ReasoningLevel.LOW, ReasoningLevel.MEDIUM, ReasoningLevel.HIGH],
@@ -116,85 +116,46 @@ CODEX_MODELS: dict[str, ModelInfo] = {
             supports_web_search=True,
             context_window=200000,
             tier=1,
+        ),
+    ),
+    "gpt-5.2": ModelInfo(
+        id="gpt-5.2",
+        name="GPT-5.2",
+        engine="codex",
+        description="Full GPT-5.2 model",
+        capabilities=ModelCapabilities(
+            supports_reasoning=True,
+            reasoning_levels=[ReasoningLevel.LOW, ReasoningLevel.MEDIUM, ReasoningLevel.HIGH],
+            default_reasoning=ReasoningLevel.MEDIUM,
+            supports_web_search=True,
+            context_window=200000,
+            tier=1,
+        ),
+    ),
+    "gpt-5-codex": ModelInfo(
+        id="gpt-5-codex",
+        name="GPT-5 Codex (Legacy)",
+        engine="codex",
+        description="Previous generation Codex model",
+        capabilities=ModelCapabilities(
+            supports_reasoning=True,
+            reasoning_levels=[ReasoningLevel.LOW, ReasoningLevel.MEDIUM, ReasoningLevel.HIGH],
+            default_reasoning=ReasoningLevel.MEDIUM,
+            supports_web_search=True,
+            context_window=200000,
+            tier=2,
         ),
     ),
     "gpt-5": ModelInfo(
         id="gpt-5",
-        name="GPT-5",
+        name="GPT-5 (Legacy)",
         engine="codex",
-        description="Full GPT-5 model",
+        description="Previous generation full GPT-5 model",
         capabilities=ModelCapabilities(
             supports_reasoning=True,
             reasoning_levels=[ReasoningLevel.LOW, ReasoningLevel.MEDIUM, ReasoningLevel.HIGH],
             default_reasoning=ReasoningLevel.MEDIUM,
             supports_web_search=True,
-            context_window=200000,
-            tier=1,
-        ),
-    ),
-    "gpt-4o": ModelInfo(
-        id="gpt-4o",
-        name="GPT-4o",
-        engine="codex",
-        description="GPT-4 Omni - fast and capable",
-        capabilities=ModelCapabilities(
-            supports_reasoning=True,
-            reasoning_levels=[ReasoningLevel.LOW, ReasoningLevel.MEDIUM, ReasoningLevel.HIGH],
-            default_reasoning=ReasoningLevel.MEDIUM,
-            supports_web_search=True,
-            context_window=128000,
-            tier=2,
-        ),
-    ),
-    "gpt-4o-mini": ModelInfo(
-        id="gpt-4o-mini",
-        name="GPT-4o Mini",
-        engine="codex",
-        description="Smaller, faster GPT-4o variant",
-        capabilities=ModelCapabilities(
-            supports_reasoning=True,
-            reasoning_levels=[ReasoningLevel.LOW, ReasoningLevel.MEDIUM],
-            default_reasoning=ReasoningLevel.LOW,
-            supports_web_search=True,
-            context_window=128000,
-            tier=3,
-        ),
-    ),
-    "o1": ModelInfo(
-        id="o1",
-        name="o1",
-        engine="codex",
-        description="Reasoning-optimized model",
-        capabilities=ModelCapabilities(
-            supports_reasoning=True,
-            reasoning_levels=[ReasoningLevel.LOW, ReasoningLevel.MEDIUM, ReasoningLevel.HIGH],
-            default_reasoning=ReasoningLevel.HIGH,
-            context_window=200000,
-            tier=1,
-        ),
-    ),
-    "o1-mini": ModelInfo(
-        id="o1-mini",
-        name="o1 Mini",
-        engine="codex",
-        description="Smaller reasoning model",
-        capabilities=ModelCapabilities(
-            supports_reasoning=True,
-            reasoning_levels=[ReasoningLevel.LOW, ReasoningLevel.MEDIUM, ReasoningLevel.HIGH],
-            default_reasoning=ReasoningLevel.MEDIUM,
-            context_window=128000,
-            tier=2,
-        ),
-    ),
-    "o3-mini": ModelInfo(
-        id="o3-mini",
-        name="o3 Mini",
-        engine="codex",
-        description="Latest mini reasoning model",
-        capabilities=ModelCapabilities(
-            supports_reasoning=True,
-            reasoning_levels=[ReasoningLevel.LOW, ReasoningLevel.MEDIUM, ReasoningLevel.HIGH],
-            default_reasoning=ReasoningLevel.MEDIUM,
             context_window=200000,
             tier=2,
         ),
@@ -489,7 +450,7 @@ def get_default_model(engine: str) -> str:
         Default model ID.
     """
     if engine == "codex":
-        return "gpt-5-codex"
+        return "gpt-5.2-codex"
     elif engine == "gemini":
         return "gemini-2.5-flash"
     return ""

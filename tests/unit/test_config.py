@@ -45,12 +45,12 @@ def test_default_config_population() -> None:
     for stage in required_stages:
         assert config.executors.gemini.stage_models[stage] == "gemini-2.5-flash"
 
-    # Codex - now uses dynamic discovery with gpt-5-codex as default
+    # Codex - now uses dynamic discovery with gpt-5.2-codex as default
     assert config.executors.codex.available_models
-    assert "gpt-5-codex" in config.executors.codex.available_models
-    assert config.executors.codex.default.model == "gpt-5-codex"
+    assert "gpt-5.2-codex" in config.executors.codex.available_models
+    assert config.executors.codex.default.model == "gpt-5.2-codex"
     for stage in required_stages:
-        assert config.executors.codex.stage_models[stage] == "gpt-5-codex"
+        assert config.executors.codex.stage_models[stage] == "gpt-5.2-codex"
 
 
 def test_from_yaml_backfills_executor_model_config() -> None:
