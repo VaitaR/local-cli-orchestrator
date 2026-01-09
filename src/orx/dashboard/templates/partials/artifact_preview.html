@@ -17,13 +17,13 @@
     <small>{{ path }} ({{ size_bytes }} bytes)</small>
 </div>
 {% elif content %}
-<pre class="line-numbers"><code class="language-{{ language if language else 'plaintext' }}">{{ content | e }}</code></pre>
+<pre class="line-numbers language-{{ language if language else 'plaintext' }}"><code class="language-{{ language if language else 'plaintext' }}">{{ content | e }}</code></pre>
 <script>
     // Trigger Prism highlighting immediately after content is loaded
     (function() {
-        const preElement = document.currentScript.previousElementSibling;
-        if (preElement && typeof Prism !== 'undefined') {
-            Prism.highlightElement(preElement.querySelector('code'));
+        const codeElement = document.currentScript.previousElementSibling.querySelector('code');
+        if (codeElement && typeof Prism !== 'undefined') {
+            Prism.highlightElement(codeElement);
         }
     })();
 </script>

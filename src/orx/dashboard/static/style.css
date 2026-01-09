@@ -1049,19 +1049,6 @@ pre {
     color: var(--text-muted);
 }
 
-.artifact-code {
-    margin: 0;
-    padding: var(--space-md);
-    font-family: var(--font-mono);
-    font-size: 0.85rem;
-    line-height: 1.7;
-    background: var(--bg-primary);
-    color: var(--text-primary);
-    overflow: auto;
-    white-space: pre;
-    tab-size: 4;
-}
-
 .code-content {
     font-family: var(--font-mono);
 }
@@ -1098,79 +1085,61 @@ pre {
     }
 }
 
-/* Line numbers for code */
-.artifact-code {
-    counter-reset: line;
-    padding-left: calc(var(--space-md) + 40px);
-    position: relative;
-}
-
-.artifact-code::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 40px;
-    background: var(--bg-secondary);
-    border-right: 1px solid var(--border-color);
-}
-
-.code-content {
-    display: block;
-}
-
-.code-content .line {
-    counter-increment: line;
-    display: block;
-    position: relative;
-    padding-left: var(--space-md);
-    margin-left: -40px;
-}
-
-.code-content .line::before {
-    content: counter(line);
-    position: absolute;
-    left: 0;
-    width: 40px;
-    text-align: right;
-    color: var(--text-muted);
-    font-size: 0.75rem;
-    user-select: none;
-    padding-right: var(--space-sm);
-}
 
 /* Prism.js line numbers plugin overrides */
+.line-numbers {
+    position: relative;
+    padding-left: 3.5em;
+    counter-reset: linenumber;
+}
+
+.line-numbers > code {
+    position: relative;
+    white-space: inherit;
+}
+
 .line-numbers .line-numbers-rows {
     position: absolute;
-    top: 0;
-    left: 0;
-    width: 3em;
-    border-right: 1px solid var(--border-color) !important;
-    background: var(--bg-secondary) !important;
     pointer-events: none;
+    top: 0;
+    font-size: inherit;
+    left: -3.5em;
+    width: 3em;
+    letter-spacing: -1px;
+    border-right: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
     user-select: none;
+}
+
+.line-numbers-rows > span {
+    display: block;
+    counter-increment: linenumber;
 }
 
 .line-numbers-rows > span:before {
-    color: var(--text-muted) !important;
-    font-family: var(--font-mono) !important;
-    font-size: 0.85rem !important;
-    line-height: 1.7 !important;
+    content: counter(linenumber);
+    color: var(--text-muted);
+    display: block;
+    padding-right: var(--space-md);
+    text-align: right;
 }
 
 /* Ensure Prism syntax highlighting uses our colors */
 pre[class*="language-"] {
     margin: 0;
     padding: var(--space-md);
-    padding-left: calc(3.5em + var(--space-md));
     font-family: var(--font-mono);
     font-size: 0.85rem;
     line-height: 1.7;
     background: var(--bg-primary);
-    overflow: auto;
+    overflow-x: auto;
+    overflow-y: visible;
     tab-size: 4;
-    position: relative;
+    -moz-tab-size: 4;
+    color: var(--text-primary);
 }
 
 code[class*="language-"] {
@@ -1179,11 +1148,11 @@ code[class*="language-"] {
     line-height: 1.7;
     text-shadow: none;
     background: none;
-}
-
-/* Fix for line numbers background */
-.line-numbers .line-numbers-rows {
-    background: var(--bg-secondary);
+    color: inherit;
+    white-space: pre;
+    word-spacing: normal;
+    word-break: normal;
+    overflow-wrap: normal;
 }
 
 /* Prism.js token colors for syntax highlighting (One Dark Pro theme) */
