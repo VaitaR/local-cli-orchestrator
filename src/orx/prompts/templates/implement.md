@@ -12,6 +12,17 @@ You are implementing a specific work item from the backlog.
 {{ spec_highlights }}
 {% endif %}
 
+{% if agents_context is defined and agents_context %}
+## Development Guidelines (from AGENTS.md)
+
+{{ agents_context }}
+
+**MUST FOLLOW**:
+- Module Boundaries: Never introduce cross-import cycles
+- NOT TO DO: Avoid all listed anti-patterns
+- Coding Patterns: Use established helpers (CommandRunner, ContextPack, etc.)
+{% endif %}
+
 {% if repo_context is defined and repo_context %}
 ## Repo Context
 
@@ -58,9 +69,16 @@ Ensure your code passes all these gates.
 
 ## Instructions
 
-1. Implement the work item according to the acceptance criteria
-2. Create or update tests for the new functionality
-3. Follow the project's coding standards
+1. **Read files in batches**: Use ARCHITECTURE.md module map to identify ALL related files upfront. Read them together in one batch, not one-by-one.
+2. Implement the work item according to the acceptance criteria
+3. Create or update tests for the new functionality
+4. Follow the project's coding standards
+
+**FILE READING STRATEGY** (CRITICAL):
+- Look at "Files Hint" + module map → identify the full file set
+- Read ALL needed files in ONE batch call
+- Do NOT read files one at a time in separate tool calls
+- For related modules, read the whole directory at once
 
 ## Code Standards
 
@@ -68,7 +86,10 @@ Ensure your code passes all these gates.
 - Add docstrings with Google style
 - Keep functions focused and small
 - Handle errors appropriately
-- Keep imports sorted (ruff I001) when adding new files
+- **Import ordering (ruff I001)**: Standard library → third-party → local. Alphabetical within groups. Use `from __future__ import annotations` first.
+- **No unused imports (ruff F401)**: Only import what you use.
+- **No trailing whitespace (ruff W293)**: Keep blank lines truly empty.
+- When adding new files, ensure they have proper `__init__.py` exports if needed.
 
 ## Output
 

@@ -19,7 +19,7 @@ from orx.context.backlog import Backlog, WorkItem
 from orx.context.pack import ContextPack
 from orx.context.repo_context import RepoContextBuilder
 from orx.exceptions import GuardrailError
-from orx.executors.base import Executor
+from orx.executors.base import ExecResult, Executor
 from orx.executors.codex import CodexExecutor
 from orx.executors.fake import FakeExecutor
 from orx.executors.gemini import GeminiExecutor
@@ -318,6 +318,8 @@ class Runner:
                 output_format=engine_config.output_format
                 or gemini_cfg.default.output_format
                 or "json",
+                use_yolo=gemini_cfg.use_yolo,
+                approval_mode=gemini_cfg.approval_mode,
             )
         elif engine_config.type == EngineType.FAKE:
             return FakeExecutor()
@@ -854,6 +856,7 @@ class Runner:
             StageResult from the stage execution.
         """
         ctx = self._get_stage_context(stage_name)
+        original_model = ctx.model_selector.model if ctx.model_selector else None
 
         if self.events:
             self.events.log("stage_start", stage=stage_name)
@@ -869,18 +872,101 @@ class Runner:
             self._record_stage_inputs(stage_name)
 
             # Time LLM call
-            timer.start_llm()
+            timer.start_llm(
+                model=ctx.model_selector.model if ctx.model_selector else None
+            )
             result = run_fn(ctx)
+            # If stage failed, attempt model fallback and a single retry.
+            fallback_applied = False
+            if result and not result.success:
+                try:
+                    # Build a synthetic ExecResult from available agent logs so
+                    # ModelRouter.apply_fallback can inspect stderr/error_message.
+                    stdout_path, stderr_path = ctx.paths.agent_log_paths(stage_name)
+                    synthetic = ExecResult(
+                        returncode=1,
+                        stdout_path=stdout_path,
+                        stderr_path=stderr_path,
+                        extra={},
+                        success=False,
+                        error_message=result.message or "",
+                        invocation=None,
+                    )
+
+                    # Check if this is a transient error (429, capacity, timeout)
+                    # These should be retried with backoff before trying fallback
+                    if synthetic.is_transient_error():
+                        import time
+
+                        retry_after = synthetic.get_retry_after_seconds() or 30
+                        # Cap backoff at 120 seconds for stage retry
+                        backoff_seconds = min(retry_after, 120)
+                        logger.info(
+                            "Transient error detected, retrying with backoff",
+                            stage=stage_name,
+                            backoff_seconds=backoff_seconds,
+                        )
+                        time.sleep(backoff_seconds)
+                        # Retry with same model first
+                        timer.start_llm(
+                            model=ctx.model_selector.model
+                            if ctx.model_selector
+                            else None
+                        )
+                        result = run_fn(ctx)
+                        if result and result.success:
+                            # Transient retry succeeded, skip fallback
+                            fallback_applied = False
+                        # If still failed, continue to fallback logic below
+
+                    # Try model fallback if still failing
+                    if result and not result.success:
+                        new_selector, applied = self.model_router.apply_fallback(
+                            stage_name, synthetic, ctx.model_selector
+                        )
+                        if applied:
+                            logger.info(
+                                "Applying model fallback and retrying stage",
+                                stage=stage_name,
+                                original_model=(
+                                    ctx.model_selector.model
+                                    if ctx.model_selector
+                                    else None
+                                ),
+                                fallback_model=new_selector.model,
+                            )
+                            # Record fallback
+                            self.metrics.record_fallback(
+                                original_model, new_selector.model
+                            )
+                            fallback_applied = True
+                            # Update the stage context model selector and retry once
+                            ctx.model_selector = new_selector
+                            # Retry the stage once
+                            timer.start_llm(model=new_selector.model)
+                            result = run_fn(ctx)
+                except Exception as e:
+                    logger.warning("Fallback attempt failed", error=str(e))
             timer.end_llm()
 
             # Record outputs and result
             self._record_stage_outputs(stage_name, result)
+
+            # Try to extract token usage from stage execution
+            self._record_tokens_from_stage(ctx, stage_name)
 
             if result.success:
                 self.metrics.record_success()
             else:
                 failure_cat = self._categorize_failure(result.message)
                 self.metrics.record_failure(failure_cat, result.message)
+                # Record detailed error info
+                self.metrics.record_error_info(
+                    category=failure_cat.value,
+                    message=result.message or "Unknown error",
+                    details=result.data or {},
+                    recoverable=fallback_applied,
+                )
 
         if self.events:
             self.events.log(
@@ -977,6 +1063,46 @@ class Runner:
             return FailureCategory.EXECUTOR_ERROR
 
         return FailureCategory.UNKNOWN
+
+    def _record_tokens_from_stage(
+        self,
+        ctx: StageContext,
+        stage_name: str,
+    ) -> None:
+        """Try to extract and record token usage from stage execution.
+
+        Reads executor output logs and parses token usage.
+
+        Args:
+            ctx: Stage context.
+            stage_name: Stage name for log path lookup.
+        """
+        try:
+            stdout_path, stderr_path = ctx.paths.agent_log_paths(stage_name)
+            if not stdout_path.exists():
+                return
+
+            # Build a minimal ExecResult to use get_token_usage
+            from orx.executors.base import ExecResult
+
+            exec_result = ExecResult(
+                returncode=0,
+                stdout_path=stdout_path,
+                stderr_path=stderr_path,
+            )
+
+            tokens = exec_result.get_token_usage()
+            if tokens:
+                # Extract tool_calls if available
+                tool_calls = exec_result.get_tool_calls()
+                self.metrics.record_tokens(
+                    input=tokens.get("input", 0),
+                    output=tokens.get("output", 0),
+                    total=tokens.get("total", 0),
+                    tool_calls=tool_calls,
+                )
+        except Exception as e:
+            logger.debug("Failed to extract tokens from stage", error=str(e))
 
     def _run_plan(self, ctx: StageContext) -> StageResult:
         """Run the plan stage."""
@@ -1520,12 +1646,21 @@ class Runner:
         *,
         mode: str,
     ) -> tuple[GateResult, int]:
-        """Run ruff with --fix to auto-apply lint changes."""
+        """Run ruff with --fix to auto-apply lint changes.
+
+        Uses --fix and --unsafe-fixes for maximum automatic correction of:
+        - I001 (import sorting)
+        - F401 (unused imports)
+        - W293 (whitespace on blank lines)
+        - Other auto-fixable issues
+        """
         args = list(getattr(gate, "args", []) or ["check", "."])
-        # Defensive check: current callers ensure "--fix" is not in args,
-        # but we guard here to remain robust if call sites change.
+        # Add fix flags if not present
         if "--fix" not in args:
             args.append("--fix")
+        # Enable unsafe fixes for more aggressive auto-correction (e.g., removing unused imports)
+        if "--unsafe-fixes" not in args:
+            args.append("--unsafe-fixes")
 
         fix_gate = RuffGate(
             cmd=self.cmd,
@@ -1582,6 +1717,7 @@ def create_runner(
     config_path: Path | None = None,
     run_id: str | None = None,
     engine: EngineType | None = None,
+    model: str | None = None,
     base_branch: str | None = None,
     dry_run: bool = False,
 ) -> Runner:
@@ -1593,6 +1729,7 @@ def create_runner(
         config_path: Optional path to config file.
         run_id: Optional run ID (for resume).
         engine: Optional engine override.
+        model: Optional global model override.
         base_branch: Optional base branch override.
         dry_run: If True, don't execute commands.
 
@@ -1608,9 +1745,6 @@ def create_runner(
         cfg = OrxConfig.default()
 
     # Apply overrides
-    if engine:
-        cfg.engine.type = engine
-    if base_branch:
-        cfg.git.base_branch = base_branch
+    cfg.apply_overrides(engine=engine, model=model, base_branch=base_branch)
 
     return Runner(cfg, base_dir=base_dir, run_id=run_id, dry_run=dry_run)

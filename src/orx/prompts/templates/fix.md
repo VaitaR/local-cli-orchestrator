@@ -12,6 +12,17 @@ You are fixing issues found in the previous implementation attempt.
 {{ spec_highlights }}
 {% endif %}
 
+{% if agents_context is defined and agents_context %}
+## Development Guidelines (from AGENTS.md)
+
+{{ agents_context }}
+
+**MUST FOLLOW**:
+- Module Boundaries: Never introduce cross-import cycles
+- NOT TO DO: Avoid all listed anti-patterns
+- Coding Patterns: Use established helpers
+{% endif %}
+
 {% if repo_context is defined and repo_context %}
 ## Repo Context
 
@@ -63,14 +74,14 @@ Ensure your fixes pass all these gates.
 
 ### Gate Results
 {% if ruff_failed %}
-**Ruff Check Failed**:
+**Ruff Check Failed** (focused errors):
 ```
 {{ ruff_log }}
 ```
 {% endif %}
 
 {% if pytest_failed %}
-**Pytest Failed**:
+**Pytest Failed** (focused errors):
 ```
 {{ pytest_log }}
 ```
@@ -92,13 +103,23 @@ Ensure your fixes pass all these gates.
 
 1. Analyze the failure evidence above
 2. Identify the root cause of the failure
-3. Make targeted fixes to address the issues
-4. Ensure all acceptance criteria are met
-5. If a lint error is trivial (I001/UP/unused import), fix it immediately
+3. **Read files in batches**: If you need context, find ALL related files and read them together
+4. Make targeted fixes to address the issues
+5. Ensure all acceptance criteria are met
+6. If a lint error is trivial (I001/UP/unused import), fix it immediately
+
+**FILE READING STRATEGY** (CRITICAL):
+- From error logs, identify which files need context
+- Read ALL needed files in ONE batch call
+- Do NOT make sequential single-file read calls
 
 ## Common Issues
 
-- **Ruff failures**: Fix syntax errors, import sorting, unused imports (keep imports ordered)
+- **Ruff I001 (import sorting)**: Re-order imports: stdlib first, then third-party, then local. Alphabetical within groups.
+- **Ruff F401 (unused imports)**: Remove the unused import line entirely.
+- **Ruff F841 (unused variables)**: Remove the assignment or use the variable. If needed for side effects, prefix with `_`.
+- **Ruff W293 (blank line whitespace)**: Remove trailing whitespace from empty lines.
+- **Ruff ARG002 (unused arguments)**: Add `# noqa: ARG002` comment if the argument must exist for API compatibility.
 - **Pytest failures**: Fix failing assertions, missing fixtures, import errors (ensure local modules resolve)
 - **Empty diff**: Ensure you're actually modifying files, not just outputting code
 

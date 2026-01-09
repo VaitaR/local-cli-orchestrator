@@ -4,27 +4,27 @@
 
 {% block content %}
 <div class="page-header">
-    <h1>Runs</h1>
+    <h1>🏠 Runs</h1>
     <button class="btn btn-primary"
             hx-get="/partials/start-run-form"
             hx-target="#modal-content"
             hx-swap="innerHTML"
             onclick="document.getElementById('modal').classList.add('active')">
-        + New Run
+        ➕ New Run
     </button>
 </div>
 
 <!-- Active Runs Section -->
 <section class="card">
     <div class="card-header">
-        <h2>🔄 Active Runs</h2>
+        <h2>⚡ Active Runs</h2>
         <span class="badge badge-info" id="active-count">-</span>
     </div>
     <div id="active-runs"
          hx-get="/partials/active-runs"
          hx-trigger="load, every {{ poll_interval_active }}s"
          hx-swap="innerHTML">
-        <div class="loading">Loading...</div>
+        <div class="loading">Loading active runs...</div>
     </div>
 </section>
 
@@ -32,24 +32,24 @@
 <section class="card">
     <div class="card-header">
         <h2>📜 Recent Runs</h2>
-        <button class="btn btn-sm"
+        <button class="btn btn-sm btn-secondary"
                 hx-get="/partials/recent-runs"
                 hx-target="#recent-runs"
                 hx-swap="innerHTML">
-            Refresh
+            🔄 Refresh
         </button>
     </div>
     <div id="recent-runs"
          hx-get="/partials/recent-runs"
          hx-trigger="load"
          hx-swap="innerHTML">
-        <div class="loading">Loading...</div>
+        <div class="loading">Loading recent runs...</div>
     </div>
 </section>
 
 <!-- Modal for Start Run -->
-    <div id="modal" class="modal">
-        <div class="modal-backdrop" onclick="document.getElementById('modal').classList.remove('active')"></div>
+<div id="modal" class="modal">
+    <div class="modal-backdrop" onclick="document.getElementById('modal').classList.remove('active')"></div>
     <div class="modal-content" id="modal-content">
         <!-- Loaded via HTMX -->
     </div>

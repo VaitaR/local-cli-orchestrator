@@ -101,6 +101,11 @@ class PythonExtractor:
         if profile:
             blocks.append(profile)
 
+        # Dependencies (important for understanding available libraries)
+        deps = self._extract_dependencies()
+        if deps:
+            blocks.append(deps)
+
         # Ruff configuration
         ruff = self._extract_ruff()
         if ruff:
@@ -180,6 +185,97 @@ class PythonExtractor:
         return ContextBlock(
             priority=ContextPriority.LAYOUT,
             title="Python Project Profile",
+            body="\n".join(facts),
+            sources=sources,
+            category="python",
+        )
+
+    def _extract_dependencies(self) -> ContextBlock | None:
+        """Extract project dependencies from pyproject.toml or requirements.txt."""
+        facts: list[str] = []
+        sources: list[str] = []
+
+        # Try pyproject.toml first
+        project = self.pyproject.get("project", {})
+        dependencies = project.get("dependencies", [])
+
+        if dependencies:
+            sources.append("pyproject.toml")
+            # List key dependencies (skip version specifiers for brevity)
+            deps_list = []
+            for dep in dependencies[:20]:  # Limit to 20 deps
+                # Extract just the package name
+                dep_name = (
+                    dep.split("[")[0]
+                    .split(">")[0]
+                    .split("<")[0]
+                    .split("=")[0]
+                    .split("~")[0]
+                    .strip()
+                )
+                if dep_name:
+                    deps_list.append(dep_name)
+            if deps_list:
+                facts.append("**Core dependencies:**")
+                facts.append(", ".join(deps_list))
+
+        # Optional dependencies (dev, test, etc.)
+        optional_deps = project.get("optional-dependencies", {})
+        for group, deps in list(optional_deps.items())[:3]:
+            if deps:
+                deps_list = []
+                for dep in deps[:10]:
+                    dep_name = (
+                        dep.split("[")[0]
+                        .split(">")[0]
+                        .split("<")[0]
+                        .split("=")[0]
+                        .split("~")[0]
+                        .strip()
+                    )
+                    if dep_name:
+                        deps_list.append(dep_name)
+                if deps_list:
+                    facts.append(f"**{group} dependencies:**")
+                    facts.append(", ".join(deps_list))
+
+        # Fallback to requirements.txt
+        if not facts:
+            req_path = self.worktree / "requirements.txt"
+            if req_path.exists():
+                sources.append("requirements.txt")
+                try:
+                    lines = req_path.read_text().splitlines()
+                    deps_list = []
+                    for line in lines[:20]:
+                        line = line.strip()
+                        if (
+                            line
+                            and not line.startswith("#")
+                            and not line.startswith("-")
+                        ):
+                            dep_name = (
+                                line.split("[")[0]
+                                .split(">")[0]
+                                .split("<")[0]
+                                .split("=")[0]
+                                .split("~")[0]
+                                .strip()
+                            )
+                            if dep_name:
+                                deps_list.append(dep_name)
+                    if deps_list:
+                        facts.append("**Dependencies:**")
+                        facts.append(", ".join(deps_list))
+                except Exception:
+                    pass
+
+        if not facts:
+            return None
+
+        return ContextBlock(
+            priority=ContextPriority.PYTHON_CORE - 5,  # Slightly lower than core config
+            title="Project Dependencies",
             body="\n".join(facts),
             sources=sources,
             category="python",

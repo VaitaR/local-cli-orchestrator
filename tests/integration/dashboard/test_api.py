@@ -17,6 +17,8 @@ def runs_root(tmp_path: Path) -> Path:
     runs = tmp_path / "runs"
     runs.mkdir()
 
+    now = datetime.now(tz=UTC)
+
     # Create a completed run
     run1 = runs / "test-run-001"
     run1.mkdir()
@@ -60,6 +62,64 @@ def runs_root(tmp_path: Path) -> Path:
     logs.mkdir()
     (logs / "run.log").write_text("INFO Starting\nINFO Done\n")
 
+    # Add stage metrics but omit aggregated run.json to exercise handler fallbacks.
+    metrics = run1 / "metrics"
+    metrics.mkdir()
+    (metrics / "stages.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "stage": "plan",
+                        "duration_ms": 100,
+                        "status": "success",
+                        "tokens": {"input": 2, "output": 3, "total": 5},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "stage": "implement",
+                        "duration_ms": 200,
+                        "status": "success",
+                        "tokens": {"input": 1, "output": 4, "total": 5},
+                    }
+                ),
+            ]
+        )
+        + "\n"
+    )
+
+    # Create a running run (used to validate log polling behavior)
+    run2 = runs / "test-run-002"
+    run2.mkdir()
+    (run2 / "meta.json").write_text(
+        json.dumps(
+            {
+                "run_id": "test-run-002",
+                "task": "Integration test task 2",
+                "base_branch": "main",
+                "work_branch": "feature/test2",
+                "engine": "gemini",
+                "created_at": now.isoformat(),
+            }
+        )
+    )
+    (run2 / "state.json").write_text(
+        json.dumps(
+            {
+                "current_stage": "implement",
+                "created_at": now.isoformat(),
+                "updated_at": now.isoformat(),
+                "stage_statuses": {
+                    "plan": {"status": "success"},
+                },
+            }
+        )
+    )
+    logs2 = run2 / "logs"
+    logs2.mkdir()
+    (logs2 / "run.log").write_text("INFO Starting\n")
+
     return runs
 
 
@@ -72,6 +132,7 @@ def client(
     monkeypatch.setenv("ORX_RUNS_ROOT", str(runs_root))
     monkeypatch.setenv("ORX_DASHBOARD_HOST", "127.0.0.1")
     monkeypatch.setenv("ORX_DASHBOARD_PORT", "8421")
+    monkeypatch.setenv("POLL_INTERVAL_LOGS", "7")
 
     app = create_app()
     with TestClient(app) as test_client:
@@ -171,6 +232,32 @@ class TestPartialEndpoints:
         response = client.get("/partials/log-tail/test-run-001?name=run.log&cursor=0")
         assert response.status_code == 200
 
+    def test_run_tab_metrics_partial_aggregates_stage_metrics(
+        self, client: TestClient
+    ) -> None:
+        response = client.get("/partials/run-tab/test-run-001?tab=metrics")
+        assert response.status_code == 200
+        assert "Token Usage" in response.text
+        assert "Stage Breakdown" in response.text
+        assert "plan" in response.text
+
+    def test_log_tail_partial_preserves_query_params(self, client: TestClient) -> None:
+        response = client.get(
+            "/partials/log-tail/test-run-001?name=run.log&cursor=0&lines=1"
+        )
+        assert response.status_code == 200
+        assert "name=run.log" in response.text
+        assert "lines=1" in response.text
+        assert 'hx-trigger="revealed"' in response.text
+
+    def test_log_tail_partial_polls_while_running(self, client: TestClient) -> None:
+        response = client.get(
+            "/partials/log-tail/test-run-002?name=run.log&cursor=0&lines=200"
+        )
+        assert response.status_code == 200
+        assert "Waiting for more output" in response.text
+        assert 'hx-trigger="every 7s"' in response.text
+
     def test_active_runs_shows_running_run(self, client: TestClient) -> None:
         """Ensure active runs partial renders a running run."""
         runs_dir = client.app.state.store.runs_dir
@@ -217,6 +304,53 @@ class TestPartialEndpoints:
 
 class TestAPIEndpoints:
     """Tests for the control API endpoints."""
+
+    def test_get_available_engines(self, client: TestClient) -> None:
+        """Test getting available engines and stages configuration."""
+        response = client.get("/api/config/engines")
+        assert response.status_code == 200
+        data = response.json()
+
+        assert "engines" in data
+        assert "stages" in data
+        assert "default_engine" in data
+
+        # Verify gemini engine data
+        gemini = next(e for e in data["engines"] if e["value"] == "gemini")
+        assert gemini["label"] == "Gemini"
+        assert "gemini-2.0-flash" in gemini["available_models"]
+        assert gemini["stage_models"]["plan"] == "gemini-2.0-flash"
+
+        # Verify stages
+        assert any(s["value"] == "plan" for s in data["stages"])
+        assert any(s["value"] == "implement" for s in data["stages"])
+
+    def test_get_available_engines_uses_defaults_for_omitted_fields(
+        self, client: TestClient, runs_root: Path
+    ) -> None:
+        """Existing orx.yaml files may omit newer model configuration keys."""
+        config_path = runs_root.parent / "orx.yaml"
+        config_path.write_text(
+            "engine:\n"
+            "  type: gemini\n"
+            "executors:\n"
+            "  gemini:\n"
+            "    stage_models:\n"
+            "      plan: gemini-1.5-pro\n"
+        )
+
+        response = client.get("/api/config/engines")
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["default_engine"] == "gemini"
+
+        gemini = next(e for e in data["engines"] if e["value"] == "gemini")
+        # available_models is omitted in the YAML and should fall back to defaults
+        assert "gemini-2.0-flash" in gemini["available_models"]
+        # stage_models is partial in the YAML: keep explicit override, fill others
+        assert gemini["stage_models"]["plan"] == "gemini-1.5-pro"
+        assert gemini["stage_models"]["spec"] == "gemini-2.0-flash"
 
     def test_get_run_status(self, client: TestClient) -> None:
         """Test getting run status via API."""

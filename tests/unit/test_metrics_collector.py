@@ -260,3 +260,105 @@ class TestMetricsCollector:
         assert stages[0].outputs_fingerprint is not None
         assert len(stages[0].inputs_fingerprint) == 16
         assert len(stages[0].outputs_fingerprint) == 16
+
+    def test_record_tokens_and_aggregation(self) -> None:
+        """Record tokens and verify aggregation in run metrics."""
+        collector = MetricsCollector("run_tokens")
+
+        with collector.stage("plan"):
+            collector.record_tokens(input=100, output=50, total=150)
+            collector.record_success()
+
+        with collector.stage("implement"):
+            collector.record_tokens(input=200, output=100)  # total will be inferred
+            collector.record_success()
+
+        stages = collector.get_stage_metrics()
+        assert stages[0].tokens is not None
+        assert stages[0].tokens.input == 100
+        assert stages[0].tokens.total == 150
+        assert stages[1].tokens is not None
+        assert stages[1].tokens.input == 200
+        assert stages[1].tokens.output == 100
+        assert stages[1].tokens.total == 300
+
+        run_metrics = collector.build_run_metrics()
+        assert run_metrics.tokens is not None
+        assert run_metrics.tokens.input == 300
+        assert run_metrics.tokens.output == 150
+        assert run_metrics.tokens.total == 450
+
+    def test_record_fallback(self) -> None:
+        """Record model fallback."""
+        collector = MetricsCollector("run_fallback")
+
+        with collector.stage("implement"):
+            collector.record_model_selection(
+                executor="codex",
+                model="gpt-4",
+            )
+            collector.record_fallback("gpt-4", "gpt-3.5-turbo")
+            collector.record_success()
+
+        stages = collector.get_stage_metrics()
+        assert stages[0].fallback_applied is True
+        assert stages[0].original_model == "gpt-4"
+        assert stages[0].model == "gpt-3.5-turbo"
+
+    def test_record_error_info(self) -> None:
+        """Record detailed error information."""
+        collector = MetricsCollector("run_error_info")
+
+        with collector.stage("implement"):
+            collector.record_error_info(
+                category="gate_failure",
+                message="Ruff found 5 errors",
+                details={"errors_count": 5, "file": "main.py"},
+                recoverable=True,
+                suggested_action="Run ruff --fix",
+            )
+            from orx.metrics.schema import FailureCategory
+
+            collector.record_failure(FailureCategory.GATE_FAILURE, "Ruff failed")
+
+        stages = collector.get_stage_metrics()
+        assert stages[0].error_info is not None
+        assert stages[0].error_info.category == "gate_failure"
+        assert stages[0].error_info.message == "Ruff found 5 errors"
+        assert stages[0].error_info.details["errors_count"] == 5
+        assert stages[0].error_info.recoverable is True
+        assert stages[0].error_info.suggested_action == "Run ruff --fix"
+
+    def test_record_prompt_output_sizes(self) -> None:
+        """Record prompt and output character counts."""
+        collector = MetricsCollector("run_sizes")
+
+        with collector.stage("plan"):
+            collector.record_prompt_output_sizes(prompt_chars=5000, output_chars=2000)
+            collector.record_success()
+
+        stages = collector.get_stage_metrics()
+        assert stages[0].prompt_chars == 5000
+        assert stages[0].output_chars == 2000
+
+    def test_llm_calls_tracking(self) -> None:
+        """Track individual LLM calls within a stage."""
+        collector = MetricsCollector("run_llm_calls")
+
+        with collector.stage("implement") as timer:
+            timer.start_llm(model="gpt-4")
+            time.sleep(0.01)
+            timer.end_llm(tokens_in=100, tokens_out=50)
+            timer.start_llm(model="gpt-4")
+            time.sleep(0.01)
+            timer.end_llm(tokens_in=80, tokens_out=40, status="success")
+            collector.record_success()
+
+        stages = collector.get_stage_metrics()
+        assert len(stages[0].llm_calls) == 2
+        assert stages[0].llm_calls[0].call_index == 0
+        assert stages[0].llm_calls[0].model == "gpt-4"
+        assert stages[0].llm_calls[0].tokens_in == 100
+        assert stages[0].llm_calls[0].tokens_out == 50
+        assert stages[0].llm_calls[1].call_index == 1
+        assert stages[0].llm_calls[1].tokens_in == 80

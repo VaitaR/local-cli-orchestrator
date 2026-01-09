@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+from typing import Any
+
+import structlog
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from orx.dashboard.store.models import StartRunRequest, StartRunResponse
 
 router = APIRouter(tags=["api"])
+
+logger = structlog.get_logger()
 
 
 @router.post("/runs/start", response_model=StartRunResponse)
@@ -35,6 +40,10 @@ async def start_run(request: Request, payload: StartRunRequest):
         raise HTTPException(status_code=400, detail=str(e)) from e
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
+    except Exception as e:
+        # Unexpected error while creating a run — log and return 500
+        logger.error("Failed to start run (unexpected)", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to create run: {e}") from e
 
 
 @router.post("/runs/{run_id}/cancel")
@@ -128,24 +137,89 @@ async def health():
 
 
 @router.get("/config/engines")
-async def get_available_engines():
-    """Get available engine types and stages.
+async def get_available_engines(request: Request):
+    """Get available engine types, stages, and model configurations.
 
-    Returns configuration options for the start run form.
-    This endpoint allows the frontend to dynamically build
-    the engine selection UI without hardcoding values.
+    Returns configuration options for the start run form, including
+    available models with capabilities, and stage-specific model defaults.
     """
-    from orx.config import EngineType, StageName
+    from orx.config import EngineType, OrxConfig, StageName
+    from orx.executors.models import (
+        ReasoningLevel,
+        serialize_models_for_api,
+    )
 
-    # Get available engines (exclude FAKE for production UI)
-    engines = [
-        {
+    # Load project config (orx.yaml) if available.
+    dashboard_config = request.app.state.config
+    project_root = dashboard_config.get_runs_dir().parent
+    config_path = project_root / "orx.yaml"
+
+    try:
+        if config_path.exists():
+            orx_config = OrxConfig.load(config_path)
+        else:
+            orx_config = OrxConfig.default()
+    except Exception:
+        orx_config = OrxConfig.default()
+
+    default_config = OrxConfig.default(engine_type=orx_config.engine.type)
+
+    def _effective_stage_models(exec_cfg: Any, default_exec_cfg: Any) -> dict[str, str]:
+        merged: dict[str, str] = dict(default_exec_cfg.stage_models)
+        if "stage_models" in getattr(exec_cfg, "model_fields_set", set()):
+            merged.update(exec_cfg.stage_models)
+
+        fallback_model = (
+            exec_cfg.default.model
+            or default_exec_cfg.default.model
+            or orx_config.engine.model
+            or ""
+        )
+        for stage in StageName:
+            merged.setdefault(stage.value, fallback_model)
+        return merged
+
+    # Get available engines (exclude FAKE for production UI unless in debug)
+    engines = []
+    for e in EngineType:
+        if e == EngineType.FAKE and not dashboard_config.debug:
+            continue
+
+        # Get models with full capabilities from models.py
+        models_data = serialize_models_for_api(e.value)
+
+        engine_data = {
             "value": e.value,
             "label": e.value.capitalize(),
             "is_test": e == EngineType.FAKE,
+            "models": models_data,  # Full model info with capabilities
+            "available_models": [m["id"] for m in models_data],  # Backward compat
+            "stage_models": {},
         }
-        for e in EngineType
-    ]
+
+        # Add stage-specific model defaults
+        if e == EngineType.CODEX:
+            engine_data["stage_models"] = _effective_stage_models(
+                orx_config.executors.codex, default_config.executors.codex
+            )
+        elif e == EngineType.GEMINI:
+            engine_data["stage_models"] = _effective_stage_models(
+                orx_config.executors.gemini, default_config.executors.gemini
+            )
+        elif e == EngineType.COPILOT:
+            engine_data["stage_models"] = _effective_stage_models(
+                orx_config.executors.copilot, default_config.executors.copilot
+            )
+        elif e == EngineType.CLAUDE_CODE:
+            engine_data["stage_models"] = _effective_stage_models(
+                orx_config.executors.claude_code, default_config.executors.claude_code
+            )
+        elif e == EngineType.CURSOR:
+            engine_data["stage_models"] = _effective_stage_models(
+                orx_config.executors.cursor, default_config.executors.cursor
+            )
+
+        engines.append(engine_data)
 
     # Get available stages
     stages = [
@@ -153,8 +227,19 @@ async def get_available_engines():
         for s in StageName
     ]
 
+    # Reasoning levels for UI
+    reasoning_levels = [
+        {"value": level.value, "label": level.name.title()} for level in ReasoningLevel
+    ]
+
+    default_engine = orx_config.engine.type.value
+    engine_values = {e["value"] for e in engines}
+    if default_engine not in engine_values and engines:
+        default_engine = engines[0]["value"]
+
     return {
         "engines": engines,
         "stages": stages,
-        "default_engine": EngineType.CODEX.value,
+        "reasoning_levels": reasoning_levels,
+        "default_engine": default_engine,
     }

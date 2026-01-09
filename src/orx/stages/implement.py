@@ -7,6 +7,11 @@ from typing import Any
 import structlog
 
 from orx.context.backlog import WorkItem
+from orx.context.sections import (
+    extract_agents_context,
+    extract_error_files,
+    extract_focused_errors,
+)
 from orx.context.snippets import (
     build_file_snippets,
     compact_text,
@@ -58,6 +63,10 @@ class ImplementStage(ApplyStage):
         repo_context = ctx.pack.read_tooling_snapshot() or ""
         verify_commands = ctx.pack.read_verify_commands() or ""
 
+        # Extract key patterns from AGENTS.md (module boundaries, gotchas)
+        worktree = ctx.workspace.worktree_path
+        agents_context = extract_agents_context(worktree)
+
         return {
             "task_summary": task_summary,
             "spec_highlights": spec_highlights,
@@ -69,6 +78,7 @@ class ImplementStage(ApplyStage):
             "file_snippets": snippets,
             "repo_context": repo_context,
             "verify_commands": verify_commands,
+            "agents_context": agents_context,
         }
 
 
@@ -121,16 +131,32 @@ class FixStage(ApplyStage):
         spec = ctx.pack.read_spec() or ""
         task_summary = compact_text(task, max_lines=40)
         spec_highlights = extract_spec_highlights(spec, max_lines=120)
+
+        # Extract files mentioned in errors for targeted context
+        error_files = set(item.files_hint)
+        if ruff_log:
+            error_files.update(extract_error_files(ruff_log))
+        if pytest_log:
+            error_files.update(extract_error_files(pytest_log))
+
         snippets = build_file_snippets(
             worktree=ctx.workspace.worktree_path,
-            files=item.files_hint,
+            files=list(error_files),
             max_lines=120,
-            max_files=8,
+            max_files=10,  # Allow more files for fix stage
         )
 
         # Get repo context for fix stage
         repo_context = ctx.pack.read_tooling_snapshot() or ""
         verify_commands = ctx.pack.read_verify_commands() or ""
+
+        # Extract agents context for fix stage
+        worktree = ctx.workspace.worktree_path
+        agents_context = extract_agents_context(worktree)
+
+        # Extract focused errors instead of full logs
+        focused_ruff = extract_focused_errors(ruff_log, max_errors=15) if ruff_log else ""
+        focused_pytest = extract_focused_errors(pytest_log, max_errors=10) if pytest_log else ""
 
         return {
             "task_summary": task_summary,
@@ -141,15 +167,16 @@ class FixStage(ApplyStage):
             "acceptance": item.acceptance,
             "attempt": attempt,
             "ruff_failed": ruff_failed,
-            "ruff_log": ruff_log,
+            "ruff_log": focused_ruff,
             "pytest_failed": pytest_failed,
-            "pytest_log": pytest_log,
+            "pytest_log": focused_pytest,
             "diff_empty": diff_empty,
             "patch_diff": patch_diff,
-            "files_hint": item.files_hint,
+            "files_hint": list(error_files),
             "file_snippets": snippets,
             "repo_context": repo_context,
             "verify_commands": verify_commands,
+            "agents_context": agents_context,
         }
 
     def execute_fix(

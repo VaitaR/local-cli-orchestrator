@@ -31,7 +31,8 @@ src/orx/
 │
 ├── context/         # Artifact management
 │   ├── pack.py      # Read/write context files
-│   └── backlog.py   # Backlog schema
+│   ├── backlog.py   # Backlog schema
+│   └── repo_context/ # Auto-extracted project context (Python/TS tooling)
 │
 ├── workspace/       # Git operations
 │   ├── git_worktree.py  # Worktree management
@@ -41,24 +42,42 @@ src/orx/
 │   ├── base.py      # Protocol definition
 │   ├── router.py    # Model routing + fallback policy
 │   ├── codex.py     # Codex CLI wrapper
-│   ├── gemini.py    # Gemini CLI wrapper
+│   ├── gemini.py    # Gemini CLI wrapper (use @file, not --prompt)
 │   └── fake.py      # Testing executor
 │
 ├── gates/           # Quality checks
 │   ├── base.py      # Protocol definition
 │   ├── ruff.py      # Ruff linting
 │   ├── pytest.py    # Pytest runner
-│   └── docker.py    # Docker build (optional)
+│   └── generic.py   # Custom command gates
 │
 ├── stages/          # FSM stages
 │   ├── base.py      # Stage protocol
-│   ├── plan.py      # Planning stage
-│   ├── spec.py      # Specification stage
-│   ├── decompose.py # Backlog decomposition
-│   ├── implement.py # Implementation + fix
-│   ├── verify.py    # Gate verification
-│   ├── review.py    # Code review
-│   └── ship.py      # Commit/push/PR
+│   ├── plan.py      # PLAN: text output
+│   ├── spec.py      # SPEC: text output
+│   ├── decompose.py # DECOMPOSE: backlog.yaml
+│   ├── implement.py # IMPLEMENT: filesystem changes
+│   ├── verify.py    # VERIFY: run gates
+│   ├── review.py    # REVIEW: text output
+│   ├── ship.py      # SHIP: commit/push/PR
+│   └── knowledge.py # KNOWLEDGE_UPDATE: self-improvement
+│
+├── knowledge/       # Self-improvement module
+│   ├── evidence.py  # Collect run artifacts
+│   ├── problems.py  # Extract problems from stages.jsonl
+│   ├── guardrails.py # Marker-scoped updates
+│   └── updater.py   # AGENTS.md + ARCHITECTURE.md updates
+│
+├── metrics/         # Observability
+│   ├── schema.py    # Pydantic models
+│   ├── collector.py # Stage timing + LLM metrics
+│   └── writer.py    # Persistence (stages.jsonl, run.json)
+│
+├── dashboard/       # Web UI (FastAPI + HTMX)
+│   ├── server.py    # App factory
+│   ├── store/       # Data access (filesystem-based)
+│   ├── handlers/    # Routes (pages, partials, api)
+│   └── templates/   # Jinja2 templates
 │
 ├── prompts/         # Prompt templates
 │   ├── renderer.py  # Jinja2 renderer
@@ -94,6 +113,137 @@ Run with real LLM (requires codex/gemini installed):
 ```bash
 RUN_LLM_TESTS=1 make smoke-llm
 ```
+
+---
+
+## 🛠️ How to Work Efficiently (Tool Usage)
+
+### Context Gathering Strategy
+
+**BEFORE writing any code:**
+1. **Identify the module** from the Module Boundaries map above
+2. **Batch-read related files** — use grep or read multiple files in ONE call
+3. **Check for existing patterns** — search for similar implementations first
+
+**Tool usage priority:**
+| Need | Best Tool | Why |
+|------|-----------|-----|
+| Find where X is used | `grep_search` with pattern | Fast, shows all occurrences |
+| Understand module structure | `list_dir` + `read_file` (batch) | Get overview first |
+| Find similar implementation | `grep_search` for class/function name | Reuse patterns |
+| Check imports | `grep_search` for `from orx.X import` | Avoid cycles |
+
+### Batch Operations (CRITICAL)
+
+```python
+# ❌ BAD: Sequential reads (slow, many tool calls)
+read_file("src/orx/stages/base.py")
+read_file("src/orx/stages/plan.py")
+read_file("src/orx/stages/spec.py")
+
+# ✅ GOOD: Read related files together
+# Use grep_search to find all relevant code at once
+grep_search("class.*Stage", include="src/orx/stages/*.py")
+
+# Or read the whole module directory
+list_dir("src/orx/stages/")
+# Then read 2-3 key files in parallel
+```
+
+### Finding the Right Code
+
+1. **Protocol/Interface** → always in `*/base.py`
+2. **Configuration** → `config.py` (Pydantic models)
+3. **Similar feature** → `grep_search` for keywords
+4. **Test examples** → `tests/unit/test_<module>.py`
+
+---
+
+## ❌ NOT TO DO (Common LLM Mistakes)
+
+### Code Quality
+
+| ❌ Don't | ✅ Do Instead |
+|----------|---------------|
+| Create new utility when one exists | `grep_search` for existing helpers first |
+| Copy-paste code between modules | Extract to shared location or import |
+| Add import without checking cycles | Verify with `grep_search "from orx.X"` |
+| Write 200+ line functions | Split into focused functions <50 lines |
+| Hardcode paths/values | Use `config.py` or `paths.py` |
+| Print debug output | Use `structlog` logger |
+| Catch bare `except:` | Catch specific exceptions |
+| Use `# type: ignore` freely | Fix the type issue properly |
+
+### Import Anti-Patterns
+
+```python
+# ❌ NEVER: Creates cycle
+# In src/orx/context/pack.py
+from orx.runner import Runner  # runner imports context!
+
+# ❌ NEVER: Wrong order (ruff I001)
+from orx.config import Config
+import structlog
+from pathlib import Path
+
+# ✅ CORRECT: stdlib → third-party → local
+from __future__ import annotations
+
+from pathlib import Path
+
+import structlog
+
+from orx.config import Config
+```
+
+### File Operations
+
+```python
+# ❌ NEVER: Direct file write to runs/
+with open("runs/xxx/context/plan.md", "w") as f:
+    f.write(content)
+
+# ✅ ALWAYS: Use ContextPack
+pack.write_plan(content)
+
+# ❌ NEVER: Direct subprocess
+import subprocess
+subprocess.run(["ruff", "check"])
+
+# ✅ ALWAYS: Use CommandRunner
+cmd.run(["ruff", "check"], cwd=worktree)
+```
+
+### Testing Mistakes
+
+```python
+# ❌ BAD: Test without assertions
+def test_something():
+    result = do_thing()
+    # No assert!
+
+# ❌ BAD: Test too much at once
+def test_entire_pipeline():
+    # 100 lines of setup and checks
+
+# ✅ GOOD: Focused test with clear assertion
+def test_plan_stage_produces_output():
+    result = plan_stage.run(ctx)
+    assert result.success
+    assert ctx.pack.plan_exists()
+```
+
+### Common Ruff Errors to Avoid
+
+| Code | Issue | Fix |
+|------|-------|-----|
+| I001 | Import not sorted | stdlib → third-party → local |
+| F401 | Unused import | Remove it |
+| F841 | Unused variable | Use it or prefix with `_` |
+| ARG002 | Unused argument | Add `# noqa: ARG002` if API requires it |
+| W293 | Whitespace on blank line | Delete trailing spaces |
+
+---
 
 ## Common Tasks
 

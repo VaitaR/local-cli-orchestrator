@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -17,7 +18,10 @@ from orx.config import (
     StagesConfig,
 )
 from orx.executors.base import ExecResult, Executor, ResolvedInvocation
+from orx.executors.claude_code import ClaudeCodeExecutor
 from orx.executors.codex import CodexExecutor
+from orx.executors.copilot import CopilotExecutor
+from orx.executors.cursor import CursorExecutor
 from orx.executors.fake import FakeExecutor
 from orx.executors.gemini import GeminiExecutor
 
@@ -94,10 +98,11 @@ class ModelRouter:
 
     Model selection priority (deterministic):
     1. stages.<stage>.model|profile (explicit override)
-    2. executors.<name>.profiles[stage] (stage-specific profile for Codex)
-    3. executors.<name>.default.model (executor default)
-    4. engine.model (legacy global config)
-    5. CLI built-in default
+    2. executors.<name>.stage_models[stage] (per-engine stage default)
+    3. executors.<name>.profiles[stage] (stage-specific profile for Codex)
+    4. executors.<name>.default.model (executor default)
+    5. engine.model (legacy global config)
+    6. CLI built-in default
 
     Example:
         >>> router = ModelRouter(
@@ -170,6 +175,38 @@ class ModelRouter:
             dry_run=self.dry_run,
             default_model=gemini_cfg.default.model,
             output_format=gemini_cfg.default.output_format or "json",
+            use_yolo=gemini_cfg.use_yolo,
+            approval_mode=gemini_cfg.approval_mode,
+        )
+
+        # Copilot executor (GitHub Copilot CLI)
+        copilot_cfg = self.executors_config.copilot
+        self._executors[EngineType.COPILOT] = CopilotExecutor(
+            cmd=self.cmd,
+            binary=copilot_cfg.bin or "copilot",
+            dry_run=self.dry_run,
+            default_model=copilot_cfg.default.model,
+        )
+
+        # Claude Code executor (claude CLI)
+        claude_code_cfg = self.executors_config.claude_code
+        self._executors[EngineType.CLAUDE_CODE] = ClaudeCodeExecutor(
+            cmd=self.cmd,
+            binary=claude_code_cfg.bin or "claude",
+            dry_run=self.dry_run,
+            default_model=claude_code_cfg.default.model,
+            output_format=claude_code_cfg.default.output_format or "json",
+        )
+
+        # Cursor executor (agent CLI)
+        cursor_cfg = self.executors_config.cursor
+        self._executors[EngineType.CURSOR] = CursorExecutor(
+            cmd=self.cmd,
+            binary=cursor_cfg.bin or "agent",
+            dry_run=self.dry_run,
+            default_model=cursor_cfg.default.model,
+            output_format=cursor_cfg.default.output_format or "json",
+            api_key=os.environ.get("CURSOR_API_KEY"),
         )
 
         # Fake executor (for testing)
@@ -206,9 +243,10 @@ class ModelRouter:
 
         Priority (deterministic):
         1. stages.<stage>.model|profile
-        2. executors.<name>.profiles[stage]
-        3. executors.<name>.default.model
-        4. engine.model
+        2. executors.<name>.stage_models[stage]
+        3. executors.<name>.profiles[stage] (Codex only)
+        4. executors.<name>.default.model
+        5. engine.model
 
         Args:
             stage: Stage name.
@@ -225,13 +263,35 @@ class ModelRouter:
         else:
             selector = None
 
-        # Priority 2: Executor profiles (for Codex)
+        # Fake executor is used for testing and does not have a meaningful model.
+        if selector is None and executor_type == EngineType.FAKE:
+            selector = ModelSelector()
+
+        # Priority 2: Executor stage models
+        if selector is None:
+            if executor_type == EngineType.CODEX:
+                exec_cfg = self.executors_config.codex
+            elif executor_type == EngineType.GEMINI:
+                exec_cfg = self.executors_config.gemini
+            elif executor_type == EngineType.COPILOT:
+                exec_cfg = self.executors_config.copilot
+            elif executor_type == EngineType.CLAUDE_CODE:
+                exec_cfg = self.executors_config.claude_code
+            elif executor_type == EngineType.CURSOR:
+                exec_cfg = self.executors_config.cursor
+            else:
+                exec_cfg = None
+
+            if exec_cfg and stage in exec_cfg.stage_models:
+                selector = ModelSelector(model=exec_cfg.stage_models[stage])
+
+        # Priority 3: Executor profiles (for Codex only)
         if selector is None and executor_type == EngineType.CODEX:
             codex_cfg = self.executors_config.codex
             if stage in codex_cfg.profiles:
                 selector = ModelSelector(profile=codex_cfg.profiles[stage])
 
-        # Priority 3: Executor default
+        # Priority 4: Executor default
         if selector is None and executor_type == EngineType.CODEX:
             codex_default = self.executors_config.codex.default
             if codex_default.model:
@@ -243,8 +303,20 @@ class ModelRouter:
             gemini_default = self.executors_config.gemini.default
             if gemini_default.model:
                 selector = ModelSelector(model=gemini_default.model)
+        elif selector is None and executor_type == EngineType.COPILOT:
+            copilot_default = self.executors_config.copilot.default
+            if copilot_default.model:
+                selector = ModelSelector(model=copilot_default.model)
+        elif selector is None and executor_type == EngineType.CLAUDE_CODE:
+            claude_code_default = self.executors_config.claude_code.default
+            if claude_code_default.model:
+                selector = ModelSelector(model=claude_code_default.model)
+        elif selector is None and executor_type == EngineType.CURSOR:
+            cursor_default = self.executors_config.cursor.default
+            if cursor_default.model:
+                selector = ModelSelector(model=cursor_default.model)
 
-        # Priority 4: Engine config (legacy)
+        # Priority 5: Engine config (legacy)
         if selector is None and self.engine.model:
             selector = ModelSelector(
                 model=self.engine.model,
@@ -259,6 +331,8 @@ class ModelRouter:
         # Stage-level flags apply regardless of how model/profile was resolved.
         if stage_cfg.reasoning_effort:
             selector.reasoning_effort = stage_cfg.reasoning_effort
+        if stage_cfg.thinking_budget is not None:
+            selector.thinking_budget = stage_cfg.thinking_budget
         if stage_cfg.web_search:
             selector.web_search = True
 

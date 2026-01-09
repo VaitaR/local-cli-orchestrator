@@ -103,6 +103,14 @@ def run(
             help="Engine to use (codex, gemini, fake)",
         ),
     ] = None,
+    model: Annotated[
+        str | None,
+        typer.Option(
+            "--model",
+            "-m",
+            help="Model to use (overrides engine default)",
+        ),
+    ] = None,
     base_branch: Annotated[
         str | None,
         typer.Option(
@@ -149,6 +157,7 @@ def run(
             base_dir,
             config_path=config_path,
             engine=engine,
+            model=model,
             base_branch=base_branch,
             dry_run=dry_run,
         )

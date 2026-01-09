@@ -122,6 +122,237 @@ class ExecResult:
 
         return any(marker in stderr or marker in error_msg for marker in error_markers)
 
+    def is_transient_error(self) -> bool:
+        """Check if this is a transient error that should be retried with backoff.
+
+        Transient errors include:
+        - Rate limits (429, "too many requests")
+        - Capacity exhausted (MODEL_CAPACITY_EXHAUSTED)
+        - Temporary server errors (5xx)
+        - Timeout errors
+
+        Returns:
+            True if error is likely transient and retry may succeed.
+        """
+        if not self.failed:
+            return False
+
+        transient_markers = [
+            # Rate limiting
+            "429",
+            "too many requests",
+            "rate limit",
+            "ratelimitexceeded",
+            # Capacity
+            "capacity",
+            "model_capacity_exhausted",
+            "resource_exhausted",
+            "no capacity available",
+            # Server errors
+            "500",
+            "502",
+            "503",
+            "504",
+            "internal server error",
+            "service unavailable",
+            "bad gateway",
+            # Timeout
+            "timeout",
+            "timed out",
+            "deadline exceeded",
+            # Connection
+            "connection reset",
+            "connection refused",
+            "network error",
+        ]
+        stderr = self.read_stderr().lower()
+        error_msg = self.error_message.lower()
+        combined = stderr + " " + error_msg
+
+        return any(marker in combined for marker in transient_markers)
+
+    def get_retry_after_seconds(self) -> int | None:
+        """Extract retry-after hint from error response if present.
+
+        Returns:
+            Suggested wait time in seconds, or None if not found.
+        """
+        import re
+
+        stderr = self.read_stderr()
+        # Look for patterns like "retry after 60s", "wait 30 seconds", "4h23m31s"
+        patterns = [
+            r"retry[\s-]*after[:\s]*(\d+)\s*s",
+            r"wait[:\s]*(\d+)\s*second",
+            r"reset after (\d+)h?(\d+)?m?(\d+)?s?",
+            r"quota will reset after (\d+)h",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, stderr, re.IGNORECASE)
+            if match:
+                groups = match.groups()
+                if len(groups) >= 3 and groups[0] and groups[1]:
+                    # Hours + minutes format
+                    hours = int(groups[0]) if groups[0] else 0
+                    minutes = int(groups[1]) if groups[1] else 0
+                    seconds = int(groups[2]) if len(groups) > 2 and groups[2] else 0
+                    return hours * 3600 + minutes * 60 + seconds
+                elif groups[0]:
+                    return int(groups[0])
+        return None
+
+    def get_token_usage(self) -> dict[str, int] | None:
+        """Extract token usage from execution result.
+
+        Parses stdout/extra for token usage information.
+        Supports both Codex and Gemini output formats.
+
+        Returns:
+            Dict with input, output, total tokens or None if not found.
+        """
+        # First check extra dict (Gemini JSON output)
+        if self.extra:
+            # Gemini format: usage.input_tokens, usage.output_tokens
+            usage = self.extra.get("usage", {})
+            if usage:
+                input_tokens = usage.get("input_tokens", 0) or usage.get(
+                    "prompt_tokens", 0
+                )
+                output_tokens = usage.get("output_tokens", 0) or usage.get(
+                    "completion_tokens", 0
+                )
+                if input_tokens or output_tokens:
+                    return {
+                        "input": input_tokens,
+                        "output": output_tokens,
+                        "total": input_tokens + output_tokens,
+                    }
+
+            # Cursor format: direct tokens_in/tokens_out in extra
+            tokens_in = self.extra.get("tokens_in", 0)
+            tokens_out = self.extra.get("tokens_out", 0)
+            if tokens_in or tokens_out:
+                return {
+                    "input": tokens_in,
+                    "output": tokens_out,
+                    "total": tokens_in + tokens_out,
+                }
+
+            # Alternative format in extra
+            if "tokens" in self.extra:
+                tokens = self.extra["tokens"]
+                if isinstance(tokens, dict):
+                    return {
+                        "input": tokens.get("input", 0),
+                        "output": tokens.get("output", 0),
+                        "total": tokens.get("total", 0),
+                    }
+
+        # Try parsing stdout for token info (Codex JSON format)
+        import json
+        import re
+
+        try:
+            stdout = self.read_stdout()
+            if not stdout:
+                return None
+
+            # Look for JSON with usage info
+            for line in stdout.splitlines():
+                line = line.strip()
+                if not line.startswith("{"):
+                    continue
+                try:
+                    data = json.loads(line)
+                    usage = data.get("usage", {})
+                    if usage:
+                        input_tokens = usage.get("input_tokens", 0) or usage.get(
+                            "prompt_tokens", 0
+                        )
+                        output_tokens = usage.get("output_tokens", 0) or usage.get(
+                            "completion_tokens", 0
+                        )
+                        if input_tokens or output_tokens:
+                            return {
+                                "input": input_tokens,
+                                "output": output_tokens,
+                                "total": input_tokens + output_tokens,
+                            }
+                except json.JSONDecodeError:
+                    continue
+
+            # Fallback: regex patterns for token counts in logs
+            patterns = [
+                r"input[_\s]?tokens?[:\s]+([\d,]+)",
+                r"prompt[_\s]?tokens?[:\s]+([\d,]+)",
+                r"output[_\s]?tokens?[:\s]+([\d,]+)",
+                r"completion[_\s]?tokens?[:\s]+([\d,]+)",
+                r"total[_\s]?tokens?[:\s]+([\d,]+)",
+            ]
+
+            tokens: dict[str, int] = {"input": 0, "output": 0, "total": 0}
+            for pattern in patterns:
+                match = re.search(pattern, stdout, re.IGNORECASE)
+                if match:
+                    value = int(match.group(1).replace(",", ""))
+                    if "input" in pattern or "prompt" in pattern:
+                        tokens["input"] = value
+                    elif "output" in pattern or "completion" in pattern:
+                        tokens["output"] = value
+                    elif "total" in pattern:
+                        tokens["total"] = value
+
+            if tokens["input"] or tokens["output"] or tokens["total"]:
+                if tokens["total"] == 0:
+                    tokens["total"] = tokens["input"] + tokens["output"]
+                return tokens
+
+        except Exception:
+            pass
+
+        return None
+
+    def get_model_used(self) -> str | None:
+        """Extract the model name actually used from execution result.
+
+        Returns:
+            Model name string or None if not found.
+        """
+        # Check invocation first
+        if self.invocation and self.invocation.model_info:
+            model = self.invocation.model_info.get("model")
+            if model:
+                return model
+
+        # Check extra dict
+        if self.extra:
+            model = self.extra.get("model") or self.extra.get("model_id")
+            if model:
+                return model
+
+        return None
+
+    def get_tool_calls(self) -> int:
+        """Extract the number of tool calls from execution result.
+
+        Returns:
+            Number of tool calls made during execution, 0 if not found.
+        """
+        # Check extra dict for tool_calls
+        if self.extra:
+            tool_calls = self.extra.get("tool_calls", 0)
+            if isinstance(tool_calls, int) and tool_calls > 0:
+                return tool_calls
+
+            # Check usage dict for tool_calls
+            usage = self.extra.get("usage", {})
+            if usage:
+                tool_calls = usage.get("tool_calls", 0)
+                if isinstance(tool_calls, int) and tool_calls > 0:
+                    return tool_calls
+
+        return 0
+
 
 @runtime_checkable
 class Executor(Protocol):

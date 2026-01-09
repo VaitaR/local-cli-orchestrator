@@ -135,6 +135,33 @@ class DiffStats(BaseModel):
         )
 
 
+class TokenUsage(BaseModel):
+    """Token usage metrics for LLM calls.
+
+    Attributes:
+        input: Number of input tokens.
+        output: Number of output tokens.
+        total: Total number of tokens.
+        tool_calls: Number of tool calls made by the agent.
+    """
+
+    input: int = 0
+    output: int = 0
+    total: int = 0
+    tool_calls: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary."""
+        data = {
+            "input": self.input,
+            "output": self.output,
+            "total": self.total,
+        }
+        if self.tool_calls > 0:
+            data["tool_calls"] = self.tool_calls
+        return data
+
+
 class QualityMetrics(BaseModel):
     """Quality metrics for stage output.
 
@@ -165,6 +192,92 @@ class QualityMetrics(BaseModel):
         return {k: v for k, v in self.model_dump().items() if v is not None}
 
 
+class LLMCallMetrics(BaseModel):
+    """Metrics for a single LLM API call.
+
+    Attributes:
+        call_index: Index of this call within the stage (0-based).
+        start_ts: Call start timestamp.
+        end_ts: Call end timestamp.
+        duration_ms: Call duration in milliseconds.
+        model: Model used for this call.
+        tokens_in: Input tokens for this call.
+        tokens_out: Output tokens for this call.
+        status: Call status (success/error/timeout).
+        error_message: Error message if failed.
+        retry_count: Number of retries for this call.
+    """
+
+    call_index: int = 0
+    start_ts: str | None = None
+    end_ts: str | None = None
+    duration_ms: int = 0
+    model: str | None = None
+    tokens_in: int = 0
+    tokens_out: int = 0
+    status: str = "success"
+    error_message: str | None = None
+    retry_count: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary."""
+        data: dict[str, Any] = {
+            "call_index": self.call_index,
+            "duration_ms": self.duration_ms,
+            "status": self.status,
+        }
+        if self.start_ts:
+            data["start_ts"] = self.start_ts
+        if self.end_ts:
+            data["end_ts"] = self.end_ts
+        if self.model:
+            data["model"] = self.model
+        if self.tokens_in > 0:
+            data["tokens_in"] = self.tokens_in
+        if self.tokens_out > 0:
+            data["tokens_out"] = self.tokens_out
+        if self.error_message:
+            data["error_message"] = self.error_message
+        if self.retry_count > 0:
+            data["retry_count"] = self.retry_count
+        return data
+
+
+class StageErrorInfo(BaseModel):
+    """Detailed error information for a stage.
+
+    Attributes:
+        category: Error category.
+        message: Human-readable error message.
+        details: Additional error details.
+        stack_trace: Stack trace if available.
+        recoverable: Whether the error is recoverable.
+        suggested_action: Suggested action to fix.
+    """
+
+    category: str
+    message: str
+    details: dict[str, Any] = Field(default_factory=dict)
+    stack_trace: str | None = None
+    recoverable: bool = False
+    suggested_action: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary."""
+        data: dict[str, Any] = {
+            "category": self.category,
+            "message": self.message,
+            "recoverable": self.recoverable,
+        }
+        if self.details:
+            data["details"] = self.details
+        if self.stack_trace:
+            data["stack_trace"] = self.stack_trace
+        if self.suggested_action:
+            data["suggested_action"] = self.suggested_action
+        return data
+
+
 class StageMetrics(BaseModel):
     """Metrics for a single stage execution attempt.
 
@@ -182,10 +295,14 @@ class StageMetrics(BaseModel):
         status: Execution status.
         failure_category: Category if failed.
         failure_message: Error message if failed.
+        error_info: Detailed error information.
         executor: Executor used (codex/gemini/fake).
         model: Model used.
         profile: Profile used.
         reasoning_effort: Reasoning effort level.
+        fallback_applied: Whether model fallback was applied.
+        original_model: Original model before fallback.
+        llm_calls: List of LLM call metrics.
         inputs_fingerprint: Hash of inputs.
         outputs_fingerprint: Hash of outputs.
         artifacts: Dict of artifact paths.
@@ -195,6 +312,8 @@ class StageMetrics(BaseModel):
         agent_invocations: Number of agent CLI invocations.
         llm_duration_ms: Time spent in LLM calls.
         verify_duration_ms: Time spent in verification.
+        prompt_chars: Number of characters in prompt.
+        output_chars: Number of characters in output.
     """
 
     run_id: str
@@ -207,19 +326,26 @@ class StageMetrics(BaseModel):
     status: StageStatus = StageStatus.SUCCESS
     failure_category: FailureCategory | None = None
     failure_message: str | None = None
+    error_info: StageErrorInfo | None = None
     executor: str | None = None
     model: str | None = None
     profile: str | None = None
     reasoning_effort: str | None = None
+    fallback_applied: bool = False
+    original_model: str | None = None
+    llm_calls: list[LLMCallMetrics] = Field(default_factory=list)
     inputs_fingerprint: str | None = None
     outputs_fingerprint: str | None = None
     artifacts: dict[str, str] = Field(default_factory=dict)
     diff_stats: DiffStats | None = None
+    tokens: TokenUsage | None = None
     gates: list[GateMetrics] = Field(default_factory=list)
     quality: QualityMetrics | None = None
     agent_invocations: int = 1
     llm_duration_ms: int | None = None
     verify_duration_ms: int | None = None
+    prompt_chars: int | None = None
+    output_chars: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -247,6 +373,12 @@ class StageMetrics(BaseModel):
             data["profile"] = self.profile
         if self.reasoning_effort:
             data["reasoning_effort"] = self.reasoning_effort
+        if self.fallback_applied:
+            data["fallback_applied"] = self.fallback_applied
+        if self.original_model:
+            data["original_model"] = self.original_model
+        if self.llm_calls:
+            data["llm_calls"] = [c.to_dict() for c in self.llm_calls]
         if self.inputs_fingerprint:
             data["inputs_fingerprint"] = self.inputs_fingerprint
         if self.outputs_fingerprint:
@@ -255,6 +387,8 @@ class StageMetrics(BaseModel):
             data["artifacts"] = self.artifacts
         if self.diff_stats:
             data["diff_stats"] = self.diff_stats.to_dict()
+        if self.tokens:
+            data["tokens"] = self.tokens.to_dict()
         if self.gates:
             data["gates"] = [g.to_dict() for g in self.gates]
         if self.quality:
@@ -265,6 +399,12 @@ class StageMetrics(BaseModel):
             data["llm_duration_ms"] = self.llm_duration_ms
         if self.verify_duration_ms is not None:
             data["verify_duration_ms"] = self.verify_duration_ms
+        if self.error_info:
+            data["error_info"] = self.error_info.to_dict()
+        if self.prompt_chars is not None:
+            data["prompt_chars"] = self.prompt_chars
+        if self.output_chars is not None:
+            data["output_chars"] = self.output_chars
 
         return data
 
@@ -280,12 +420,21 @@ class StageMetrics(BaseModel):
         # Handle nested objects
         if "diff_stats" in data and isinstance(data["diff_stats"], dict):
             data["diff_stats"] = DiffStats(**data["diff_stats"])
+        if "tokens" in data and isinstance(data["tokens"], dict):
+            data["tokens"] = TokenUsage(**data["tokens"])
         if "gates" in data:
             data["gates"] = [
                 GateMetrics(**g) if isinstance(g, dict) else g for g in data["gates"]
             ]
         if "quality" in data and isinstance(data["quality"], dict):
             data["quality"] = QualityMetrics(**data["quality"])
+        if "error_info" in data and isinstance(data["error_info"], dict):
+            data["error_info"] = StageErrorInfo(**data["error_info"])
+        if "llm_calls" in data:
+            data["llm_calls"] = [
+                LLMCallMetrics(**c) if isinstance(c, dict) else c
+                for c in data["llm_calls"]
+            ]
 
         return cls(**data)
 
@@ -342,6 +491,7 @@ class RunMetrics(BaseModel):
     items_completed: int = 0
     items_failed: int = 0
     rework_ratio: float = 0.0
+    tokens: TokenUsage | None = None
     final_diff_stats: DiffStats | None = None
     stage_breakdown: dict[str, int] = Field(default_factory=dict)
 
@@ -382,6 +532,8 @@ class RunMetrics(BaseModel):
             data["time_to_green_ms"] = self.time_to_green_ms
         if self.time_to_pr_ms is not None:
             data["time_to_pr_ms"] = self.time_to_pr_ms
+        if self.tokens:
+            data["tokens"] = self.tokens.to_dict()
         if self.final_diff_stats:
             data["final_diff_stats"] = self.final_diff_stats.to_dict()
 
@@ -394,6 +546,8 @@ class RunMetrics(BaseModel):
             data["final_status"] = StageStatus(data["final_status"])
         if "final_diff_stats" in data and isinstance(data["final_diff_stats"], dict):
             data["final_diff_stats"] = DiffStats(**data["final_diff_stats"])
+        if "tokens" in data and isinstance(data["tokens"], dict):
+            data["tokens"] = TokenUsage(**data["tokens"])
         return cls(**data)
 
 

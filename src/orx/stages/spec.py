@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from orx.context.sections import extract_agents_context
 from orx.stages.base import StageContext, TextOutputStage
 
 
@@ -36,10 +37,15 @@ class SpecStage(TextOutputStage):
         plan = ctx.pack.read_plan() or ""
         project_context = ctx.pack.read_project_map() or ""
 
+        # Extract coding patterns and definition of done from AGENTS.md
+        worktree = ctx.workspace.worktree_path
+        agents_context = extract_agents_context(worktree)
+
         return {
             "task": task,
             "plan": plan,
             "project_context": project_context,
+            "agents_context": agents_context,
         }
 
     def save_output(self, ctx: StageContext, content: str) -> None:

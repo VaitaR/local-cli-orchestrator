@@ -160,6 +160,11 @@ class KnowledgeUpdater:
         bounds = self.guardrails.find_marker_bounds(current_content, "agents")
         current_orx_block = bounds.content if bounds else ""
 
+        # Generate problems section for prompt
+        problems_section = ""
+        if evidence.problems and evidence.problems.has_problems():
+            problems_section = evidence.problems.to_prompt_section()
+
         # Render prompt
         prompt = self.renderer.render(
             "knowledge_agents",
@@ -169,6 +174,7 @@ class KnowledgeUpdater:
             patch_diff=evidence.patch_diff,
             review=evidence.review,
             current_orx_block=current_orx_block,
+            problems_section=problems_section,
         )
 
         # Save prompt
@@ -262,6 +268,11 @@ class KnowledgeUpdater:
         bounds = self.guardrails.find_marker_bounds(current_content, "arch")
         current_orx_block = bounds.content if bounds else ""
 
+        # Generate problems section for prompt (structural issues only)
+        problems_section = ""
+        if evidence.problems and evidence.problems.has_problems():
+            problems_section = evidence.problems.to_prompt_section(max_problems=5)
+
         # Render prompt
         prompt = self.renderer.render(
             "knowledge_arch",
@@ -269,6 +280,7 @@ class KnowledgeUpdater:
             changed_files=evidence.changed_files,
             patch_diff=evidence.patch_diff,
             current_orx_block=current_orx_block,
+            problems_section=problems_section,
         )
 
         # Save prompt

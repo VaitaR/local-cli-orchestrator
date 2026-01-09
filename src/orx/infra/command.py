@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 import threading
 from dataclasses import dataclass
@@ -111,6 +112,56 @@ class CommandRunner:
 
         if self.dry_run:
             log.info("Dry run - skipping execution")
+            # Provide lightweight fake outputs for certain agent CLIs to make
+            # dry-run end-to-end flows useful (e.g., CLAUDE outputs used
+            # by YAML extraction). Only emit to stdout_path/stderr_path if
+            # paths were provided.
+            try:
+                cmd0 = command[0] if command else ""
+                if "claude" in cmd0 or any("claude" in str(c) for c in command):
+                    # Produce a JSON result with a YAML payload in `result`.
+                    # Attempt to infer run_id from cwd (worktree name), fallback to 'dry-run'.
+                    run_id = str(cwd.name) if cwd else "dry-run"
+                    sample_yaml = (
+                        f'run_id: "{run_id}"\n'
+                        "items:\n"
+                        '  - id: "W001"\n'
+                        '    title: "Example task"\n'
+                        '    objective: "Auto-generated task"\n'
+                        "    acceptance:\n"
+                        '      - "Auto-generated acceptance criterion"\n'
+                        "    files_hint:\n"
+                        '      - "src/example.py"\n'
+                        "    depends_on: []\n"
+                        '    status: "todo"\n'
+                        "    attempts: 0\n"
+                        '    notes: ""\n'
+                    )
+                    payload = {
+                        "type": "result",
+                        "subtype": "success",
+                        "result": sample_yaml,
+                        "cost_usd": 0.0,
+                        "duration_ms": 10,
+                        "num_turns": 1,
+                        "session_id": "dry-run",
+                        "is_error": False,
+                    }
+                    if stdout_path:
+                        stdout_path.parent.mkdir(parents=True, exist_ok=True)
+                        stdout_path.write_text(json.dumps(payload))
+                else:
+                    # Touch stdout/stderr so callers can read files
+                    if stdout_path:
+                        stdout_path.parent.mkdir(parents=True, exist_ok=True)
+                        stdout_path.write_text("(dry run output)")
+                    if stderr_path:
+                        stderr_path.parent.mkdir(parents=True, exist_ok=True)
+                        stderr_path.write_text("")
+            except Exception:
+                # If writing fails, ignore in dry-run
+                pass
+
             return CommandResult(
                 returncode=0,
                 stdout_path=stdout_path,

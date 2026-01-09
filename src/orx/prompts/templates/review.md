@@ -20,6 +20,14 @@ You are reviewing the completed implementation.
 {% endfor %}
 {% endif %}
 
+{% if definition_of_done is defined and definition_of_done %}
+## Definition of Done Checklist
+
+Verify against these criteria from AGENTS.md:
+
+{{ definition_of_done }}
+{% endif %}
+
 ## Instructions
 
 Review the changes and produce two outputs **in your response text** (DO NOT create files in the worktree):
@@ -48,6 +56,9 @@ Assessment of code quality, style, and best practices.
 
 ## Test Coverage
 Assessment of test coverage.
+
+## Definition of Done
+- [ ] Check each criterion from the checklist above
 
 ## Recommendations
 Any recommendations for future improvements (not blockers).

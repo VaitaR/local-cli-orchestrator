@@ -24,6 +24,11 @@ class GeminiExecutor(BaseExecutor):
     Wraps the gemini CLI with headless and auto-approve modes.
     Supports model selection via --model/-m flag.
 
+    IMPORTANT: Gemini CLI has sandbox restrictions and can only read files
+    within its working directory. Prompt files must be placed inside the
+    worktree (cwd) for Gemini to access them. The caller is responsible
+    for copying prompts to the worktree using RunPaths.copy_prompt_to_worktree().
+
     Note: The --model flag only controls the main model in the session.
     Sub-agents may use different models, which will appear in usage reports.
     This is a known limitation of the Gemini CLI.
@@ -37,7 +42,7 @@ class GeminiExecutor(BaseExecutor):
         >>> executor = GeminiExecutor(cmd=CommandRunner())
         >>> result = executor.run_apply(
         ...     cwd=Path("/workspace"),
-        ...     prompt_path=Path("/prompts/implement.md"),
+        ...     prompt_path=Path("/workspace/.orx-prompts/implement.md"),  # Must be in cwd!
         ...     logs=LogPaths(stdout=Path("out.log"), stderr=Path("err.log")),
         ...     model_selector=ModelSelector(model="gemini-2.5-pro"),
         ... )
@@ -54,6 +59,7 @@ class GeminiExecutor(BaseExecutor):
         approval_mode: str = "auto_edit",
         output_format: str = "json",
         default_model: str | None = None,
+        default_thinking_budget: int | None = None,
     ) -> None:
         """Initialize the Gemini executor.
 
@@ -66,6 +72,7 @@ class GeminiExecutor(BaseExecutor):
             approval_mode: Approval mode (e.g., "auto_edit").
             output_format: Output format (e.g., "json", "stream-json").
             default_model: Default model to use (e.g., "gemini-2.5-pro").
+            default_thinking_budget: Default thinking budget in tokens.
         """
         super().__init__(
             binary=binary,
@@ -77,6 +84,7 @@ class GeminiExecutor(BaseExecutor):
         self.use_yolo = use_yolo
         self.approval_mode = approval_mode
         self.output_format = output_format
+        self.default_thinking_budget = default_thinking_budget
 
     @property
     def name(self) -> str:
@@ -88,7 +96,7 @@ class GeminiExecutor(BaseExecutor):
         *,
         prompt_path: Path,
         model_selector: ModelSelector | None = None,
-    ) -> tuple[list[str], dict[str, str | None]]:
+    ) -> tuple[list[str], dict[str, Any]]:
         """Build the gemini command line.
 
         Args:
@@ -96,9 +104,16 @@ class GeminiExecutor(BaseExecutor):
             model_selector: Optional model selection configuration.
 
         Returns:
-            Tuple of (command list, resolved model info).
+            Tuple of (command list, resolved model info dict).
         """
         resolved = self._resolve_model(model_selector)
+
+        # Resolve thinking_budget from selector or default
+        thinking_budget: int | None = None
+        if model_selector and model_selector.thinking_budget is not None:
+            thinking_budget = model_selector.thinking_budget
+        elif self.default_thinking_budget is not None:
+            thinking_budget = self.default_thinking_budget
 
         cmd = [self.binary]
 
@@ -121,9 +136,12 @@ class GeminiExecutor(BaseExecutor):
         # Add extra args
         cmd.extend(self.extra_args)
 
-        # Add prompt file
-        # Gemini uses -p or --prompt flag
-        cmd.extend(["--prompt", f"@{prompt_path}"])
+        # Add prompt file as positional argument
+        # The --prompt flag is deprecated; use positional arg with @ prefix
+        cmd.append(f"@{prompt_path}")
+
+        # Include thinking_budget in resolved info for logging
+        resolved["thinking_budget"] = thinking_budget
 
         return cmd, resolved
 
@@ -174,6 +192,7 @@ class GeminiExecutor(BaseExecutor):
             model_info={
                 "executor": self.name,
                 "model": resolved["model"],
+                "thinking_budget": resolved.get("thinking_budget"),
                 "output_format": self.output_format,
                 "note": model_note,
             },
@@ -273,7 +292,9 @@ class GeminiExecutor(BaseExecutor):
             if text_content:
                 out_path.parent.mkdir(parents=True, exist_ok=True)
                 out_path.write_text(text_content)
-                log.debug("Extracted response from JSON output", length=len(text_content))
+                log.debug(
+                    "Extracted response from JSON output", length=len(text_content)
+                )
             elif logs.stdout.exists():
                 # Fallback: copy raw stdout
                 raw_content = logs.stdout.read_text()

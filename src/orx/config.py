@@ -15,6 +15,9 @@ class EngineType(str, Enum):
 
     CODEX = "codex"
     GEMINI = "gemini"
+    COPILOT = "copilot"
+    CLAUDE_CODE = "claude_code"
+    CURSOR = "cursor"
     FAKE = "fake"
 
 
@@ -34,15 +37,17 @@ class ModelSelector(BaseModel):
     """Model selection configuration for a stage.
 
     Attributes:
-        model: Model name to use (e.g., "gpt-5.2", "gemini-2.5-pro").
+        model: Model name to use (e.g., "gpt-5-codex", "gemini-2.5-pro").
         profile: Codex profile name (alternative to model).
         reasoning_effort: Codex reasoning effort level (low/medium/high).
+        thinking_budget: Gemini thinking budget in tokens (0 to disable).
         web_search: Enable Codex web search tool for this stage.
     """
 
     model: str | None = None
     profile: str | None = None
     reasoning_effort: Literal["low", "medium", "high"] | None = None
+    thinking_budget: int | None = None
     web_search: bool = False
 
     @model_validator(mode="after")
@@ -75,11 +80,21 @@ class ExecutorConfig(BaseModel):
         bin: Path or name of the CLI binary.
         default: Default settings for this executor.
         profiles: Named profiles (for Codex) keyed by stage name.
+        available_models: List of model names available for this executor.
+        stage_models: Default model name for each stage.
+        use_yolo: For Gemini: enable YOLO mode (auto-approve all tool calls).
+        approval_mode: For Gemini: approval mode (e.g., "auto_edit", "reject_all").
     """
 
     bin: str | None = None
     default: ExecutorDefaults = Field(default_factory=ExecutorDefaults)
     profiles: dict[str, str] = Field(default_factory=dict)
+    available_models: list[str] = Field(default_factory=list)
+    stage_models: dict[str, str] = Field(default_factory=dict)
+    use_yolo: bool = Field(default=True, description="Enable YOLO mode for Gemini")
+    approval_mode: str = Field(
+        default="auto_edit", description="Approval mode for Gemini"
+    )
 
 
 class StageExecutorConfig(BaseModel):
@@ -90,6 +105,7 @@ class StageExecutorConfig(BaseModel):
         model: Model override for this stage.
         profile: Profile override (for Codex).
         reasoning_effort: Reasoning effort override (for Codex).
+        thinking_budget: Thinking budget override for Gemini (tokens).
         web_search: Enable Codex web search tool for this stage.
     """
 
@@ -97,6 +113,7 @@ class StageExecutorConfig(BaseModel):
     model: str | None = None
     profile: str | None = None
     reasoning_effort: Literal["low", "medium", "high"] | None = None
+    thinking_budget: int | None = None
     web_search: bool = False
 
     @model_validator(mode="after")
@@ -113,6 +130,7 @@ class StageExecutorConfig(BaseModel):
             model=self.model,
             profile=self.profile,
             reasoning_effort=self.reasoning_effort,
+            thinking_budget=self.thinking_budget,
             web_search=self.web_search,
         )
 
@@ -173,10 +191,16 @@ class ExecutorsConfig(BaseModel):
     Attributes:
         codex: Codex executor configuration.
         gemini: Gemini executor configuration.
+        copilot: GitHub Copilot CLI executor configuration.
+        claude_code: Claude Code CLI executor configuration.
+        cursor: Cursor CLI executor configuration.
     """
 
     codex: ExecutorConfig = Field(default_factory=ExecutorConfig)
     gemini: ExecutorConfig = Field(default_factory=ExecutorConfig)
+    copilot: ExecutorConfig = Field(default_factory=ExecutorConfig)
+    claude_code: ExecutorConfig = Field(default_factory=ExecutorConfig)
+    cursor: ExecutorConfig = Field(default_factory=ExecutorConfig)
 
 
 class StagesConfig(BaseModel):
@@ -259,6 +283,9 @@ class EngineConfig(BaseModel):
             defaults = {
                 EngineType.CODEX: "codex",
                 EngineType.GEMINI: "gemini",
+                EngineType.COPILOT: "copilot",
+                EngineType.CLAUDE_CODE: "claude",
+                EngineType.CURSOR: "cursor",
                 EngineType.FAKE: "",
             }
             object.__setattr__(self, "binary", defaults.get(self.type, ""))
@@ -494,6 +521,93 @@ class OrxConfig(BaseModel):
         """Get list of enabled gates."""
         return [g for g in self.gates if g.enabled]
 
+    def apply_overrides(
+        self,
+        *,
+        engine: EngineType | None = None,
+        model: str | None = None,
+        reasoning_effort: Literal["low", "medium", "high"] | None = None,
+        thinking_budget: int | None = None,
+        base_branch: str | None = None,
+        stages: dict[str, dict[str, Any]] | None = None,
+    ) -> None:
+        """Apply common CLI/dashboard overrides to the config.
+
+        Args:
+            engine: Engine type override.
+            model: Model override for the selected engine.
+            reasoning_effort: Reasoning effort override (for Codex).
+            thinking_budget: Thinking budget override in tokens (for Gemini).
+            base_branch: Base branch override.
+            stages: Per-stage overrides dict, e.g. {"plan": {"executor": "gemini"}}.
+
+        Notes:
+            - `engine` is treated as a global override: it clears per-stage executor
+              overrides (including legacy `stage_engines`) so the selected engine is
+              consistently used across stages.
+            - `model` is treated as a global model override for the selected engine:
+              it updates `executors.<engine>.default.model` and
+              `executors.<engine>.stage_models[*]` so ModelRouter resolves it above
+              executor defaults and `engine.model`.
+            - `reasoning_effort` sets Codex reasoning effort globally.
+            - `thinking_budget` sets Gemini thinking budget globally.
+        """
+        if engine is not None:
+            self.engine.type = engine
+
+            # Ensure global engine selection actually takes effect.
+            self.stage_engines.clear()
+            for stage in StageName:
+                stage_cfg = self.stages.get_stage_config(stage.value)
+                stage_cfg.executor = None
+                stage_cfg.model = None
+                stage_cfg.profile = None
+
+        if model is not None:
+            self.engine.model = model
+
+            if self.engine.type == EngineType.CODEX:
+                exec_cfg = self.executors.codex
+            elif self.engine.type == EngineType.GEMINI:
+                exec_cfg = self.executors.gemini
+            else:
+                exec_cfg = None
+
+            if exec_cfg is not None:
+                exec_cfg.default.model = model
+                for stage in StageName:
+                    exec_cfg.stage_models[stage.value] = model
+
+        if reasoning_effort is not None:
+            self.engine.reasoning_effort = reasoning_effort
+            self.executors.codex.default.reasoning_effort = reasoning_effort
+            # Apply to all stages so ModelRouter picks it up
+            for stage in StageName:
+                stage_cfg = self.stages.get_stage_config(stage.value)
+                stage_cfg.reasoning_effort = reasoning_effort
+
+        if thinking_budget is not None:
+            # Apply thinking_budget to all stages for ModelRouter
+            for stage in StageName:
+                stage_cfg = self.stages.get_stage_config(stage.value)
+                stage_cfg.thinking_budget = thinking_budget
+
+        if base_branch is not None:
+            self.git.base_branch = base_branch
+
+        # Per-stage overrides from dashboard/CLI
+        if stages:
+            for stage_name, overrides in stages.items():
+                stage_cfg = self.stages.get_stage_config(stage_name)
+                if "executor" in overrides:
+                    stage_cfg.executor = EngineType(overrides["executor"])
+                if "model" in overrides:
+                    stage_cfg.model = overrides["model"]
+                if "reasoning_effort" in overrides:
+                    stage_cfg.reasoning_effort = overrides["reasoning_effort"]
+                if "thinking_budget" in overrides:
+                    stage_cfg.thinking_budget = overrides["thinking_budget"]
+
     def to_yaml(self) -> str:
         """Serialize the config to YAML.
 
@@ -502,6 +616,39 @@ class OrxConfig(BaseModel):
         """
         data = self.model_dump(mode="json")
         return yaml.dump(data, default_flow_style=False, sort_keys=False)
+
+    def _apply_executor_model_defaults(self) -> None:
+        """Backfill executor model config for backward compatibility.
+
+        Older `orx.yaml` files may omit `available_models` and/or `stage_models`.
+        For the dashboard and ModelRouter to behave predictably, we merge in
+        sensible defaults without overwriting explicitly provided values.
+        """
+
+        default_cfg = OrxConfig.default(engine_type=self.engine.type)
+
+        def merge_executor(name: str) -> None:
+            exec_cfg: ExecutorConfig = getattr(self.executors, name)
+            default_exec: ExecutorConfig = getattr(default_cfg.executors, name)
+            fields_set = getattr(exec_cfg, "model_fields_set", set())
+
+            if "available_models" not in fields_set:
+                exec_cfg.available_models = list(default_exec.available_models)
+
+            if "stage_models" not in fields_set:
+                exec_cfg.stage_models = dict(default_exec.stage_models)
+            else:
+                fallback_model = (
+                    exec_cfg.default.model
+                    or default_exec.default.model
+                    or self.engine.model
+                    or ""
+                )
+                for stage in StageName:
+                    exec_cfg.stage_models.setdefault(stage.value, fallback_model)
+
+        merge_executor("codex")
+        merge_executor("gemini")
 
     def save(self, path: Path) -> None:
         """Save the config to a YAML file.
@@ -534,7 +681,9 @@ class OrxConfig(BaseModel):
             msg = "Config YAML must be a mapping"
             raise ValueError(msg)
 
-        return cls.model_validate(data)
+        cfg = cls.model_validate(data)
+        cfg._apply_executor_model_defaults()
+        return cfg
 
     @classmethod
     def load(cls, path: Path) -> OrxConfig:
@@ -559,10 +708,46 @@ class OrxConfig(BaseModel):
     def default(cls, engine_type: EngineType = EngineType.CODEX) -> OrxConfig:
         """Create a default configuration.
 
+        Uses dynamic model discovery when available, falls back to static definitions.
+
         Args:
             engine_type: The primary engine type to use.
 
         Returns:
             A default OrxConfig instance.
         """
-        return cls(engine=EngineConfig(type=engine_type))
+        from orx.executors.models import get_default_model, get_model_ids
+
+        config = cls(engine=EngineConfig(type=engine_type))
+
+        standard_stages = [
+            StageName.PLAN.value,
+            StageName.SPEC.value,
+            StageName.DECOMPOSE.value,
+            StageName.IMPLEMENT.value,
+            StageName.FIX.value,
+            StageName.REVIEW.value,
+            StageName.KNOWLEDGE_UPDATE.value,
+        ]
+
+        # Gemini defaults from dynamic discovery
+        gemini_default = get_default_model("gemini")
+        gemini_models = get_model_ids("gemini", include_preview=True)
+        config.executors.gemini.available_models = gemini_models
+        config.executors.gemini.default.model = gemini_default
+        config.executors.gemini.default.output_format = "json"
+        config.executors.gemini.stage_models = dict.fromkeys(
+            standard_stages, gemini_default
+        )
+
+        # Codex defaults from dynamic discovery
+        codex_default = get_default_model("codex")
+        codex_models = get_model_ids("codex", include_preview=True)
+        config.executors.codex.available_models = codex_models
+        config.executors.codex.default.model = codex_default
+        config.executors.codex.default.reasoning_effort = "medium"
+        config.executors.codex.stage_models = dict.fromkeys(
+            standard_stages, codex_default
+        )
+
+        return config

@@ -7,36 +7,39 @@
      class="run-header">
     
     <div class="run-title">
-        <h1>{{ run.run_id }}</h1>
+        <h1>🔖 {{ run.run_id }}</h1>
         <span class="badge badge-{{ run.status.value }} badge-lg">
+            {% if run.status.value == 'running' %}⚡ {% endif %}
+            {% if run.status.value == 'completed' %}✓ {% endif %}
+            {% if run.status.value == 'failed' %}✕ {% endif %}
             {{ run.status.value }}
         </span>
     </div>
     
     <div class="run-meta">
         <div class="meta-item">
-            <span class="label">Stage</span>
+            <span class="label">📍 Stage</span>
             <span class="value">{{ run.current_stage or 'N/A' }}</span>
         </div>
         <div class="meta-item">
-            <span class="label">Elapsed</span>
+            <span class="label">⏱ Elapsed</span>
             <span class="value mono">{{ run.elapsed_human }}</span>
         </div>
         {% if run.repo_path %}
         <div class="meta-item">
-            <span class="label">Repo</span>
+            <span class="label">📁 Repo</span>
             <span class="value mono">{{ run.repo_path }}</span>
         </div>
         {% endif %}
         {% if run.base_branch %}
         <div class="meta-item">
-            <span class="label">Branch</span>
+            <span class="label">🌿 Branch</span>
             <span class="value mono">{{ run.base_branch }}</span>
         </div>
         {% endif %}
         {% if run.base_sha %}
         <div class="meta-item">
-            <span class="label">SHA</span>
+            <span class="label">🔗 SHA</span>
             <span class="value mono">{{ run.base_sha[:8] }}</span>
         </div>
         {% endif %}
@@ -44,7 +47,7 @@
     
     {% if run.last_error and not run.is_active %}
     <div class="error-banner">
-        <strong>Error:</strong> 
+        <strong>⚠️ Error:</strong> 
         {% if run.last_error.category %}{{ run.last_error.category }}: {% endif %}
         {{ run.last_error.message or 'Unknown error' }}
     </div>
@@ -57,7 +60,7 @@
                 hx-confirm="Cancel this run?"
                 hx-swap="none"
                 hx-on::after-request="setTimeout(() => htmx.trigger('#run-header', 'htmx:load'), 500)">
-            Cancel Run
+            🛑 Cancel Run
         </button>
     </div>
     {% endif %}

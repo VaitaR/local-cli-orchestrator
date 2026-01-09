@@ -6,13 +6,18 @@
     <title>{% block title %}ORX Dashboard{% endblock %}</title>
     <script src="/static/htmx.min.js"></script>
     <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/prism.css">
+    <link rel="stylesheet" href="/static/prism-line-numbers.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     {% block head %}{% endblock %}
 </head>
 <body>
     <div class="layout">
         <aside class="sidebar">
             <div class="logo">
-                <a href="/">🚀 ORX</a>
+                <a href="/">⚡ ORX</a>
             </div>
             <nav>
                 <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">
@@ -29,6 +34,37 @@
         </main>
     </div>
 
+    <script src="/static/prism.js"></script>
+    <script src="/static/prism-line-numbers.js"></script>
+    <script src="/static/prism-python.js"></script>
+    <script src="/static/prism-yaml.js"></script>
+    <script src="/static/prism-bash.js"></script>
+    <script src="/static/prism-json.js"></script>
+    <script src="/static/prism-markdown.js"></script>
+    <script src="/static/prism-javascript.js"></script>
+    <script src="/static/prism-diff.js"></script>
+    <script>
+        // Trigger Prism highlighting on HTMX content swap
+        // HTMX now swaps artifact previews into `#artifact-preview-content`.
+        // Accept either the old `artifact-preview` id or the new preview container,
+        // and also handle cases where the swap target contains the preview node.
+        document.body.addEventListener('htmx:afterSwap', function(evt) {
+            try {
+                const target = evt && evt.detail && evt.detail.target;
+                if (!target) return;
+
+                const hasPreviewDirect = target.id === 'artifact-preview' || target.id === 'artifact-preview-content';
+                const hasPreviewNested = typeof target.querySelector === 'function' && target.querySelector('#artifact-preview-content');
+
+                if (hasPreviewDirect || hasPreviewNested) {
+                    Prism.highlightAllUnder(target);
+                }
+            } catch (e) {
+                // Defensive: don't let Prism errors break HTMX swaps
+                console.error('Prism highlighting failed on afterSwap:', e);
+            }
+        });
+    </script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

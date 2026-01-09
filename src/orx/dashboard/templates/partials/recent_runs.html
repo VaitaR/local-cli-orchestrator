@@ -14,19 +14,22 @@
         <tr class="status-{{ run.status.value }}">
             <td>
                 <a href="/runs/{{ run.run_id }}" class="run-link">
-                    {{ run.run_id[:20] }}...
+                    {{ run.run_id[:20] }}…
                 </a>
             </td>
             <td>
                 <span class="badge badge-{{ run.status.value }}">
+                    {% if run.status.value == 'running' %}⚡{% endif %}
+                    {% if run.status.value == 'completed' %}✓{% endif %}
+                    {% if run.status.value == 'failed' %}✕{% endif %}
                     {{ run.status.value }}
                 </span>
             </td>
             <td class="mono">{{ run.elapsed_human }}</td>
-            <td class="task-preview">{{ run.task_preview or '-' }}</td>
+            <td class="task-preview" title="{{ run.task_preview or '' }}">{{ run.task_preview or '-' }}</td>
             <td class="fail-category">
                 {% if run.fail_category %}
-                <span class="text-danger">{{ run.fail_category[:30] }}</span>
+                <span class="text-danger" title="{{ run.fail_category }}">{{ run.fail_category[:30] }}{% if run.fail_category|length > 30 %}…{% endif %}</span>
                 {% else %}
                 -
                 {% endif %}
@@ -37,6 +40,7 @@
 </table>
 {% else %}
 <div class="empty-state">
-    <p>No recent runs</p>
+    <p>📭 No recent runs</p>
+    <small>Start a new run to see it here</small>
 </div>
 {% endif %}

@@ -189,3 +189,41 @@ def test_from_existing_incomplete(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="incomplete"):
         RunPaths.from_existing(tmp_path, "incomplete_run")
+
+
+def test_worktree_prompt_paths(tmp_path: Path) -> None:
+    """Test worktree prompt path helpers."""
+    paths = RunPaths(base_dir=tmp_path, run_id="test_run")
+
+    # worktree_prompt_dir should be inside worktree
+    assert paths.worktree_prompt_dir() == paths.worktree_path / ".orx-prompts"
+
+    # worktree_prompt_path should be inside worktree_prompt_dir
+    assert (
+        paths.worktree_prompt_path("plan")
+        == paths.worktree_path / ".orx-prompts" / "plan.md"
+    )
+
+
+def test_copy_prompt_to_worktree(tmp_path: Path) -> None:
+    """Test copying prompt to worktree for sandboxed executors."""
+    paths = RunPaths.create_new(tmp_path, run_id="test_copy")
+
+    # Create worktree directory (normally done by git_worktree)
+    paths.worktree_path.mkdir(parents=True, exist_ok=True)
+
+    # Create a prompt file in prompts_dir
+    prompt_content = "# Test Prompt\n\nThis is a test."
+    paths.prompt_path("test_stage").parent.mkdir(parents=True, exist_ok=True)
+    paths.prompt_path("test_stage").write_text(prompt_content)
+
+    # Copy to worktree
+    copied_path = paths.copy_prompt_to_worktree("test_stage")
+
+    # Verify
+    assert copied_path.exists()
+    assert copied_path == paths.worktree_prompt_path("test_stage")
+    assert copied_path.read_text() == prompt_content
+
+    # Original should still exist
+    assert paths.prompt_path("test_stage").exists()

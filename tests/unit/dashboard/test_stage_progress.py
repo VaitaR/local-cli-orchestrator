@@ -1,18 +1,17 @@
 """Unit test for dashboard stage progress display logic."""
 
-import pytest
-from pathlib import Path
 import json
-import tempfile
-from datetime import datetime
 
 # Add src to path
 import sys
+from pathlib import Path
+
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from orx.dashboard.store.filesystem import FileSystemRunStore
 from orx.dashboard.store.models import RunStatus
-from orx.dashboard.config import DashboardConfig
 
 
 @pytest.fixture
@@ -33,12 +32,13 @@ def store(temp_runs_dir):
 def create_run(runs_dir: Path, run_id: str, current_stage: str, stage_statuses: dict):
     """Helper to create a test run."""
     import os
+
     run_dir = runs_dir / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Use current process PID so pid_alive check passes
     current_pid = os.getpid()
-    
+
     state = {
         "run_id": run_id,
         "current_stage": current_stage,
@@ -49,23 +49,23 @@ def create_run(runs_dir: Path, run_id: str, current_stage: str, stage_statuses: 
         "current_item_id": None,
         "current_iteration": 0,
         "baseline_sha": "abc123",
-        "last_failure_evidence": {}
+        "last_failure_evidence": {},
     }
     (run_dir / "state.json").write_text(json.dumps(state, indent=2))
-    
+
     meta = {
         "run_id": run_id,
         "task": "Test task",
         "repo_path": "/tmp/test",
         "base_branch": "main",
-        "created_at": "2026-01-08T10:00:00Z"
+        "created_at": "2026-01-08T10:00:00Z",
     }
     (run_dir / "meta.json").write_text(json.dumps(meta, indent=2))
-    
+
     context = run_dir / "context"
     context.mkdir(exist_ok=True)
     (context / "task.md").write_text("# Test Task")
-    
+
     logs = run_dir / "logs"
     logs.mkdir(exist_ok=True)
 
@@ -77,9 +77,9 @@ def test_stage_progress_plan_running(store, temp_runs_dir):
         temp_runs_dir,
         run_id,
         "plan",
-        {"plan": {"status": "running", "started_at": "2026-01-08T10:00:00Z"}}
+        {"plan": {"status": "running", "started_at": "2026-01-08T10:00:00Z"}},
     )
-    
+
     run = store.get_run(run_id)
     assert run is not None
     assert run.status == RunStatus.RUNNING
@@ -97,10 +97,10 @@ def test_stage_progress_spec_running_after_plan(store, temp_runs_dir):
         "spec",
         {
             "plan": {"status": "completed", "completed_at": "2026-01-08T10:05:00Z"},
-            "spec": {"status": "running", "started_at": "2026-01-08T10:05:01Z"}
-        }
+            "spec": {"status": "running", "started_at": "2026-01-08T10:05:01Z"},
+        },
     )
-    
+
     run = store.get_run(run_id)
     assert run is not None
     assert run.status == RunStatus.RUNNING
@@ -120,10 +120,10 @@ def test_stage_progress_multiple_stages_completed(store, temp_runs_dir):
             "plan": {"status": "completed"},
             "spec": {"status": "completed"},
             "decompose": {"status": "completed"},
-            "implement": {"status": "running"}
-        }
+            "implement": {"status": "running"},
+        },
     )
-    
+
     run = store.get_run(run_id)
     assert run is not None
     assert run.status == RunStatus.RUNNING
@@ -143,10 +143,10 @@ def test_stage_progress_stage_failed(store, temp_runs_dir):
         "spec",
         {
             "plan": {"status": "completed"},
-            "spec": {"status": "failed", "error": "API capacity exhausted"}
-        }
+            "spec": {"status": "failed", "error": "API capacity exhausted"},
+        },
     )
-    
+
     run = store.get_run(run_id)
     assert run is not None
     assert run.status == RunStatus.FAIL
@@ -168,10 +168,10 @@ def test_stage_progress_run_completed(store, temp_runs_dir):
             "decompose": {"status": "completed"},
             "implement": {"status": "completed"},
             "review": {"status": "completed"},
-            "ship": {"status": "completed"}
-        }
+            "ship": {"status": "completed"},
+        },
     )
-    
+
     run = store.get_run(run_id)
     assert run is not None
     assert run.status == RunStatus.SUCCESS
@@ -183,26 +183,16 @@ def test_stage_progress_is_active(store, temp_runs_dir):
     """Test is_active property for running stages."""
     # Running stage
     run_id = "test_active"
-    create_run(
-        temp_runs_dir,
-        run_id,
-        "plan",
-        {"plan": {"status": "running"}}
-    )
-    
+    create_run(temp_runs_dir, run_id, "plan", {"plan": {"status": "running"}})
+
     run = store.get_run(run_id)
     assert run is not None
     assert run.is_active is True
-    
+
     # Completed run
     run_id2 = "test_inactive"
-    create_run(
-        temp_runs_dir,
-        run_id2,
-        "done",
-        {"plan": {"status": "completed"}}
-    )
-    
+    create_run(temp_runs_dir, run_id2, "done", {"plan": {"status": "completed"}})
+
     run2 = store.get_run(run_id2)
     assert run2 is not None
     assert run2.is_active is False

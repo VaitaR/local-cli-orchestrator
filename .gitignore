@@ -89,6 +89,7 @@ dmypy.json
 # orx specific
 runs/
 .worktrees/
+.orx-prompts/
 orx.yaml
 experiments/**/metrics/**
 

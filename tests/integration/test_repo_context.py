@@ -226,7 +226,9 @@ class TestRepoContextInRunner:
     """Test repo context integration in Runner."""
 
     def test_runner_builds_context_on_run(
-        self, python_project: Path, tmp_path: Path  # noqa: ARG002
+        self,
+        python_project: Path,
+        tmp_path: Path,  # noqa: ARG002
     ) -> None:
         """Test that runner builds repo context during run setup."""
         # Initialize git repo in project

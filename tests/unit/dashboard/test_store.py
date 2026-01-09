@@ -166,6 +166,103 @@ class TestFileSystemRunStore:
         detail = store.get_run("non-existent")
         assert detail is None
 
+    def test_get_run_detail_synthesizes_metrics_summary_from_stages(
+        self, store: FileSystemRunStore
+    ) -> None:
+        """When run.json is missing, metrics_summary is derived from stages.jsonl."""
+        run_id = "test-run-003"
+        run_dir = store.runs_dir / run_id
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "meta.json").write_text(
+            json.dumps(
+                {
+                    "run_id": run_id,
+                    "task": "Test task three",
+                    "base_branch": "main",
+                    "work_branch": "feature/test3",
+                    "engine": "codex",
+                    "created_at": "2025-01-15T12:00:00Z",
+                }
+            )
+        )
+        (run_dir / "state.json").write_text(
+            json.dumps(
+                {
+                    "current_stage": "failed",
+                    "created_at": "2025-01-15T12:00:00Z",
+                    "updated_at": "2025-01-15T12:05:00Z",
+                }
+            )
+        )
+        (run_dir / "context").mkdir(parents=True, exist_ok=True)
+
+        metrics_dir = run_dir / "metrics"
+        metrics_dir.mkdir(parents=True, exist_ok=True)
+        stages_path = metrics_dir / "stages.jsonl"
+        stages_path.write_text(
+            "\n".join(
+                [
+                    json.dumps(
+                        {
+                            "stage": "plan",
+                            "duration_ms": 100,
+                            "status": "success",
+                            "tokens": {"input": 10, "output": 5, "total": 15},
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "stage": "spec",
+                            "duration_ms": 200,
+                            "status": "success",
+                            "tokens": {"input": 3, "output": 2, "total": 5},
+                        }
+                    ),
+                ]
+            )
+            + "\n"
+        )
+
+        detail = store.get_run(run_id)
+        assert detail is not None
+        assert detail.has_metrics is True
+        assert detail.metrics_summary is not None
+        assert detail.metrics_summary["total_duration_ms"] == 300
+        assert detail.metrics_summary["tokens"] == {
+            "input": 13,
+            "output": 7,
+            "total": 20,
+        }
+        assert detail.metrics_summary["stages_executed"] == 2
+
+    def test_get_run_detail_synthesizes_metrics_for_active_run(
+        self, store: FileSystemRunStore
+    ) -> None:
+        """Active runs should still surface partial metrics from stages.jsonl."""
+        run_dir = store.runs_dir / "test-run-002"
+        metrics_dir = run_dir / "metrics"
+        metrics_dir.mkdir(parents=True, exist_ok=True)
+        (metrics_dir / "stages.jsonl").write_text(
+            json.dumps(
+                {
+                    "stage": "plan",
+                    "duration_ms": 123,
+                    "status": "success",
+                    "tokens": {"input": 1, "output": 2, "total": 3},
+                }
+            )
+            + "\n"
+        )
+
+        detail = store.get_run("test-run-002")
+        assert detail is not None
+        assert detail.is_active is True
+        assert detail.has_metrics is True
+        assert detail.metrics_summary is not None
+        assert detail.metrics_summary["total_duration_ms"] == 123
+        assert detail.metrics_summary["tokens"] == {"input": 1, "output": 2, "total": 3}
+        assert detail.metrics_summary["stages_executed"] == 1
+
     def test_get_artifact_content(self, store: FileSystemRunStore) -> None:
         """Test reading artifact content."""
         content = store.get_artifact("test-run-001", "context/plan.md")

@@ -493,6 +493,433 @@ class TestGeminiCommandBuilder:
         assert "json" in invocation.cmd
 
 
+class TestCopilotCommandBuilder:
+    """Test Copilot command building with model selection."""
+
+    @pytest.fixture
+    def cmd(self) -> CommandRunner:
+        """Create a dry-run command runner."""
+        return CommandRunner(dry_run=True)
+
+    def test_copilot_command_with_model(self, cmd: CommandRunner) -> None:
+        """Copilot command includes --model flag when specified."""
+        from orx.executors.copilot import CopilotExecutor
+
+        executor = CopilotExecutor(cmd=cmd, dry_run=True)
+        selector = ModelSelector(model="claude-haiku-4.5")
+
+        invocation = executor.resolve_invocation(
+            prompt_path=Path("/tmp/prompt.md"),
+            cwd=Path("/tmp/workspace"),
+            logs=LogPaths(
+                stdout=Path("/tmp/stdout.log"),
+                stderr=Path("/tmp/stderr.log"),
+            ),
+            model_selector=selector,
+        )
+
+        assert "--model" in invocation.cmd
+        assert "claude-haiku-4.5" in invocation.cmd
+        assert invocation.model_info["model"] == "claude-haiku-4.5"
+
+    def test_copilot_apply_mode_allows_tools(self, cmd: CommandRunner) -> None:
+        """Copilot command includes --allow-all-tools in apply mode."""
+        from orx.executors.copilot import CopilotExecutor
+
+        executor = CopilotExecutor(cmd=cmd, dry_run=True)
+        selector = ModelSelector(model="claude-sonnet-4")
+
+        invocation = executor.resolve_invocation(
+            prompt_path=Path("/tmp/prompt.md"),
+            cwd=Path("/tmp/workspace"),
+            logs=LogPaths(
+                stdout=Path("/tmp/stdout.log"),
+                stderr=Path("/tmp/stderr.log"),
+            ),
+            model_selector=selector,
+            text_only=False,  # Apply mode
+        )
+
+        assert "--allow-all-tools" in invocation.cmd
+        assert "--allow-all-paths" in invocation.cmd
+        assert invocation.model_info["allow_all_tools"] is True
+        assert invocation.model_info["text_only"] is False
+
+    def test_copilot_text_mode_denies_write_tools(self, cmd: CommandRunner) -> None:
+        """Copilot command denies write/shell tools in text mode."""
+        from orx.executors.copilot import CopilotExecutor
+
+        executor = CopilotExecutor(cmd=cmd, dry_run=True)
+        selector = ModelSelector(model="claude-haiku-4.5")
+
+        invocation = executor.resolve_invocation(
+            prompt_path=Path("/tmp/prompt.md"),
+            cwd=Path("/tmp/workspace"),
+            logs=LogPaths(
+                stdout=Path("/tmp/stdout.log"),
+                stderr=Path("/tmp/stderr.log"),
+            ),
+            model_selector=selector,
+            text_only=True,  # Text mode - read only
+        )
+
+        assert "--allow-all-tools" not in invocation.cmd
+        assert "--deny-tool" in invocation.cmd
+        # Check deny-tool write and shell are present
+        cmd_str = " ".join(invocation.cmd)
+        assert "deny-tool" in cmd_str
+        assert invocation.model_info["allow_all_tools"] is False
+        assert invocation.model_info["text_only"] is True
+
+    def test_copilot_uses_prompt_file_reference(self, cmd: CommandRunner) -> None:
+        """Copilot command uses @ file reference for prompt."""
+        from orx.executors.copilot import CopilotExecutor
+
+        executor = CopilotExecutor(cmd=cmd, dry_run=True)
+        selector = ModelSelector(model="gpt-5")
+
+        invocation = executor.resolve_invocation(
+            prompt_path=Path("/tmp/prompt.md"),
+            cwd=Path("/tmp/workspace"),
+            logs=LogPaths(
+                stdout=Path("/tmp/stdout.log"),
+                stderr=Path("/tmp/stderr.log"),
+            ),
+            model_selector=selector,
+        )
+
+        assert "--prompt" in invocation.cmd
+        # Check that @ syntax is used for file reference
+        prompt_idx = invocation.cmd.index("--prompt")
+        assert invocation.cmd[prompt_idx + 1].startswith("@")
+        assert "/tmp/prompt.md" in invocation.cmd[prompt_idx + 1]
+
+    def test_copilot_adds_working_directory(self, cmd: CommandRunner) -> None:
+        """Copilot command adds --add-dir for working directory."""
+        from orx.executors.copilot import CopilotExecutor
+
+        executor = CopilotExecutor(cmd=cmd, dry_run=True)
+        selector = ModelSelector()
+
+        invocation = executor.resolve_invocation(
+            prompt_path=Path("/tmp/prompt.md"),
+            cwd=Path("/workspace/project"),
+            logs=LogPaths(
+                stdout=Path("/tmp/stdout.log"),
+                stderr=Path("/tmp/stderr.log"),
+            ),
+            model_selector=selector,
+        )
+
+        assert "--add-dir" in invocation.cmd
+        add_dir_idx = invocation.cmd.index("--add-dir")
+        assert "/workspace/project" in invocation.cmd[add_dir_idx + 1]
+
+
+class TestClaudeCodeCommandBuilder:
+    """Test Claude Code command building with model selection."""
+
+    @pytest.fixture
+    def cmd(self) -> CommandRunner:
+        """Create a dry-run command runner."""
+        return CommandRunner(dry_run=True)
+
+    @pytest.fixture
+    def prompt_file(self, tmp_path: Path) -> Path:
+        """Create a temporary prompt file."""
+        prompt = tmp_path / "prompt.md"
+        prompt.write_text("Test prompt content")
+        return prompt
+
+    def test_claude_code_command_with_model(
+        self, cmd: CommandRunner, prompt_file: Path
+    ) -> None:
+        """Claude Code command includes --model flag when specified."""
+        from orx.executors.claude_code import ClaudeCodeExecutor
+
+        executor = ClaudeCodeExecutor(cmd=cmd, dry_run=True)
+        selector = ModelSelector(model="sonnet")
+
+        invocation = executor.resolve_invocation(
+            prompt_path=prompt_file,
+            cwd=Path("/tmp/workspace"),
+            logs=LogPaths(
+                stdout=Path("/tmp/stdout.log"),
+                stderr=Path("/tmp/stderr.log"),
+            ),
+            model_selector=selector,
+        )
+
+        assert "--model" in invocation.cmd
+        assert "sonnet" in invocation.cmd
+        assert invocation.model_info["model"] == "sonnet"
+
+    def test_claude_code_uses_print_mode(
+        self, cmd: CommandRunner, prompt_file: Path
+    ) -> None:
+        """Claude Code command uses -p flag for non-interactive mode."""
+        from orx.executors.claude_code import ClaudeCodeExecutor
+
+        executor = ClaudeCodeExecutor(cmd=cmd, dry_run=True)
+        selector = ModelSelector(model="haiku")
+
+        invocation = executor.resolve_invocation(
+            prompt_path=prompt_file,
+            cwd=Path("/tmp/workspace"),
+            logs=LogPaths(
+                stdout=Path("/tmp/stdout.log"),
+                stderr=Path("/tmp/stderr.log"),
+            ),
+            model_selector=selector,
+        )
+
+        assert "-p" in invocation.cmd
+
+    def test_claude_code_uses_json_output(
+        self, cmd: CommandRunner, prompt_file: Path
+    ) -> None:
+        """Claude Code command includes --output-format json."""
+        from orx.executors.claude_code import ClaudeCodeExecutor
+
+        executor = ClaudeCodeExecutor(cmd=cmd, dry_run=True, output_format="json")
+        selector = ModelSelector(model="opus")
+
+        invocation = executor.resolve_invocation(
+            prompt_path=prompt_file,
+            cwd=Path("/tmp/workspace"),
+            logs=LogPaths(
+                stdout=Path("/tmp/stdout.log"),
+                stderr=Path("/tmp/stderr.log"),
+            ),
+            model_selector=selector,
+        )
+
+        assert "--output-format" in invocation.cmd
+        assert "json" in invocation.cmd
+        assert invocation.model_info["output_format"] == "json"
+
+    def test_claude_code_apply_mode_skips_permissions(
+        self, cmd: CommandRunner, prompt_file: Path
+    ) -> None:
+        """Claude Code apply mode uses --dangerously-skip-permissions."""
+        from orx.executors.claude_code import ClaudeCodeExecutor
+
+        executor = ClaudeCodeExecutor(cmd=cmd, dry_run=True)
+        selector = ModelSelector(model="sonnet")
+
+        invocation = executor.resolve_invocation(
+            prompt_path=prompt_file,
+            cwd=Path("/tmp/workspace"),
+            logs=LogPaths(
+                stdout=Path("/tmp/stdout.log"),
+                stderr=Path("/tmp/stderr.log"),
+            ),
+            model_selector=selector,
+            text_only=False,  # Apply mode
+        )
+
+        assert "--dangerously-skip-permissions" in invocation.cmd
+        assert invocation.model_info["text_only"] is False
+
+    def test_claude_code_text_mode_restricts_tools(
+        self, cmd: CommandRunner, prompt_file: Path
+    ) -> None:
+        """Claude Code text mode uses --tools to restrict to read-only."""
+        from orx.executors.claude_code import ClaudeCodeExecutor
+
+        executor = ClaudeCodeExecutor(cmd=cmd, dry_run=True)
+        selector = ModelSelector(model="haiku")
+
+        invocation = executor.resolve_invocation(
+            prompt_path=prompt_file,
+            cwd=Path("/tmp/workspace"),
+            logs=LogPaths(
+                stdout=Path("/tmp/stdout.log"),
+                stderr=Path("/tmp/stderr.log"),
+            ),
+            model_selector=selector,
+            text_only=True,  # Text mode - read only
+        )
+
+        assert "--tools" in invocation.cmd
+        assert "--dangerously-skip-permissions" not in invocation.cmd
+        assert invocation.model_info["text_only"] is True
+
+    def test_claude_code_adds_working_directory(
+        self, cmd: CommandRunner, prompt_file: Path
+    ) -> None:
+        """Claude Code command adds --add-dir for working directory."""
+        from orx.executors.claude_code import ClaudeCodeExecutor
+
+        executor = ClaudeCodeExecutor(cmd=cmd, dry_run=True)
+        selector = ModelSelector()
+
+        invocation = executor.resolve_invocation(
+            prompt_path=prompt_file,
+            cwd=Path("/workspace/project"),
+            logs=LogPaths(
+                stdout=Path("/tmp/stdout.log"),
+                stderr=Path("/tmp/stderr.log"),
+            ),
+            model_selector=selector,
+        )
+
+        assert "--add-dir" in invocation.cmd
+        add_dir_idx = invocation.cmd.index("--add-dir")
+        assert "/workspace/project" in invocation.cmd[add_dir_idx + 1]
+
+
+class TestCursorCommandBuilder:
+    """Test Cursor CLI command building with model selection."""
+
+    @pytest.fixture
+    def cmd(self) -> CommandRunner:
+        """Create a dry-run command runner."""
+        return CommandRunner(dry_run=True)
+
+    @pytest.fixture
+    def prompt_file(self, tmp_path: Path) -> Path:
+        """Create a temporary prompt file."""
+        prompt = tmp_path / "prompt.md"
+        prompt.write_text("Test prompt content")
+        return prompt
+
+    def test_cursor_command_with_model(
+        self, cmd: CommandRunner, prompt_file: Path
+    ) -> None:
+        """Cursor command includes --model flag when specified."""
+        from orx.executors.cursor import CursorExecutor
+
+        executor = CursorExecutor(cmd=cmd, dry_run=True)
+        selector = ModelSelector(model="sonnet-4.5")
+
+        invocation = executor.resolve_invocation(
+            prompt_path=prompt_file,
+            cwd=Path("/tmp/workspace"),
+            logs=LogPaths(
+                stdout=Path("/tmp/stdout.log"),
+                stderr=Path("/tmp/stderr.log"),
+            ),
+            model_selector=selector,
+        )
+
+        assert "--model" in invocation.cmd
+        assert "sonnet-4.5" in invocation.cmd
+        assert invocation.model_info["model"] == "sonnet-4.5"
+
+    def test_cursor_uses_print_mode(
+        self, cmd: CommandRunner, prompt_file: Path
+    ) -> None:
+        """Cursor command uses -p flag for non-interactive mode."""
+        from orx.executors.cursor import CursorExecutor
+
+        executor = CursorExecutor(cmd=cmd, dry_run=True)
+        selector = ModelSelector(model="auto")
+
+        invocation = executor.resolve_invocation(
+            prompt_path=prompt_file,
+            cwd=Path("/tmp/workspace"),
+            logs=LogPaths(
+                stdout=Path("/tmp/stdout.log"),
+                stderr=Path("/tmp/stderr.log"),
+            ),
+            model_selector=selector,
+        )
+
+        assert "-p" in invocation.cmd
+
+    def test_cursor_uses_json_output(
+        self, cmd: CommandRunner, prompt_file: Path
+    ) -> None:
+        """Cursor command includes --output-format json."""
+        from orx.executors.cursor import CursorExecutor
+
+        executor = CursorExecutor(cmd=cmd, dry_run=True, output_format="json")
+        selector = ModelSelector(model="gpt-5.2")
+
+        invocation = executor.resolve_invocation(
+            prompt_path=prompt_file,
+            cwd=Path("/tmp/workspace"),
+            logs=LogPaths(
+                stdout=Path("/tmp/stdout.log"),
+                stderr=Path("/tmp/stderr.log"),
+            ),
+            model_selector=selector,
+        )
+
+        assert "--output-format" in invocation.cmd
+        assert "json" in invocation.cmd
+        assert invocation.model_info["output_format"] == "json"
+
+    def test_cursor_apply_mode_uses_force(
+        self, cmd: CommandRunner, prompt_file: Path
+    ) -> None:
+        """Cursor apply mode uses --force for file modifications."""
+        from orx.executors.cursor import CursorExecutor
+
+        executor = CursorExecutor(cmd=cmd, dry_run=True)
+        selector = ModelSelector(model="sonnet-4.5")
+
+        invocation = executor.resolve_invocation(
+            prompt_path=prompt_file,
+            cwd=Path("/tmp/workspace"),
+            logs=LogPaths(
+                stdout=Path("/tmp/stdout.log"),
+                stderr=Path("/tmp/stderr.log"),
+            ),
+            model_selector=selector,
+            text_only=False,  # Apply mode
+        )
+
+        assert "--force" in invocation.cmd
+        assert invocation.model_info["text_only"] is False
+
+    def test_cursor_text_mode_no_force(
+        self, cmd: CommandRunner, prompt_file: Path
+    ) -> None:
+        """Cursor text mode does not include --force (read-only)."""
+        from orx.executors.cursor import CursorExecutor
+
+        executor = CursorExecutor(cmd=cmd, dry_run=True)
+        selector = ModelSelector(model="auto")
+
+        invocation = executor.resolve_invocation(
+            prompt_path=prompt_file,
+            cwd=Path("/tmp/workspace"),
+            logs=LogPaths(
+                stdout=Path("/tmp/stdout.log"),
+                stderr=Path("/tmp/stderr.log"),
+            ),
+            model_selector=selector,
+            text_only=True,  # Text mode - read only
+        )
+
+        assert "--force" not in invocation.cmd
+        assert invocation.model_info["text_only"] is True
+
+    def test_cursor_includes_prompt_content(
+        self, cmd: CommandRunner, prompt_file: Path
+    ) -> None:
+        """Cursor command includes prompt content as positional argument."""
+        from orx.executors.cursor import CursorExecutor
+
+        executor = CursorExecutor(cmd=cmd, dry_run=True)
+        selector = ModelSelector()
+
+        invocation = executor.resolve_invocation(
+            prompt_path=prompt_file,
+            cwd=Path("/tmp/workspace"),
+            logs=LogPaths(
+                stdout=Path("/tmp/stdout.log"),
+                stderr=Path("/tmp/stderr.log"),
+            ),
+            model_selector=selector,
+        )
+
+        # Prompt content should be last argument
+        assert "Test prompt content" in invocation.cmd[-1]
+
+
 class TestModelResolutionPriority:
     """Test model resolution priority order."""
 
@@ -503,7 +930,8 @@ class TestModelResolutionPriority:
 
     def test_priority_order(self, cmd: CommandRunner) -> None:
         """Test that model resolution follows correct priority."""
-        # Priority: stage.model > executor.profiles[stage] > executor.default.model > engine.model
+        # Priority: stage.model > executor.stage_models[stage] > executor.profiles[stage]
+        # > executor.default.model > engine.model
 
         engine = EngineConfig(
             type=EngineType.CODEX,
@@ -575,6 +1003,34 @@ class TestModelResolutionPriority:
         )
         _, selector3 = router3.get_executor_for_stage("spec")
         assert selector3.model == "engine-model"
+
+    def test_executor_stage_models_priority(self, cmd: CommandRunner) -> None:
+        """Test that executor.stage_models takes priority over profiles and defaults."""
+        engine = EngineConfig(type=EngineType.GEMINI)
+        executors = ExecutorsConfig(
+            gemini=ExecutorConfig(
+                default=ExecutorDefaults(model="gemini-default"),
+                stage_models={"plan": "gemini-plan-specific"},
+            ),
+        )
+        stages = StagesConfig()
+
+        router = ModelRouter(
+            engine=engine,
+            executors=executors,
+            stages=stages,
+            fallback=FallbackPolicyConfig(enabled=False),
+            cmd=cmd,
+            dry_run=True,
+        )
+
+        # plan should use stage_models override
+        _, selector_plan = router.get_executor_for_stage("plan")
+        assert selector_plan.model == "gemini-plan-specific"
+
+        # spec should use executor default
+        _, selector_spec = router.get_executor_for_stage("spec")
+        assert selector_spec.model == "gemini-default"
 
 
 class TestExecResultErrorDetection:

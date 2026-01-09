@@ -16,10 +16,13 @@ from orx.metrics.schema import (
     DiffStats,
     FailureCategory,
     GateMetrics,
+    LLMCallMetrics,
     QualityMetrics,
     RunMetrics,
+    StageErrorInfo,
     StageMetrics,
     StageStatus,
+    TokenUsage,
     compute_fingerprint,
 )
 
@@ -44,6 +47,8 @@ class StageTimer:
         verify_start: Verify start time.
         llm_duration_ms: Total LLM duration.
         verify_duration_ms: Total verify duration.
+        llm_calls: List of LLM call metrics.
+        current_llm_call: Current LLM call being tracked.
     """
 
     stage: str
@@ -55,16 +60,54 @@ class StageTimer:
     _verify_start: float | None = field(default=None, repr=False)
     llm_duration_ms: int = 0
     verify_duration_ms: int = 0
+    llm_calls: list[LLMCallMetrics] = field(default_factory=list)
+    _current_llm_call: LLMCallMetrics | None = field(default=None, repr=False)
+    _llm_call_count: int = field(default=0, repr=False)
 
-    def start_llm(self) -> None:
-        """Mark start of LLM call."""
+    def start_llm(self, model: str | None = None) -> None:
+        """Mark start of LLM call.
+
+        Args:
+            model: Optional model name for this call.
+        """
         self._llm_start = time.perf_counter()
+        self._current_llm_call = LLMCallMetrics(
+            call_index=self._llm_call_count,
+            start_ts=datetime.now(tz=UTC).isoformat(),
+            model=model,
+        )
 
-    def end_llm(self) -> None:
-        """Mark end of LLM call and accumulate duration."""
+    def end_llm(
+        self,
+        *,
+        tokens_in: int = 0,
+        tokens_out: int = 0,
+        status: str = "success",
+        error_message: str | None = None,
+    ) -> None:
+        """Mark end of LLM call and accumulate duration.
+
+        Args:
+            tokens_in: Input tokens for this call.
+            tokens_out: Output tokens for this call.
+            status: Call status.
+            error_message: Error message if failed.
+        """
         if self._llm_start is not None:
             elapsed = (time.perf_counter() - self._llm_start) * 1000
             self.llm_duration_ms += int(elapsed)
+
+            if self._current_llm_call:
+                self._current_llm_call.end_ts = datetime.now(tz=UTC).isoformat()
+                self._current_llm_call.duration_ms = int(elapsed)
+                self._current_llm_call.tokens_in = tokens_in
+                self._current_llm_call.tokens_out = tokens_out
+                self._current_llm_call.status = status
+                self._current_llm_call.error_message = error_message
+                self.llm_calls.append(self._current_llm_call)
+                self._llm_call_count += 1
+                self._current_llm_call = None
+
             self._llm_start = None
 
     def start_verify(self) -> None:
@@ -246,6 +289,27 @@ class MetricsCollector:
         """
         self._current_stage_data["diff_stats"] = DiffStats.from_diff(diff_content)
 
+    def record_tokens(
+        self,
+        input: int = 0,
+        output: int = 0,
+        total: int = 0,
+        tool_calls: int = 0,
+    ) -> None:
+        """Record token usage for the current stage.
+
+        Args:
+            input: Input tokens.
+            output: Output tokens.
+            total: Total tokens.
+            tool_calls: Number of tool calls.
+        """
+        if total == 0 and (input > 0 or output > 0):
+            total = input + output
+        self._current_stage_data["tokens"] = TokenUsage(
+            input=input, output=output, total=total, tool_calls=tool_calls
+        )
+
     def record_gate(
         self,
         name: str,
@@ -304,6 +368,59 @@ class MetricsCollector:
             count: Number of invocations.
         """
         self._current_stage_data["agent_invocations"] = count
+
+    def record_fallback(
+        self, original_model: str | None, new_model: str | None
+    ) -> None:
+        """Record that model fallback was applied.
+
+        Args:
+            original_model: Original model that failed.
+            new_model: New model being used.
+        """
+        self._current_stage_data["fallback_applied"] = True
+        self._current_stage_data["original_model"] = original_model
+        if new_model:
+            self._current_stage_data["model"] = new_model
+
+    def record_error_info(
+        self,
+        category: str,
+        message: str,
+        *,
+        details: dict[str, Any] | None = None,
+        stack_trace: str | None = None,
+        recoverable: bool = False,
+        suggested_action: str | None = None,
+    ) -> None:
+        """Record detailed error information.
+
+        Args:
+            category: Error category.
+            message: Human-readable error message.
+            details: Additional error details.
+            stack_trace: Stack trace if available.
+            recoverable: Whether the error is recoverable.
+            suggested_action: Suggested action to fix.
+        """
+        self._current_stage_data["error_info"] = StageErrorInfo(
+            category=category,
+            message=message,
+            details=details or {},
+            stack_trace=stack_trace,
+            recoverable=recoverable,
+            suggested_action=suggested_action,
+        )
+
+    def record_prompt_output_sizes(self, prompt_chars: int, output_chars: int) -> None:
+        """Record prompt and output character counts.
+
+        Args:
+            prompt_chars: Number of characters in prompt.
+            output_chars: Number of characters in output.
+        """
+        self._current_stage_data["prompt_chars"] = prompt_chars
+        self._current_stage_data["output_chars"] = output_chars
 
     def record_success(self) -> None:
         """Record current stage as successful and save metrics."""
@@ -398,14 +515,19 @@ class MetricsCollector:
             status=status,
             failure_category=self._current_stage_data.get("failure_category"),
             failure_message=self._current_stage_data.get("failure_message"),
+            error_info=self._current_stage_data.get("error_info"),
             executor=self._current_stage_data.get("executor"),
             model=self._current_stage_data.get("model"),
             profile=self._current_stage_data.get("profile"),
             reasoning_effort=self._current_stage_data.get("reasoning_effort"),
+            fallback_applied=self._current_stage_data.get("fallback_applied", False),
+            original_model=self._current_stage_data.get("original_model"),
+            llm_calls=timer.llm_calls,
             inputs_fingerprint=self._current_stage_data.get("inputs_fingerprint"),
             outputs_fingerprint=self._current_stage_data.get("outputs_fingerprint"),
             artifacts=self._current_stage_data.get("artifacts", {}),
             diff_stats=self._current_stage_data.get("diff_stats"),
+            tokens=self._current_stage_data.get("tokens"),
             gates=self._current_stage_data.get("gates", []),
             quality=self._current_stage_data.get("quality"),
             agent_invocations=self._current_stage_data.get("agent_invocations", 1),
@@ -415,6 +537,8 @@ class MetricsCollector:
             verify_duration_ms=(
                 timer.verify_duration_ms if timer.verify_duration_ms > 0 else None
             ),
+            prompt_chars=self._current_stage_data.get("prompt_chars"),
+            output_chars=self._current_stage_data.get("output_chars"),
         )
 
         self._stage_metrics.append(metrics)
@@ -462,6 +586,15 @@ class MetricsCollector:
         stages_failed = sum(
             1 for m in self._stage_metrics if m.status == StageStatus.FAIL
         )
+
+        # Aggregate tokens
+        total_tokens = TokenUsage()
+        for m in self._stage_metrics:
+            if m.tokens:
+                total_tokens.input += m.tokens.input
+                total_tokens.output += m.tokens.output
+                total_tokens.total += m.tokens.total
+                total_tokens.tool_calls += m.tokens.tool_calls
 
         # Stage breakdown
         stage_breakdown: dict[str, int] = {}
@@ -514,6 +647,7 @@ class MetricsCollector:
             items_completed=self._items_completed,
             items_failed=self._items_failed,
             rework_ratio=rework_ratio,
+            tokens=total_tokens if total_tokens.total > 0 else None,
             final_diff_stats=final_diff_stats,
             stage_breakdown=stage_breakdown,
         )
