@@ -228,6 +228,16 @@ class ExecResult:
                         "total": input_tokens + output_tokens,
                     }
 
+            # Cursor format: direct tokens_in/tokens_out in extra
+            tokens_in = self.extra.get("tokens_in", 0)
+            tokens_out = self.extra.get("tokens_out", 0)
+            if tokens_in or tokens_out:
+                return {
+                    "input": tokens_in,
+                    "output": tokens_out,
+                    "total": tokens_in + tokens_out,
+                }
+
             # Alternative format in extra
             if "tokens" in self.extra:
                 tokens = self.extra["tokens"]
@@ -321,6 +331,27 @@ class ExecResult:
                 return model
 
         return None
+
+    def get_tool_calls(self) -> int:
+        """Extract the number of tool calls from execution result.
+
+        Returns:
+            Number of tool calls made during execution, 0 if not found.
+        """
+        # Check extra dict for tool_calls
+        if self.extra:
+            tool_calls = self.extra.get("tool_calls", 0)
+            if isinstance(tool_calls, int) and tool_calls > 0:
+                return tool_calls
+
+            # Check usage dict for tool_calls
+            usage = self.extra.get("usage", {})
+            if usage:
+                tool_calls = usage.get("tool_calls", 0)
+                if isinstance(tool_calls, int) and tool_calls > 0:
+                    return tool_calls
+
+        return 0
 
 
 @runtime_checkable

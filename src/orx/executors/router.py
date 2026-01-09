@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -205,6 +206,7 @@ class ModelRouter:
             dry_run=self.dry_run,
             default_model=cursor_cfg.default.model,
             output_format=cursor_cfg.default.output_format or "json",
+            api_key=os.environ.get("CURSOR_API_KEY"),
         )
 
         # Fake executor (for testing)

@@ -289,18 +289,25 @@ class MetricsCollector:
         """
         self._current_stage_data["diff_stats"] = DiffStats.from_diff(diff_content)
 
-    def record_tokens(self, input: int = 0, output: int = 0, total: int = 0) -> None:
+    def record_tokens(
+        self,
+        input: int = 0,
+        output: int = 0,
+        total: int = 0,
+        tool_calls: int = 0,
+    ) -> None:
         """Record token usage for the current stage.
 
         Args:
             input: Input tokens.
             output: Output tokens.
             total: Total tokens.
+            tool_calls: Number of tool calls.
         """
         if total == 0 and (input > 0 or output > 0):
             total = input + output
         self._current_stage_data["tokens"] = TokenUsage(
-            input=input, output=output, total=total
+            input=input, output=output, total=total, tool_calls=tool_calls
         )
 
     def record_gate(
@@ -587,6 +594,7 @@ class MetricsCollector:
                 total_tokens.input += m.tokens.input
                 total_tokens.output += m.tokens.output
                 total_tokens.total += m.tokens.total
+                total_tokens.tool_calls += m.tokens.tool_calls
 
         # Stage breakdown
         stage_breakdown: dict[str, int] = {}

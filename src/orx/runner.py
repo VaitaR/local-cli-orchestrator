@@ -1093,10 +1093,13 @@ class Runner:
 
             tokens = exec_result.get_token_usage()
             if tokens:
+                # Extract tool_calls if available
+                tool_calls = exec_result.get_tool_calls()
                 self.metrics.record_tokens(
                     input=tokens.get("input", 0),
                     output=tokens.get("output", 0),
                     total=tokens.get("total", 0),
+                    tool_calls=tool_calls,
                 )
         except Exception as e:
             logger.debug("Failed to extract tokens from stage", error=str(e))

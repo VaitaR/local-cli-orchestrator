@@ -117,7 +117,14 @@ class CursorExecutor(BaseExecutor):
         # Mark out_path as used for linting compatibility
         _ = out_path
 
-        cmd = [self.binary, "agent"]
+        # Build base command. If the configured binary is `cursor`, the
+        # subcommand `agent` must be invoked as `cursor agent`. If the
+        # configured binary is already an `agent` binary, don't append
+        # the subcommand to avoid duplication.
+        bin_name = Path(self.binary).name
+        cmd = [self.binary]
+        if bin_name == "cursor":
+            cmd.append("agent")
 
         # Non-interactive print mode (required for automation)
         cmd.append("-p")
@@ -140,15 +147,17 @@ class CursorExecutor(BaseExecutor):
             cmd.extend(["--api-key", self.api_key])
 
         # Add working directory for tool access
-        cmd.extend(["--add-dir", str(cwd)])
+        cmd.extend(["--workspace", str(cwd)])
 
         # Additional args from config
         cmd.extend(self.extra_args)
 
-        # Prompt via --prompt flag with file reference
-        # Cursor agent expects prompt with @file syntax or direct text
+        # Prompt as positional argument. Cursor `agent` accepts prompt as
+        # a positional argument (agent [prompt...]) rather than a
+        # `--prompt` flag. Read the prompt file and append its content.
         prompt_content = prompt_path.read_text() if prompt_path.exists() else ""
-        cmd.extend(["--prompt", prompt_content])
+        if prompt_content:
+            cmd.append(prompt_content)
 
         return cmd, resolved
 
@@ -244,6 +253,12 @@ class CursorExecutor(BaseExecutor):
                     "subtype": data.get("subtype"),
                     "type": data.get("type"),
                 }
+                # Extract token usage and tool calls if available
+                if "usage" in data:
+                    usage = data["usage"]
+                    extra["tokens_in"] = usage.get("prompt_tokens", 0)
+                    extra["tokens_out"] = usage.get("completion_tokens", 0)
+                    extra["tool_calls"] = usage.get("tool_calls", 0)
                 return text, extra
             except json.JSONDecodeError:
                 logger.warning(

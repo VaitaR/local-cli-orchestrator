@@ -21,8 +21,11 @@
             <h4>🔤 Token Usage</h4>
             <div class="metric-value">{{ "{:,}".format(metrics.tokens.total | default(0)) }}</div>
             <div class="metric-breakdown">
-                <span>📥 {{ "{:,}".format(metrics.tokens.input | default(0)) }}</span>
-                <span>📤 {{ "{:,}".format(metrics.tokens.output | default(0)) }}</span>
+                <span>📥 In: {{ "{:,}".format(metrics.tokens.input | default(0)) }}</span>
+                <span>📤 Out: {{ "{:,}".format(metrics.tokens.output | default(0)) }}</span>
+                {% if metrics.tokens.tool_calls %}
+                <span>🔧 Tools: {{ metrics.tokens.tool_calls }}</span>
+                {% endif %}
             </div>
         </div>
         {% endif %}

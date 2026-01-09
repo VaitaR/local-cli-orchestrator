@@ -142,19 +142,24 @@ class TokenUsage(BaseModel):
         input: Number of input tokens.
         output: Number of output tokens.
         total: Total number of tokens.
+        tool_calls: Number of tool calls made by the agent.
     """
 
     input: int = 0
     output: int = 0
     total: int = 0
+    tool_calls: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
-        return {
+        data = {
             "input": self.input,
             "output": self.output,
             "total": self.total,
         }
+        if self.tool_calls > 0:
+            data["tool_calls"] = self.tool_calls
+        return data
 
 
 class QualityMetrics(BaseModel):
