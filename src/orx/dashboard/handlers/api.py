@@ -37,6 +37,10 @@ async def start_run(request: Request, payload: StartRunRequest):
         raise HTTPException(status_code=400, detail=str(e)) from e
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
+    except Exception as e:
+        # Unexpected error while creating a run — log and return 500
+        logger.error("Failed to start run (unexpected)", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to create run: {e}") from e
 
 
 @router.post("/runs/{run_id}/cancel")
