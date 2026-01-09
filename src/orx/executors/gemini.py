@@ -126,9 +126,9 @@ class GeminiExecutor(BaseExecutor):
         # Add extra args
         cmd.extend(self.extra_args)
 
-        # Add prompt file
-        # Gemini uses -p or --prompt flag
-        cmd.extend(["--prompt", f"@{prompt_path}"])
+        # Add prompt file as positional argument
+        # The --prompt flag is deprecated; use positional arg with @ prefix
+        cmd.append(f"@{prompt_path}")
 
         return cmd, resolved
 

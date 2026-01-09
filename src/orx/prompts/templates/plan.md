@@ -10,6 +10,12 @@ You are a software architect planning the implementation of a coding task.
 ## Project Context
 
 {{ project_context }}
+
+**IMPORTANT**: If AGENTS.md or ARCHITECTURE.md are included above, follow their guidelines strictly:
+- Respect module boundaries and dependency directions
+- Follow established coding patterns
+- Consider architecture constraints when planning
+- Review recent learnings for common pitfalls
 {% endif %}
 
 ## Instructions

@@ -16,6 +16,12 @@ You are implementing a specific work item from the backlog.
 ## Repo Context
 
 {{ repo_context }}
+
+**CRITICAL GUIDELINES**: If AGENTS.md or ARCHITECTURE.md are included above:
+- **Module Boundaries**: Never introduce cross-import cycles. Check dependency direction rules.
+- **Coding Patterns**: Follow established patterns (e.g., CommandRunner for subprocess, ContextPack for file I/O).
+- **Testing**: Add tests for every stage and resume behavior per AGENTS.md.
+- **Recent Learnings**: Review auto-updated learnings section for gotchas and best practices.
 {% endif %}
 
 {% if verify_commands is defined and verify_commands %}

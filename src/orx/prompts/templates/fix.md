@@ -16,6 +16,12 @@ You are fixing issues found in the previous implementation attempt.
 ## Repo Context
 
 {{ repo_context }}
+
+**CRITICAL GUIDELINES**: If AGENTS.md or ARCHITECTURE.md are included above:
+- **Module Boundaries**: Never introduce cross-import cycles. Check dependency direction rules.
+- **Coding Patterns**: Follow established patterns (e.g., CommandRunner for subprocess, ContextPack for file I/O).
+- **Testing**: Ensure test fixes maintain coverage per AGENTS.md requirements.
+- **Recent Learnings**: Review auto-updated learnings section for known issues and solutions.
 {% endif %}
 
 {% if verify_commands is defined and verify_commands %}

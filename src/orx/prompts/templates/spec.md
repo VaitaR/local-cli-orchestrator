@@ -14,6 +14,12 @@ You are a software architect creating a technical specification.
 ## Project Context
 
 {{ project_context }}
+
+**IMPORTANT**: If AGENTS.md or ARCHITECTURE.md are included above, follow their guidelines strictly:
+- Respect module boundaries and dependency directions
+- Follow established coding patterns and conventions
+- Design within architecture constraints
+- Consider recent learnings and gotchas
 {% endif %}
 
 ## Instructions
