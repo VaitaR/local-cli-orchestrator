@@ -38,19 +38,19 @@ def test_default_config_population() -> None:
 
     required_stages = ["plan", "spec", "decompose", "implement", "fix", "review"]
 
-    # Gemini
+    # Gemini - now uses dynamic discovery with gemini-2.5-flash as default
     assert config.executors.gemini.available_models
-    assert "gemini-2.0-flash" in config.executors.gemini.available_models
-    assert config.executors.gemini.default.model == "gemini-2.0-flash"
+    assert "gemini-2.5-flash" in config.executors.gemini.available_models
+    assert config.executors.gemini.default.model == "gemini-2.5-flash"
     for stage in required_stages:
-        assert config.executors.gemini.stage_models[stage] == "gemini-2.0-flash"
+        assert config.executors.gemini.stage_models[stage] == "gemini-2.5-flash"
 
-    # Codex
+    # Codex - now uses dynamic discovery with gpt-5-codex as default
     assert config.executors.codex.available_models
-    assert "gpt-4o" in config.executors.codex.available_models
-    assert config.executors.codex.default.model == "gpt-4o"
+    assert "gpt-5-codex" in config.executors.codex.available_models
+    assert config.executors.codex.default.model == "gpt-5-codex"
     for stage in required_stages:
-        assert config.executors.codex.stage_models[stage] == "gpt-4o"
+        assert config.executors.codex.stage_models[stage] == "gpt-5-codex"
 
 
 def test_from_yaml_backfills_executor_model_config() -> None:
@@ -64,9 +64,9 @@ def test_from_yaml_backfills_executor_model_config() -> None:
         "      plan: gemini-1.5-pro\n"
     )
 
-    # available_models should be filled from defaults
-    assert "gemini-2.0-flash" in cfg.executors.gemini.available_models
+    # available_models should be filled from defaults (dynamic discovery)
+    assert "gemini-2.5-flash" in cfg.executors.gemini.available_models
 
     # stage_models should preserve explicit overrides and fill missing stages
     assert cfg.executors.gemini.stage_models["plan"] == "gemini-1.5-pro"
-    assert cfg.executors.gemini.stage_models["spec"] == "gemini-2.0-flash"
+    assert cfg.executors.gemini.stage_models["spec"] == "gemini-2.5-flash"

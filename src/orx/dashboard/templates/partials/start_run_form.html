@@ -40,7 +40,37 @@
         <select id="model">
             <option value="">Default</option>
         </select>
-        <small>Model to use for all stages (unless overridden below)</small>
+        <small id="model-description"></small>
+    </div>
+
+    <div class="form-group" id="reasoning-group" style="display: none;">
+        <label for="reasoning_effort">🧠 Reasoning Effort</label>
+        <select id="reasoning_effort">
+            <option value="">Default</option>
+        </select>
+        <small>Higher reasoning = better quality but slower/costlier</small>
+    </div>
+
+    <div class="form-group" id="thinking-budget-group" style="display: none;">
+        <label for="thinking_budget">💭 Thinking Budget</label>
+        <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <input type="range" 
+                   id="thinking_budget_slider" 
+                   min="0" 
+                   max="32768" 
+                   step="1024" 
+                   value="8192"
+                   style="flex: 1;">
+            <input type="number" 
+                   id="thinking_budget" 
+                   min="0" 
+                   max="32768" 
+                   step="1024" 
+                   value=""
+                   placeholder="Default"
+                   style="width: 80px;">
+        </div>
+        <small>Tokens for model thinking (0 = disabled, blank = default)</small>
     </div>
     
     <details class="form-group" id="per-stage-config">
@@ -124,7 +154,7 @@
         }
     }
 
-    // Populate model select dropdown
+    // Populate model select dropdown with capabilities
     function populateModelSelect(select, models, defaultValue = '') {
         if (!select) return;
         select.innerHTML = '';
@@ -139,12 +169,82 @@
         
         for (const model of models) {
             const opt = document.createElement('option');
-            opt.value = model;
-            opt.textContent = model;
-            if (model === defaultValue) {
+            // Support both string and object models
+            const modelId = typeof model === 'string' ? model : model.id;
+            const modelName = typeof model === 'string' ? model : (model.name || model.id);
+            
+            opt.value = modelId;
+            opt.textContent = modelName;
+            
+            // Store capabilities in data attributes if available
+            if (typeof model === 'object') {
+                opt.dataset.supportsReasoning = model.supports_reasoning ? '1' : '0';
+                opt.dataset.supportsThinkingBudget = model.supports_thinking_budget ? '1' : '0';
+                opt.dataset.maxThinkingBudget = model.max_thinking_budget || '0';
+                opt.dataset.defaultThinkingBudget = model.default_thinking_budget || '0';
+                opt.dataset.reasoningLevels = JSON.stringify(model.reasoning_levels || []);
+                opt.dataset.description = model.description || '';
+                opt.dataset.tier = model.tier || '2';
+            }
+            
+            if (modelId === defaultValue) {
                 opt.selected = true;
             }
             select.appendChild(opt);
+        }
+    }
+
+    // Update reasoning/thinking controls based on selected model
+    function updateModelCapabilityControls(modelSelect, engineValue) {
+        const selectedOption = modelSelect.selectedOptions[0];
+        const reasoningGroup = document.getElementById('reasoning-group');
+        const thinkingBudgetGroup = document.getElementById('thinking-budget-group');
+        const reasoningSelect = document.getElementById('reasoning_effort');
+        const thinkingBudgetSlider = document.getElementById('thinking_budget_slider');
+        const thinkingBudgetInput = document.getElementById('thinking_budget');
+        const modelDescription = document.getElementById('model-description');
+        
+        // Reset visibility
+        reasoningGroup.style.display = 'none';
+        thinkingBudgetGroup.style.display = 'none';
+        
+        if (!selectedOption || !selectedOption.value) {
+            modelDescription.textContent = 'Model to use for all stages (unless overridden below)';
+            return;
+        }
+        
+        // Update description
+        const description = selectedOption.dataset.description;
+        modelDescription.textContent = description || 'Model to use for all stages (unless overridden below)';
+        
+        // Check for reasoning support (Codex)
+        const supportsReasoning = selectedOption.dataset.supportsReasoning === '1';
+        if (supportsReasoning && engineValue === 'codex') {
+            reasoningGroup.style.display = 'block';
+            
+            // Populate reasoning levels
+            const levels = JSON.parse(selectedOption.dataset.reasoningLevels || '[]');
+            reasoningSelect.innerHTML = '<option value="">Default</option>';
+            for (const level of levels) {
+                const opt = document.createElement('option');
+                opt.value = level;
+                opt.textContent = level.charAt(0).toUpperCase() + level.slice(1);
+                reasoningSelect.appendChild(opt);
+            }
+        }
+        
+        // Check for thinking budget support (Gemini)
+        const supportsThinkingBudget = selectedOption.dataset.supportsThinkingBudget === '1';
+        if (supportsThinkingBudget && engineValue === 'gemini') {
+            thinkingBudgetGroup.style.display = 'block';
+            
+            const maxBudget = parseInt(selectedOption.dataset.maxThinkingBudget) || 32768;
+            const defaultBudget = parseInt(selectedOption.dataset.defaultThinkingBudget) || 8192;
+            
+            thinkingBudgetSlider.max = maxBudget;
+            thinkingBudgetSlider.value = defaultBudget;
+            thinkingBudgetInput.max = maxBudget;
+            thinkingBudgetInput.placeholder = `Default: ${defaultBudget}`;
         }
     }
     
@@ -169,7 +269,7 @@
             const row = document.createElement('div');
             row.className = 'stage-config-row';
             row.style.display = 'grid';
-            row.style.gridTemplateColumns = '120px 1fr 1fr';
+            row.style.gridTemplateColumns = '100px 1fr 1fr';
             row.style.gap = '0.5rem';
             row.style.alignItems = 'center';
             row.style.padding = '0.5rem';
@@ -177,20 +277,25 @@
             row.style.borderRadius = '4px';
             
             const label = document.createElement('label');
-            label.style.fontSize = '0.85rem';
+            label.style.fontSize = '0.8rem';
             label.style.fontWeight = '600';
+            label.style.whiteSpace = 'nowrap';
+            label.style.overflow = 'hidden';
+            label.style.textOverflow = 'ellipsis';
+            label.title = stage.label;
             label.textContent = stage.label;
             
             // Engine Select
             const engineSelect = document.createElement('select');
             engineSelect.id = `engine_${stage.value}`;
             engineSelect.className = 'stage-engine-select';
-            engineSelect.style.fontSize = '0.85rem';
+            engineSelect.style.fontSize = '0.8rem';
+            engineSelect.style.minWidth = '0';
             engineSelect.dataset.stage = stage.value;
             
             const defaultOpt = document.createElement('option');
             defaultOpt.value = '';
-            defaultOpt.textContent = 'Engine: Inherit';
+            defaultOpt.textContent = 'Inherit';
             engineSelect.appendChild(defaultOpt);
             
             for (const engine of engines) {
@@ -204,16 +309,16 @@
             const modelSelect = document.createElement('select');
             modelSelect.id = `model_${stage.value}`;
             modelSelect.className = 'stage-model-select';
-            modelSelect.style.fontSize = '0.85rem';
+            modelSelect.style.fontSize = '0.8rem';
+            modelSelect.style.minWidth = '0';
             modelSelect.dataset.stage = stage.value;
             
             const modelDefaultOpt = document.createElement('option');
             modelDefaultOpt.value = '';
-            modelDefaultOpt.textContent = 'Model: Default';
+            modelDefaultOpt.textContent = 'Default';
             modelSelect.appendChild(modelDefaultOpt);
 
             // Track whether a user has overridden this stage.
-            // Programmatic updates do not dispatch change events, so this is safe.
             setBoolDataAttr(engineSelect, 'overridden', false);
             setBoolDataAttr(modelSelect, 'overridden', false);
             
@@ -222,20 +327,16 @@
                 const globalEngine = globalEngineSelect ? globalEngineSelect.value : '';
                 const selectedEngineValue = engineSelect.value;
 
-                // If user explicitly sets a stage engine, treat it as override unless
-                // it matches the global engine (then it's equivalent to inherit).
                 if (e.isTrusted) {
                     const overridden = Boolean(selectedEngineValue) && selectedEngineValue !== globalEngine;
                     setBoolDataAttr(engineSelect, 'overridden', overridden);
-
-                    // Changing the engine resets any prior model override.
                     setBoolDataAttr(modelSelect, 'overridden', false);
                 }
 
-                // Resolve which engine's model list should be shown.
                 const effectiveEngine = selectedEngineValue || globalEngine;
                 const selectedEngine = engines.find(e => e.value === effectiveEngine);
-                const availableModels = selectedEngine ? selectedEngine.available_models : [];
+                // Use full models data if available
+                const availableModels = selectedEngine ? (selectedEngine.models || selectedEngine.available_models) : [];
                 const stageDefaultModel = selectedEngine ? (selectedEngine.stage_models[stage.value] || '') : '';
                 populateModelSelect(modelSelect, availableModels, stageDefaultModel);
             });
@@ -251,8 +352,6 @@
                 const modelValue = modelSelect.value;
                 const effectiveEngine = stageEngine || globalEngine;
 
-                // A manual selection is considered an override unless it is
-                // effectively identical to the global selection.
                 let overridden = false;
                 if (modelValue) {
                     if (!globalEngine || !globalModel) {
@@ -275,9 +374,9 @@
     async function initForm() {
         const config = await loadEngineConfig();
         const fallbackEngines = [
-            { value: 'codex', label: 'Codex', is_test: false, available_models: [], stage_models: {} },
-            { value: 'gemini', label: 'Gemini', is_test: false, available_models: [], stage_models: {} },
-            { value: 'fake', label: 'Fake', is_test: true, available_models: [], stage_models: {} }
+            { value: 'codex', label: 'Codex', is_test: false, models: [], available_models: [], stage_models: {} },
+            { value: 'gemini', label: 'Gemini', is_test: false, models: [], available_models: [], stage_models: {} },
+            { value: 'fake', label: 'Fake', is_test: true, models: [], available_models: [], stage_models: {} }
         ];
         const engines = config ? config.engines : fallbackEngines;
         const stages = config ? config.stages : [];
@@ -289,8 +388,6 @@
         if (stages.length > 0) {
             buildStageConfigGrid(stages, productionEngines);
         } else {
-            // Stages are intentionally loaded from the API so the frontend does not
-            // need to know the stage list ahead of time.
             if (perStageDetails) {
                 perStageDetails.style.display = 'none';
             }
@@ -299,15 +396,33 @@
         const globalEngineSelect = document.getElementById('engine');
         const globalModelSelect = document.getElementById('model');
         const globalModelGroup = document.getElementById('global-model-group');
+        
+        // Thinking budget slider sync
+        const thinkingBudgetSlider = document.getElementById('thinking_budget_slider');
+        const thinkingBudgetInput = document.getElementById('thinking_budget');
+        
+        thinkingBudgetSlider.addEventListener('input', () => {
+            thinkingBudgetInput.value = thinkingBudgetSlider.value;
+        });
+        
+        thinkingBudgetInput.addEventListener('input', () => {
+            if (thinkingBudgetInput.value) {
+                thinkingBudgetSlider.value = thinkingBudgetInput.value;
+            }
+        });
 
-        // Global engine change handler: sync per-stage configs
+        // Global engine change handler
         globalEngineSelect.addEventListener('change', (e) => {
             const globalEngine = e.target.value;
+            const reasoningGroup = document.getElementById('reasoning-group');
+            const thinkingBudgetGroup = document.getElementById('thinking-budget-group');
+            
             if (!globalEngine) {
                 globalModelGroup.style.display = 'none';
                 globalModelSelect.value = '';
+                reasoningGroup.style.display = 'none';
+                thinkingBudgetGroup.style.display = 'none';
 
-                // Reset per-stage selects to inherited defaults.
                 document.querySelectorAll('.stage-engine-select').forEach(select => {
                     select.value = '';
                     setBoolDataAttr(select, 'overridden', false);
@@ -325,14 +440,19 @@
 
             const selectedEngineData = engines.find(eng => eng.value === globalEngine);
             
-            // Update global model select
-            if (selectedEngineData && selectedEngineData.available_models.length > 0) {
+            // Update global model select with full model data
+            const availableModels = selectedEngineData ? (selectedEngineData.models || selectedEngineData.available_models) : [];
+            if (availableModels.length > 0) {
                 globalModelGroup.style.display = 'block';
-                populateModelSelect(globalModelSelect, selectedEngineData.available_models);
+                populateModelSelect(globalModelSelect, availableModels);
             } else {
                 globalModelGroup.style.display = 'none';
                 globalModelSelect.value = '';
             }
+            
+            // Reset reasoning/thinking controls
+            reasoningGroup.style.display = 'none';
+            thinkingBudgetGroup.style.display = 'none';
 
             // Sync per-stage selects
             document.querySelectorAll('.stage-engine-select').forEach(select => {
@@ -342,7 +462,7 @@
                 const modelSelect = document.getElementById(`model_${stage}`);
                 if (selectedEngineData) {
                     const defaultModel = selectedEngineData.stage_models[stage] || '';
-                    populateModelSelect(modelSelect, selectedEngineData.available_models, defaultModel);
+                    populateModelSelect(modelSelect, availableModels, defaultModel);
                     setBoolDataAttr(modelSelect, 'overridden', false);
                 } else {
                     populateModelSelect(modelSelect, []);
@@ -351,13 +471,17 @@
             });
         });
 
-        // Global model change handler: sync per-stage models
+        // Global model change handler
         globalModelSelect.addEventListener('change', (e) => {
             const globalModel = e.target.value;
+            const globalEngine = globalEngineSelect.value;
+            
+            // Update reasoning/thinking controls based on model capabilities
+            updateModelCapabilityControls(globalModelSelect, globalEngine);
+            
             if (!globalModel) return;
 
             document.querySelectorAll('.stage-model-select').forEach(select => {
-                // Only sync if the engine matches the global engine
                 const stage = select.dataset.stage;
                 const engineSelect = document.getElementById(`engine_${stage}`);
                 const isOverridden = getBoolDataAttr(select, 'overridden');
@@ -368,7 +492,7 @@
             });
         });
 
-        // Initialize defaults from API (if provided)
+        // Initialize defaults from API
         if (config && config.default_engine) {
             globalEngineSelect.value = config.default_engine;
             globalEngineSelect.dispatchEvent(new Event('change'));
@@ -415,21 +539,29 @@
         const base_branch = document.getElementById('base_branch').value || null;
         const engine = document.getElementById('engine').value || null;
         const model = document.getElementById('model').value || null;
+        const reasoning_effort = document.getElementById('reasoning_effort').value || null;
+        const thinking_budget_raw = document.getElementById('thinking_budget').value;
+        const thinking_budget = thinking_budget_raw ? parseInt(thinking_budget_raw) : null;
         
         // Build config_overrides
         const config_overrides = {};
         
-        // Global engine override
         if (engine) {
             config_overrides.engine = engine;
         }
 
-        // Global model override
         if (model) {
             config_overrides.model = model;
         }
+
+        if (reasoning_effort) {
+            config_overrides.reasoning_effort = reasoning_effort;
+        }
+
+        if (thinking_budget !== null) {
+            config_overrides.thinking_budget = thinking_budget;
+        }
         
-        // Per-stage engine/model overrides
         const stages_config = collectStageOverrides();
         if (Object.keys(stages_config).length > 0) {
             config_overrides.stages = stages_config;
@@ -468,10 +600,8 @@
             const result = await response.json();
             console.log('Run started:', result);
             
-            // Close modal
             document.getElementById('modal').classList.remove('active');
             
-            // Show success notification
             const notification = document.createElement('div');
             notification.className = 'notification success';
             notification.innerHTML = `✓ Run started: <a href="/runs/${result.run_id}" style="color:white;text-decoration:underline">${result.run_id}</a>`;
@@ -479,7 +609,6 @@
             document.body.appendChild(notification);
             setTimeout(() => notification.remove(), 5000);
             
-            // Refresh the runs list
             htmx.ajax('GET', '/partials/active-runs', {target: '#active-runs', swap: 'innerHTML'});
             htmx.ajax('GET', '/partials/recent-runs', {target: '#recent-runs', swap: 'innerHTML'});
             
@@ -489,7 +618,6 @@
         }
     });
     
-    // Initialize on load
     initForm();
 })();
 </script>

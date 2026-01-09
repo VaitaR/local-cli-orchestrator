@@ -134,15 +134,15 @@ async def get_available_engines(request: Request):
     """Get available engine types, stages, and model configurations.
 
     Returns configuration options for the start run form, including
-    available models and stage-specific model defaults for each engine.
+    available models with capabilities, and stage-specific model defaults.
     """
     from orx.config import EngineType, OrxConfig, StageName
+    from orx.executors.models import (
+        ReasoningLevel,
+        serialize_models_for_api,
+    )
 
     # Load project config (orx.yaml) if available.
-    #
-    # Backward compatibility: older configs may omit newer keys like
-    # executors.<engine>.available_models and executors.<engine>.stage_models.
-    # In that case we want to fall back to OrxConfig.default() for UI options.
     dashboard_config = request.app.state.config
     project_root = dashboard_config.get_runs_dir().parent
     config_path = project_root / "orx.yaml"
@@ -157,20 +157,11 @@ async def get_available_engines(request: Request):
 
     default_config = OrxConfig.default(engine_type=orx_config.engine.type)
 
-    def _effective_available_models(
-        exec_cfg: Any, default_exec_cfg: Any
-    ) -> list[str]:
-        if "available_models" in getattr(exec_cfg, "model_fields_set", set()):
-            return list(exec_cfg.available_models)
-        return list(default_exec_cfg.available_models)
-
     def _effective_stage_models(exec_cfg: Any, default_exec_cfg: Any) -> dict[str, str]:
         merged: dict[str, str] = dict(default_exec_cfg.stage_models)
         if "stage_models" in getattr(exec_cfg, "model_fields_set", set()):
             merged.update(exec_cfg.stage_models)
 
-        # Always return a value for every known stage so the UI can build
-        # a complete per-stage grid even with partial configs.
         fallback_model = (
             exec_cfg.default.model
             or default_exec_cfg.default.model
@@ -187,26 +178,24 @@ async def get_available_engines(request: Request):
         if e == EngineType.FAKE and not dashboard_config.debug:
             continue
 
+        # Get models with full capabilities from models.py
+        models_data = serialize_models_for_api(e.value)
+
         engine_data = {
             "value": e.value,
             "label": e.value.capitalize(),
             "is_test": e == EngineType.FAKE,
-            "available_models": [],
+            "models": models_data,  # Full model info with capabilities
+            "available_models": [m["id"] for m in models_data],  # Backward compat
             "stage_models": {},
         }
 
-        # Add model info from config (with defaults for backward compatibility)
+        # Add stage-specific model defaults
         if e == EngineType.CODEX:
-            engine_data["available_models"] = _effective_available_models(
-                orx_config.executors.codex, default_config.executors.codex
-            )
             engine_data["stage_models"] = _effective_stage_models(
                 orx_config.executors.codex, default_config.executors.codex
             )
         elif e == EngineType.GEMINI:
-            engine_data["available_models"] = _effective_available_models(
-                orx_config.executors.gemini, default_config.executors.gemini
-            )
             engine_data["stage_models"] = _effective_stage_models(
                 orx_config.executors.gemini, default_config.executors.gemini
             )
@@ -219,6 +208,12 @@ async def get_available_engines(request: Request):
         for s in StageName
     ]
 
+    # Reasoning levels for UI
+    reasoning_levels = [
+        {"value": level.value, "label": level.name.title()}
+        for level in ReasoningLevel
+    ]
+
     default_engine = orx_config.engine.type.value
     engine_values = {e["value"] for e in engines}
     if default_engine not in engine_values and engines:
@@ -227,5 +222,6 @@ async def get_available_engines(request: Request):
     return {
         "engines": engines,
         "stages": stages,
+        "reasoning_levels": reasoning_levels,
         "default_engine": default_engine,
     }

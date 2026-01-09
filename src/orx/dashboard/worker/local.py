@@ -443,21 +443,13 @@ class LocalWorker:
                 engine_override = None
 
         cfg = base_cfg
-        cfg.apply_overrides(engine=engine_override, model=overrides.get("model"))
-
-        # Apply per-stage executor and model overrides
-        for stage_name, stage_config in stages.items():
-            if not isinstance(stage_config, dict):
-                continue
-
-            stage_cfg = cfg.stages.get_stage_config(stage_name)
-            if stage_config.get("executor"):
-                try:
-                    stage_cfg.executor = EngineType(stage_config["executor"])
-                except Exception:
-                    stage_cfg.executor = None
-            if stage_config.get("model"):
-                stage_cfg.model = stage_config["model"]
+        cfg.apply_overrides(
+            engine=engine_override,
+            model=overrides.get("model"),
+            reasoning_effort=overrides.get("reasoning_effort"),
+            thinking_budget=overrides.get("thinking_budget"),
+            stages=stages if stages else None,
+        )
 
         # Write to temp file
         fd, path = tempfile.mkstemp(suffix=".yaml", prefix="orx_dashboard_")
