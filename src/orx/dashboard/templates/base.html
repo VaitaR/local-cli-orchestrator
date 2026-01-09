@@ -6,6 +6,8 @@
     <title>{% block title %}ORX Dashboard{% endblock %}</title>
     <script src="/static/htmx.min.js"></script>
     <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/prism.css">
+    <link rel="stylesheet" href="/static/prism-line-numbers.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -32,6 +34,23 @@
         </main>
     </div>
 
+    <script src="/static/prism.js"></script>
+    <script src="/static/prism-line-numbers.js"></script>
+    <script src="/static/prism-python.js"></script>
+    <script src="/static/prism-yaml.js"></script>
+    <script src="/static/prism-bash.js"></script>
+    <script src="/static/prism-json.js"></script>
+    <script src="/static/prism-markdown.js"></script>
+    <script src="/static/prism-javascript.js"></script>
+    <script src="/static/prism-diff.js"></script>
+    <script>
+        // Trigger Prism highlighting on HTMX content swap
+        document.body.addEventListener('htmx:afterSwap', function(evt) {
+            if (evt.detail.target.id === 'artifact-preview') {
+                Prism.highlightAllUnder(evt.detail.target);
+            }
+        });
+    </script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

@@ -2,12 +2,95 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, cast
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse
 
 router = APIRouter(tags=["partials"])
+
+
+def _get_prism_language(file_path: str) -> str | None:
+    """Map file extension to Prism.js language class.
+
+    Args:
+        file_path: Path to the artifact file.
+
+    Returns:
+        Prism.js language class (e.g., 'language-python') or None for plain text.
+    """
+    ext = Path(file_path).suffix.lower()
+
+    # Map extensions to Prism languages
+    extension_map = {
+        # Python
+        ".py": "python",
+        ".pyi": "python",
+        # YAML
+        ".yaml": "yaml",
+        ".yml": "yaml",
+        # Markdown
+        ".md": "markdown",
+        ".markdown": "markdown",
+        # Bash/Shell
+        ".sh": "bash",
+        ".bash": "bash",
+        ".zsh": "bash",
+        ".fish": "bash",
+        # JSON
+        ".json": "json",
+        # JavaScript
+        ".js": "javascript",
+        ".mjs": "javascript",
+        ".cjs": "javascript",
+        ".ts": "typescript",
+        ".tsx": "tsx",
+        ".jsx": "jsx",
+        # Diff
+        ".diff": "diff",
+        ".patch": "diff",
+        # Configuration files
+        ".toml": "ini",
+        ".ini": "ini",
+        ".cfg": "ini",
+        ".conf": "ini",
+        ".xml": "markup",
+        ".html": "markup",
+        ".htm": "markup",
+        ".css": "css",
+        ".sql": "sql",
+        ".rst": "markdown",
+        ".txt": None,
+    }
+
+    return extension_map.get(ext)
+
+
+def _is_binary_file(content: bytes, path: str) -> bool:
+    """Check if content is binary based on content and extension.
+
+    Args:
+        content: File content as bytes.
+        path: File path.
+
+    Returns:
+        True if file appears to be binary.
+    """
+    # Check for binary content indicators
+    if b'\x00' in content[:8192]:
+        return True
+
+    # Check file extension
+    ext = Path(path).suffix.lower()
+    binary_extensions = {
+        ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp",
+        ".pdf", ".zip", ".tar", ".gz", ".rar", ".7z",
+        ".exe", ".dll", ".so", ".dylib", ".bin",
+        ".pyc", ".pyo",
+    }
+
+    return ext in binary_extensions
 
 
 def _build_metrics_context(
@@ -221,7 +304,7 @@ async def artifact_preview(
     run_id: str,
     path: str = Query(..., description="Relative path to artifact"),
 ):
-    """Render artifact content preview."""
+    """Render artifact content preview with syntax highlighting."""
     templates = request.app.state.templates
     store = request.app.state.store
 
@@ -231,11 +314,43 @@ async def artifact_preview(
             "<div>Artifact not found or not allowed</div>", status_code=404
         )
 
+    # Check if file is binary
+    if _is_binary_file(content, path):
+        return templates.TemplateResponse(
+            "partials/artifact_preview.html",
+            {
+                "request": request,
+                "path": path,
+                "content": None,
+                "is_binary": True,
+                "size_bytes": len(content),
+                "run_id": run_id,
+                "line_count": None,
+            },
+        )
+
     # Try to decode as text
     try:
         text_content = content.decode("utf-8")
     except UnicodeDecodeError:
-        text_content = f"[Binary file: {len(content)} bytes]"
+        return templates.TemplateResponse(
+            "partials/artifact_preview.html",
+            {
+                "request": request,
+                "path": path,
+                "content": None,
+                "is_binary": True,
+                "size_bytes": len(content),
+                "run_id": run_id,
+                "line_count": None,
+            },
+        )
+
+    # Detect language for syntax highlighting
+    language = _get_prism_language(path)
+
+    # Calculate line count
+    line_count = len(text_content.splitlines())
 
     return templates.TemplateResponse(
         "partials/artifact_preview.html",
@@ -243,7 +358,10 @@ async def artifact_preview(
             "request": request,
             "path": path,
             "content": text_content,
+            "is_binary": False,
+            "language": language,
             "run_id": run_id,
+            "line_count": line_count,
         },
     )
 
