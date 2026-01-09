@@ -51,7 +51,7 @@ class DashboardConfig(BaseSettings):
 
     # Worker
     max_concurrency: int = Field(
-        default=1,
+        default=3,
         validation_alias="ORX_DASHBOARD_MAX_CONCURRENCY",
         description="Maximum concurrent runs",
     )
