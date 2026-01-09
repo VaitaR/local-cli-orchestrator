@@ -75,21 +75,25 @@ This file must remain **HIGH-LEVEL**.
 **CRITICAL CONSTRAINTS:**
 1. Output ONLY the content that goes BETWEEN the markers
 2. Do NOT include the markers themselves
-3. Keep it concise - maximum 50 lines
-4. Stay at the component/module level, no implementation details
-5. Use bullet points and clear structure
+3. **MAXIMUM 30 lines** - architecture notes must be ultra-concise
+4. Stay at the component/module level, NO implementation details
+5. **PRUNE aggressively**: Remove notes about changes already reflected in the static ARCHITECTURE.md sections
+
+**GATEKEEPING BAR (HIGH):**
+Only output YES if the change:
+- Adds/removes a top-level module or service
+- Changes how components communicate
+- Adds new infrastructure dependency
+- Changes public API contract
+
+Most bug fixes and feature additions do NOT need architecture updates.
 
 **Output Format (if GATEKEEPING: YES):**
 ```markdown
-## Recent Architectural Changes
+## Auto-Updated Architectural Notes
 
-### [Date] - [Change Title]
-- Brief description of what changed architecturally
-- Impact on system components
-
-## Component Updates
-
-- **[Component Name]**: Description of changes
+### [Module/Component] (v0.X)
+- One-line description of structural change
 ```
 
 **BEGIN OUTPUT:**

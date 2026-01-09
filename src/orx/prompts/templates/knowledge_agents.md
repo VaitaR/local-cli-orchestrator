@@ -62,27 +62,27 @@ Your goal is to update the **Expertise File** (AGENTS.md) to make future agents 
 **CRITICAL CONSTRAINTS:**
 1. Output ONLY the content that goes BETWEEN the markers
 2. Do NOT include the markers themselves
-3. Keep it concise - maximum 100 lines
-4. Use bullet points and clear headers
-5. Do NOT repeat obvious rules or project-level info already in the file
+3. **MAXIMUM 50 lines** - be extremely concise
+4. Use bullet points, no prose
+5. **PRUNE aggressively**: Remove anything that duplicates the static AGENTS.md content above the markers
+6. **ONE-LINER per item**: Each bullet must fit on one line
+7. If nothing new was learned, output "No significant learnings from this task."
+
+**COMPRESSION RULES:**
+- Merge similar gotchas into one
+- Remove file locations already obvious from Module Map above
+- Only add patterns that are NOT in the static Rules section
+- Delete learnings older than 5 runs if no longer relevant
 
 **Output Format:**
 ```markdown
-## Key File Locations
+## Auto-Updated Learnings
 
-- **[Component]**: `path/to/file.py` - Description
+### Key Patterns
+- [New pattern not in static rules]
 
-## Coding Patterns
-
-- Pattern description
-
-## ⚠️ Gotchas
-
-- Warning about what NOT to do
-
-## Recent Learnings
-
-- What was learned from this task
+### Recent Gotchas
+- [Warning about what NOT to do]
 ```
 
 **BEGIN OUTPUT (only the content for inside the markers):**

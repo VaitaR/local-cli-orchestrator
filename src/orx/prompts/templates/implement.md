@@ -64,9 +64,16 @@ Ensure your code passes all these gates.
 
 ## Instructions
 
-1. Implement the work item according to the acceptance criteria
-2. Create or update tests for the new functionality
-3. Follow the project's coding standards
+1. **Read files in batches**: Use ARCHITECTURE.md module map to identify ALL related files upfront. Read them together in one batch, not one-by-one.
+2. Implement the work item according to the acceptance criteria
+3. Create or update tests for the new functionality
+4. Follow the project's coding standards
+
+**FILE READING STRATEGY** (CRITICAL):
+- Look at "Files Hint" + ARCHITECTURE.md module map → identify the full file set
+- Read ALL needed files in ONE batch call (e.g., `read_file` with multiple paths or `grep_search`)
+- Do NOT read files one at a time in separate tool calls
+- For related modules, read the whole directory at once
 
 ## Code Standards
 

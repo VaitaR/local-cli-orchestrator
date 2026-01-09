@@ -98,9 +98,16 @@ Ensure your fixes pass all these gates.
 
 1. Analyze the failure evidence above
 2. Identify the root cause of the failure
-3. Make targeted fixes to address the issues
-4. Ensure all acceptance criteria are met
-5. If a lint error is trivial (I001/UP/unused import), fix it immediately
+3. **Read files in batches**: If you need context, use ARCHITECTURE.md to find ALL related files and read them together
+4. Make targeted fixes to address the issues
+5. Ensure all acceptance criteria are met
+6. If a lint error is trivial (I001/UP/unused import), fix it immediately
+
+**FILE READING STRATEGY** (CRITICAL):
+- From error logs, identify which files need context
+- Use ARCHITECTURE.md module map to find related files in the same module
+- Read ALL needed files in ONE batch call
+- Do NOT make sequential single-file read calls
 
 ## Common Issues
 

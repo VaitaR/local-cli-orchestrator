@@ -31,7 +31,8 @@ src/orx/
 │
 ├── context/         # Artifact management
 │   ├── pack.py      # Read/write context files
-│   └── backlog.py   # Backlog schema
+│   ├── backlog.py   # Backlog schema
+│   └── repo_context/ # Auto-extracted project context (Python/TS tooling)
 │
 ├── workspace/       # Git operations
 │   ├── git_worktree.py  # Worktree management
@@ -41,24 +42,41 @@ src/orx/
 │   ├── base.py      # Protocol definition
 │   ├── router.py    # Model routing + fallback policy
 │   ├── codex.py     # Codex CLI wrapper
-│   ├── gemini.py    # Gemini CLI wrapper
+│   ├── gemini.py    # Gemini CLI wrapper (use @file, not --prompt)
 │   └── fake.py      # Testing executor
 │
 ├── gates/           # Quality checks
 │   ├── base.py      # Protocol definition
 │   ├── ruff.py      # Ruff linting
 │   ├── pytest.py    # Pytest runner
-│   └── docker.py    # Docker build (optional)
+│   └── generic.py   # Custom command gates
 │
 ├── stages/          # FSM stages
 │   ├── base.py      # Stage protocol
-│   ├── plan.py      # Planning stage
-│   ├── spec.py      # Specification stage
-│   ├── decompose.py # Backlog decomposition
-│   ├── implement.py # Implementation + fix
-│   ├── verify.py    # Gate verification
-│   ├── review.py    # Code review
-│   └── ship.py      # Commit/push/PR
+│   ├── plan.py      # PLAN: text output
+│   ├── spec.py      # SPEC: text output
+│   ├── decompose.py # DECOMPOSE: backlog.yaml
+│   ├── implement.py # IMPLEMENT: filesystem changes
+│   ├── verify.py    # VERIFY: run gates
+│   ├── review.py    # REVIEW: text output
+│   ├── ship.py      # SHIP: commit/push/PR
+│   └── knowledge.py # KNOWLEDGE_UPDATE: self-improvement
+│
+├── knowledge/       # Self-improvement module
+│   ├── evidence.py  # Collect run artifacts
+│   ├── guardrails.py # Marker-scoped updates
+│   └── updater.py   # AGENTS.md + ARCHITECTURE.md updates
+│
+├── metrics/         # Observability
+│   ├── schema.py    # Pydantic models
+│   ├── collector.py # Stage timing + LLM metrics
+│   └── writer.py    # Persistence (stages.jsonl, run.json)
+│
+├── dashboard/       # Web UI (FastAPI + HTMX)
+│   ├── server.py    # App factory
+│   ├── store/       # Data access (filesystem-based)
+│   ├── handlers/    # Routes (pages, partials, api)
+│   └── templates/   # Jinja2 templates
 │
 ├── prompts/         # Prompt templates
 │   ├── renderer.py  # Jinja2 renderer
