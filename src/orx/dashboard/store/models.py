@@ -65,6 +65,7 @@ class RunSummary(BaseModel):
     pid: int | None = None
     repo_path: str | None = None
     base_branch: str | None = None
+    engine: str | None = None
     fail_category: str | None = None
     task_preview: str | None = None
 

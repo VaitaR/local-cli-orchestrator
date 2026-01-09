@@ -20,6 +20,7 @@ from orx.metrics.schema import (
     RunMetrics,
     StageMetrics,
     StageStatus,
+    TokenUsage,
     compute_fingerprint,
 )
 
@@ -246,6 +247,20 @@ class MetricsCollector:
         """
         self._current_stage_data["diff_stats"] = DiffStats.from_diff(diff_content)
 
+    def record_tokens(self, input: int = 0, output: int = 0, total: int = 0) -> None:
+        """Record token usage for the current stage.
+
+        Args:
+            input: Input tokens.
+            output: Output tokens.
+            total: Total tokens.
+        """
+        if total == 0 and (input > 0 or output > 0):
+            total = input + output
+        self._current_stage_data["tokens"] = TokenUsage(
+            input=input, output=output, total=total
+        )
+
     def record_gate(
         self,
         name: str,
@@ -406,6 +421,7 @@ class MetricsCollector:
             outputs_fingerprint=self._current_stage_data.get("outputs_fingerprint"),
             artifacts=self._current_stage_data.get("artifacts", {}),
             diff_stats=self._current_stage_data.get("diff_stats"),
+            tokens=self._current_stage_data.get("tokens"),
             gates=self._current_stage_data.get("gates", []),
             quality=self._current_stage_data.get("quality"),
             agent_invocations=self._current_stage_data.get("agent_invocations", 1),
@@ -463,6 +479,14 @@ class MetricsCollector:
             1 for m in self._stage_metrics if m.status == StageStatus.FAIL
         )
 
+        # Aggregate tokens
+        total_tokens = TokenUsage()
+        for m in self._stage_metrics:
+            if m.tokens:
+                total_tokens.input += m.tokens.input
+                total_tokens.output += m.tokens.output
+                total_tokens.total += m.tokens.total
+
         # Stage breakdown
         stage_breakdown: dict[str, int] = {}
         for m in self._stage_metrics:
@@ -514,6 +538,7 @@ class MetricsCollector:
             items_completed=self._items_completed,
             items_failed=self._items_failed,
             rework_ratio=rework_ratio,
+            tokens=total_tokens if total_tokens.total > 0 else None,
             final_diff_stats=final_diff_stats,
             stage_breakdown=stage_breakdown,
         )

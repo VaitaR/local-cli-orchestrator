@@ -22,7 +22,7 @@
         
         <div class="log-output" id="log-output"
              {% if logs %}
-             hx-get="/partials/log-tail/{{ run.run_id }}?name={{ logs[0] }}&cursor=0"
+             hx-get="/partials/log-tail/{{ run.run_id }}?name={{ logs[0] }}&cursor=0&lines=200"
              {% endif %}
              hx-trigger="load"
              hx-swap="innerHTML">
@@ -39,7 +39,7 @@ function scrollToBottom() {
 
 function loadLog(logName) {
     const runId = '{{ run.run_id }}';
-    htmx.ajax('GET', `/partials/log-tail/${runId}?name=${encodeURIComponent(logName)}&cursor=0`, {
+    htmx.ajax('GET', `/partials/log-tail/${runId}?name=${encodeURIComponent(logName)}&cursor=0&lines=200`, {
         target: '#log-output',
         swap: 'innerHTML'
     });

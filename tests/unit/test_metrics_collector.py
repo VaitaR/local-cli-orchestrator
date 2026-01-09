@@ -260,3 +260,30 @@ class TestMetricsCollector:
         assert stages[0].outputs_fingerprint is not None
         assert len(stages[0].inputs_fingerprint) == 16
         assert len(stages[0].outputs_fingerprint) == 16
+
+    def test_record_tokens_and_aggregation(self) -> None:
+        """Record tokens and verify aggregation in run metrics."""
+        collector = MetricsCollector("run_tokens")
+
+        with collector.stage("plan"):
+            collector.record_tokens(input=100, output=50, total=150)
+            collector.record_success()
+
+        with collector.stage("implement"):
+            collector.record_tokens(input=200, output=100)  # total will be inferred
+            collector.record_success()
+
+        stages = collector.get_stage_metrics()
+        assert stages[0].tokens is not None
+        assert stages[0].tokens.input == 100
+        assert stages[0].tokens.total == 150
+        assert stages[1].tokens is not None
+        assert stages[1].tokens.input == 200
+        assert stages[1].tokens.output == 100
+        assert stages[1].tokens.total == 300
+
+        run_metrics = collector.build_run_metrics()
+        assert run_metrics.tokens is not None
+        assert run_metrics.tokens.input == 300
+        assert run_metrics.tokens.output == 150
+        assert run_metrics.tokens.total == 450

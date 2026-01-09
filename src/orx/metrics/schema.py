@@ -135,6 +135,28 @@ class DiffStats(BaseModel):
         )
 
 
+class TokenUsage(BaseModel):
+    """Token usage metrics for LLM calls.
+
+    Attributes:
+        input: Number of input tokens.
+        output: Number of output tokens.
+        total: Total number of tokens.
+    """
+
+    input: int = 0
+    output: int = 0
+    total: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "input": self.input,
+            "output": self.output,
+            "total": self.total,
+        }
+
+
 class QualityMetrics(BaseModel):
     """Quality metrics for stage output.
 
@@ -215,6 +237,7 @@ class StageMetrics(BaseModel):
     outputs_fingerprint: str | None = None
     artifacts: dict[str, str] = Field(default_factory=dict)
     diff_stats: DiffStats | None = None
+    tokens: TokenUsage | None = None
     gates: list[GateMetrics] = Field(default_factory=list)
     quality: QualityMetrics | None = None
     agent_invocations: int = 1
@@ -255,6 +278,8 @@ class StageMetrics(BaseModel):
             data["artifacts"] = self.artifacts
         if self.diff_stats:
             data["diff_stats"] = self.diff_stats.to_dict()
+        if self.tokens:
+            data["tokens"] = self.tokens.to_dict()
         if self.gates:
             data["gates"] = [g.to_dict() for g in self.gates]
         if self.quality:
@@ -280,6 +305,8 @@ class StageMetrics(BaseModel):
         # Handle nested objects
         if "diff_stats" in data and isinstance(data["diff_stats"], dict):
             data["diff_stats"] = DiffStats(**data["diff_stats"])
+        if "tokens" in data and isinstance(data["tokens"], dict):
+            data["tokens"] = TokenUsage(**data["tokens"])
         if "gates" in data:
             data["gates"] = [
                 GateMetrics(**g) if isinstance(g, dict) else g for g in data["gates"]
@@ -342,6 +369,7 @@ class RunMetrics(BaseModel):
     items_completed: int = 0
     items_failed: int = 0
     rework_ratio: float = 0.0
+    tokens: TokenUsage | None = None
     final_diff_stats: DiffStats | None = None
     stage_breakdown: dict[str, int] = Field(default_factory=dict)
 
@@ -382,6 +410,8 @@ class RunMetrics(BaseModel):
             data["time_to_green_ms"] = self.time_to_green_ms
         if self.time_to_pr_ms is not None:
             data["time_to_pr_ms"] = self.time_to_pr_ms
+        if self.tokens:
+            data["tokens"] = self.tokens.to_dict()
         if self.final_diff_stats:
             data["final_diff_stats"] = self.final_diff_stats.to_dict()
 
@@ -394,6 +424,8 @@ class RunMetrics(BaseModel):
             data["final_status"] = StageStatus(data["final_status"])
         if "final_diff_stats" in data and isinstance(data["final_diff_stats"], dict):
             data["final_diff_stats"] = DiffStats(**data["final_diff_stats"])
+        if "tokens" in data and isinstance(data["tokens"], dict):
+            data["tokens"] = TokenUsage(**data["tokens"])
         return cls(**data)
 
 
