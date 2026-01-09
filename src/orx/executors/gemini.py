@@ -24,6 +24,11 @@ class GeminiExecutor(BaseExecutor):
     Wraps the gemini CLI with headless and auto-approve modes.
     Supports model selection via --model/-m flag.
 
+    IMPORTANT: Gemini CLI has sandbox restrictions and can only read files
+    within its working directory. Prompt files must be placed inside the
+    worktree (cwd) for Gemini to access them. The caller is responsible
+    for copying prompts to the worktree using RunPaths.copy_prompt_to_worktree().
+
     Note: The --model flag only controls the main model in the session.
     Sub-agents may use different models, which will appear in usage reports.
     This is a known limitation of the Gemini CLI.
@@ -37,7 +42,7 @@ class GeminiExecutor(BaseExecutor):
         >>> executor = GeminiExecutor(cmd=CommandRunner())
         >>> result = executor.run_apply(
         ...     cwd=Path("/workspace"),
-        ...     prompt_path=Path("/prompts/implement.md"),
+        ...     prompt_path=Path("/workspace/.orx-prompts/implement.md"),  # Must be in cwd!
         ...     logs=LogPaths(stdout=Path("out.log"), stderr=Path("err.log")),
         ...     model_selector=ModelSelector(model="gemini-2.5-pro"),
         ... )

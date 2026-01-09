@@ -123,17 +123,30 @@ class BaseStage(ABC):
     ) -> Path:
         """Render a prompt and save it to the prompts directory.
 
+        Also copies the prompt to the worktree for sandboxed executors
+        (like Gemini CLI) that cannot read files outside their working directory.
+
         Args:
             ctx: Stage context.
             template_name: Name of the template.
             **context: Variables for the template.
 
         Returns:
-            Path to the saved prompt file.
+            Path to the prompt file inside the worktree (for executor access).
         """
+        # Render and save to prompts directory (for archival)
         prompt_path = ctx.paths.prompt_path(template_name)
         ctx.renderer.render_to_file(template_name, prompt_path, **context)
-        return prompt_path
+
+        # Copy to worktree for sandboxed executor access
+        worktree_prompt = ctx.paths.copy_prompt_to_worktree(template_name)
+        logger.debug(
+            "Copied prompt to worktree",
+            template=template_name,
+            src=str(prompt_path),
+            dst=str(worktree_prompt),
+        )
+        return worktree_prompt
 
     def _success(
         self,

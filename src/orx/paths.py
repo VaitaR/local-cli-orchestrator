@@ -171,6 +171,50 @@ class RunPaths:
         """
         return self.prompts_dir / f"{stage}.md"
 
+    def worktree_prompt_dir(self) -> Path:
+        """Get the directory for prompts within the worktree.
+
+        This is used for executors (like Gemini CLI) that have sandbox
+        restrictions and cannot read files outside the worktree.
+
+        Returns:
+            Path to the .orx-prompts directory in the worktree.
+        """
+        return self.worktree_path / ".orx-prompts"
+
+    def worktree_prompt_path(self, stage: str) -> Path:
+        """Get the path for a prompt file inside the worktree.
+
+        Args:
+            stage: The stage name (e.g., "plan", "spec", "implement").
+
+        Returns:
+            Path to the prompt file inside the worktree.
+        """
+        return self.worktree_prompt_dir() / f"{stage}.md"
+
+    def copy_prompt_to_worktree(self, stage: str) -> Path:
+        """Copy a prompt file from prompts_dir to worktree for sandboxed executors.
+
+        Some executors (e.g., Gemini CLI) cannot read files outside their
+        working directory due to sandbox restrictions. This method copies
+        the prompt into the worktree where it can be accessed.
+
+        Args:
+            stage: The stage name.
+
+        Returns:
+            Path to the copied prompt file in the worktree.
+        """
+        import shutil
+
+        src = self.prompt_path(stage)
+        dst_dir = self.worktree_prompt_dir()
+        dst_dir.mkdir(parents=True, exist_ok=True)
+        dst = dst_dir / f"{stage}.md"
+        shutil.copy2(src, dst)
+        return dst
+
     def log_path(self, name: str, suffix: str = ".log") -> Path:
         """Get the path for a log file.
 

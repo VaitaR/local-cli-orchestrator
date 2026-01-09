@@ -19,7 +19,7 @@ from orx.context.backlog import Backlog, WorkItem
 from orx.context.pack import ContextPack
 from orx.context.repo_context import RepoContextBuilder
 from orx.exceptions import GuardrailError
-from orx.executors.base import Executor
+from orx.executors.base import Executor, ExecResult
 from orx.executors.codex import CodexExecutor
 from orx.executors.fake import FakeExecutor
 from orx.executors.gemini import GeminiExecutor
@@ -873,6 +873,38 @@ class Runner:
             # Time LLM call
             timer.start_llm()
             result = run_fn(ctx)
+            # If stage failed, attempt model fallback and a single retry.
+            if result and not result.success:
+                try:
+                    # Build a synthetic ExecResult from available agent logs so
+                    # ModelRouter.apply_fallback can inspect stderr/error_message.
+                    stdout_path, stderr_path = ctx.paths.agent_log_paths(stage_name)
+                    synthetic = ExecResult(
+                        returncode=1,
+                        stdout_path=stdout_path,
+                        stderr_path=stderr_path,
+                        extra={},
+                        success=False,
+                        error_message=result.message or "",
+                        invocation=None,
+                    )
+
+                    new_selector, applied = self.model_router.apply_fallback(
+                        stage_name, synthetic, ctx.model_selector
+                    )
+                    if applied:
+                        logger.info(
+                            "Applying model fallback and retrying stage",
+                            stage=stage_name,
+                            original_model=(ctx.model_selector.model if ctx.model_selector else None),
+                            fallback_model=new_selector.model,
+                        )
+                        # Update the stage context model selector and retry once
+                        ctx.model_selector = new_selector
+                        # Retry the stage once
+                        result = run_fn(ctx)
+                except Exception as e:
+                    logger.warning("Fallback attempt failed", error=str(e))
             timer.end_llm()
 
             # Record outputs and result
