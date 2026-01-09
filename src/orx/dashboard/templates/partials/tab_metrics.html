@@ -97,7 +97,7 @@
                     <td>
                         {{ stage.duration | round(1) }}s
                         {% if stage.llm_duration and stage.llm_duration != stage.duration %}
-                        <br><small class="text-muted">LLM: {{ stage.llm_duration | round(1) }}s</small>
+                        <br><small class="text-muted">LLM: {{ stage.llm_duration | round(3) }}s</small>
                         {% endif %}
                     </td>
                     <td>
