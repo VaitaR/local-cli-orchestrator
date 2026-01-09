@@ -503,7 +503,8 @@ class TestModelResolutionPriority:
 
     def test_priority_order(self, cmd: CommandRunner) -> None:
         """Test that model resolution follows correct priority."""
-        # Priority: stage.model > executor.profiles[stage] > executor.default.model > engine.model
+        # Priority: stage.model > executor.stage_models[stage] > executor.profiles[stage]
+        # > executor.default.model > engine.model
 
         engine = EngineConfig(
             type=EngineType.CODEX,
@@ -575,6 +576,34 @@ class TestModelResolutionPriority:
         )
         _, selector3 = router3.get_executor_for_stage("spec")
         assert selector3.model == "engine-model"
+
+    def test_executor_stage_models_priority(self, cmd: CommandRunner) -> None:
+        """Test that executor.stage_models takes priority over profiles and defaults."""
+        engine = EngineConfig(type=EngineType.GEMINI)
+        executors = ExecutorsConfig(
+            gemini=ExecutorConfig(
+                default=ExecutorDefaults(model="gemini-default"),
+                stage_models={"plan": "gemini-plan-specific"},
+            ),
+        )
+        stages = StagesConfig()
+
+        router = ModelRouter(
+            engine=engine,
+            executors=executors,
+            stages=stages,
+            fallback=FallbackPolicyConfig(enabled=False),
+            cmd=cmd,
+            dry_run=True,
+        )
+
+        # plan should use stage_models override
+        _, selector_plan = router.get_executor_for_stage("plan")
+        assert selector_plan.model == "gemini-plan-specific"
+
+        # spec should use executor default
+        _, selector_spec = router.get_executor_for_stage("spec")
+        assert selector_spec.model == "gemini-default"
 
 
 class TestExecResultErrorDetection:

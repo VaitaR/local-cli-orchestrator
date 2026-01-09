@@ -94,10 +94,11 @@ class ModelRouter:
 
     Model selection priority (deterministic):
     1. stages.<stage>.model|profile (explicit override)
-    2. executors.<name>.profiles[stage] (stage-specific profile for Codex)
-    3. executors.<name>.default.model (executor default)
-    4. engine.model (legacy global config)
-    5. CLI built-in default
+    2. executors.<name>.stage_models[stage] (per-engine stage default)
+    3. executors.<name>.profiles[stage] (stage-specific profile for Codex)
+    4. executors.<name>.default.model (executor default)
+    5. engine.model (legacy global config)
+    6. CLI built-in default
 
     Example:
         >>> router = ModelRouter(
@@ -208,9 +209,10 @@ class ModelRouter:
 
         Priority (deterministic):
         1. stages.<stage>.model|profile
-        2. executors.<name>.profiles[stage]
-        3. executors.<name>.default.model
-        4. engine.model
+        2. executors.<name>.stage_models[stage]
+        3. executors.<name>.profiles[stage] (Codex only)
+        4. executors.<name>.default.model
+        5. engine.model
 
         Args:
             stage: Stage name.
@@ -227,7 +229,21 @@ class ModelRouter:
         else:
             selector = None
 
-        # Priority 2: Executor profiles (for Codex)
+        # Fake executor is used for testing and does not have a meaningful model.
+        if selector is None and executor_type == EngineType.FAKE:
+            selector = ModelSelector()
+
+        # Priority 2: Executor stage models
+        if selector is None:
+            exec_cfg = (
+                self.executors_config.codex
+                if executor_type == EngineType.CODEX
+                else self.executors_config.gemini
+            )
+            if stage in exec_cfg.stage_models:
+                selector = ModelSelector(model=exec_cfg.stage_models[stage])
+
+        # Priority 3: Executor profiles (for Codex)
         if selector is None and executor_type == EngineType.CODEX:
             codex_cfg = self.executors_config.codex
             if stage in codex_cfg.profiles:

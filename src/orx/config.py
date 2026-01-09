@@ -75,6 +75,8 @@ class ExecutorConfig(BaseModel):
         bin: Path or name of the CLI binary.
         default: Default settings for this executor.
         profiles: Named profiles (for Codex) keyed by stage name.
+        available_models: List of model names available for this executor.
+        stage_models: Default model name for each stage.
         use_yolo: For Gemini: enable YOLO mode (auto-approve all tool calls).
         approval_mode: For Gemini: approval mode (e.g., "auto_edit", "reject_all").
     """
@@ -82,6 +84,8 @@ class ExecutorConfig(BaseModel):
     bin: str | None = None
     default: ExecutorDefaults = Field(default_factory=ExecutorDefaults)
     profiles: dict[str, str] = Field(default_factory=dict)
+    available_models: list[str] = Field(default_factory=list)
+    stage_models: dict[str, str] = Field(default_factory=dict)
     use_yolo: bool = Field(default=True, description="Enable YOLO mode for Gemini")
     approval_mode: str = Field(default="auto_edit", description="Approval mode for Gemini")
 
@@ -498,6 +502,53 @@ class OrxConfig(BaseModel):
         """Get list of enabled gates."""
         return [g for g in self.gates if g.enabled]
 
+    def apply_overrides(
+        self,
+        *,
+        engine: EngineType | None = None,
+        model: str | None = None,
+        base_branch: str | None = None,
+    ) -> None:
+        """Apply common CLI/dashboard overrides to the config.
+
+        Notes:
+            - `engine` is treated as a global override: it clears per-stage executor
+              overrides (including legacy `stage_engines`) so the selected engine is
+              consistently used across stages.
+            - `model` is treated as a global model override for the selected engine:
+              it updates `executors.<engine>.default.model` and
+              `executors.<engine>.stage_models[*]` so ModelRouter resolves it above
+              executor defaults and `engine.model`.
+        """
+        if engine is not None:
+            self.engine.type = engine
+
+            # Ensure global engine selection actually takes effect.
+            self.stage_engines.clear()
+            for stage in StageName:
+                stage_cfg = self.stages.get_stage_config(stage.value)
+                stage_cfg.executor = None
+                stage_cfg.model = None
+                stage_cfg.profile = None
+
+        if model is not None:
+            self.engine.model = model
+
+            if self.engine.type == EngineType.CODEX:
+                exec_cfg = self.executors.codex
+            elif self.engine.type == EngineType.GEMINI:
+                exec_cfg = self.executors.gemini
+            else:
+                exec_cfg = None
+
+            if exec_cfg is not None:
+                exec_cfg.default.model = model
+                for stage in StageName:
+                    exec_cfg.stage_models[stage.value] = model
+
+        if base_branch is not None:
+            self.git.base_branch = base_branch
+
     def to_yaml(self) -> str:
         """Serialize the config to YAML.
 
@@ -506,6 +557,39 @@ class OrxConfig(BaseModel):
         """
         data = self.model_dump(mode="json")
         return yaml.dump(data, default_flow_style=False, sort_keys=False)
+
+    def _apply_executor_model_defaults(self) -> None:
+        """Backfill executor model config for backward compatibility.
+
+        Older `orx.yaml` files may omit `available_models` and/or `stage_models`.
+        For the dashboard and ModelRouter to behave predictably, we merge in
+        sensible defaults without overwriting explicitly provided values.
+        """
+
+        default_cfg = OrxConfig.default(engine_type=self.engine.type)
+
+        def merge_executor(name: str) -> None:
+            exec_cfg: ExecutorConfig = getattr(self.executors, name)
+            default_exec: ExecutorConfig = getattr(default_cfg.executors, name)
+            fields_set = getattr(exec_cfg, "model_fields_set", set())
+
+            if "available_models" not in fields_set:
+                exec_cfg.available_models = list(default_exec.available_models)
+
+            if "stage_models" not in fields_set:
+                exec_cfg.stage_models = dict(default_exec.stage_models)
+            else:
+                fallback_model = (
+                    exec_cfg.default.model
+                    or default_exec.default.model
+                    or self.engine.model
+                    or ""
+                )
+                for stage in StageName:
+                    exec_cfg.stage_models.setdefault(stage.value, fallback_model)
+
+        merge_executor("codex")
+        merge_executor("gemini")
 
     def save(self, path: Path) -> None:
         """Save the config to a YAML file.
@@ -538,7 +622,9 @@ class OrxConfig(BaseModel):
             msg = "Config YAML must be a mapping"
             raise ValueError(msg)
 
-        return cls.model_validate(data)
+        cfg = cls.model_validate(data)
+        cfg._apply_executor_model_defaults()
+        return cfg
 
     @classmethod
     def load(cls, path: Path) -> OrxConfig:
@@ -569,4 +655,40 @@ class OrxConfig(BaseModel):
         Returns:
             A default OrxConfig instance.
         """
-        return cls(engine=EngineConfig(type=engine_type))
+        config = cls(engine=EngineConfig(type=engine_type))
+
+        standard_stages = [
+            StageName.PLAN.value,
+            StageName.SPEC.value,
+            StageName.DECOMPOSE.value,
+            StageName.IMPLEMENT.value,
+            StageName.FIX.value,
+            StageName.REVIEW.value,
+            StageName.KNOWLEDGE_UPDATE.value,
+        ]
+
+        # Add some sensible defaults for Gemini
+        gemini_default = "gemini-2.0-flash"
+        config.executors.gemini.available_models = [
+            gemini_default,
+            "gemini-2.0-pro-exp-02-05",
+            "gemini-1.5-pro",
+            "gemini-1.5-flash",
+        ]
+        config.executors.gemini.default.model = gemini_default
+        config.executors.gemini.default.output_format = "json"
+        config.executors.gemini.stage_models = dict.fromkeys(standard_stages, gemini_default)
+
+        # Add some sensible defaults for Codex
+        codex_default = "gpt-4o"
+        config.executors.codex.available_models = [
+            codex_default,
+            "gpt-4o-mini",
+            "o1",
+            "o1-mini",
+            "o3-mini",
+        ]
+        config.executors.codex.default.model = codex_default
+        config.executors.codex.stage_models = dict.fromkeys(standard_stages, codex_default)
+
+        return config

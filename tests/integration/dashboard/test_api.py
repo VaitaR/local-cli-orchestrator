@@ -303,6 +303,53 @@ class TestPartialEndpoints:
 class TestAPIEndpoints:
     """Tests for the control API endpoints."""
 
+    def test_get_available_engines(self, client: TestClient) -> None:
+        """Test getting available engines and stages configuration."""
+        response = client.get("/api/config/engines")
+        assert response.status_code == 200
+        data = response.json()
+
+        assert "engines" in data
+        assert "stages" in data
+        assert "default_engine" in data
+
+        # Verify gemini engine data
+        gemini = next(e for e in data["engines"] if e["value"] == "gemini")
+        assert gemini["label"] == "Gemini"
+        assert "gemini-2.0-flash" in gemini["available_models"]
+        assert gemini["stage_models"]["plan"] == "gemini-2.0-flash"
+
+        # Verify stages
+        assert any(s["value"] == "plan" for s in data["stages"])
+        assert any(s["value"] == "implement" for s in data["stages"])
+
+    def test_get_available_engines_uses_defaults_for_omitted_fields(
+        self, client: TestClient, runs_root: Path
+    ) -> None:
+        """Existing orx.yaml files may omit newer model configuration keys."""
+        config_path = runs_root.parent / "orx.yaml"
+        config_path.write_text(
+            "engine:\n"
+            "  type: gemini\n"
+            "executors:\n"
+            "  gemini:\n"
+            "    stage_models:\n"
+            "      plan: gemini-1.5-pro\n"
+        )
+
+        response = client.get("/api/config/engines")
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["default_engine"] == "gemini"
+
+        gemini = next(e for e in data["engines"] if e["value"] == "gemini")
+        # available_models is omitted in the YAML and should fall back to defaults
+        assert "gemini-2.0-flash" in gemini["available_models"]
+        # stage_models is partial in the YAML: keep explicit override, fill others
+        assert gemini["stage_models"]["plan"] == "gemini-1.5-pro"
+        assert gemini["stage_models"]["spec"] == "gemini-2.0-flash"
+
     def test_get_run_status(self, client: TestClient) -> None:
         """Test getting run status via API."""
         response = client.get("/api/runs/test-run-001/status")

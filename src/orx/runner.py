@@ -1701,6 +1701,7 @@ def create_runner(
     config_path: Path | None = None,
     run_id: str | None = None,
     engine: EngineType | None = None,
+    model: str | None = None,
     base_branch: str | None = None,
     dry_run: bool = False,
 ) -> Runner:
@@ -1712,6 +1713,7 @@ def create_runner(
         config_path: Optional path to config file.
         run_id: Optional run ID (for resume).
         engine: Optional engine override.
+        model: Optional global model override.
         base_branch: Optional base branch override.
         dry_run: If True, don't execute commands.
 
@@ -1727,9 +1729,6 @@ def create_runner(
         cfg = OrxConfig.default()
 
     # Apply overrides
-    if engine:
-        cfg.engine.type = engine
-    if base_branch:
-        cfg.git.base_branch = base_branch
+    cfg.apply_overrides(engine=engine, model=model, base_branch=base_branch)
 
     return Runner(cfg, base_dir=base_dir, run_id=run_id, dry_run=dry_run)

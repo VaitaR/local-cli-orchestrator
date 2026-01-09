@@ -102,6 +102,170 @@ class TestLocalWorker:
         finally:
             worker.stop()
 
+    def test_execute_job_uses_cli_flags_for_simple_overrides(
+        self, mock_config: MockConfig, repo_root: Path
+    ) -> None:
+        """Simple overrides should be passed via CLI flags (no temp config)."""
+        from orx.dashboard.worker.local import LocalWorker, RunJob
+
+        (repo_root / "runs").mkdir(exist_ok=True)
+        worker = LocalWorker(mock_config)
+
+        recorded: dict[str, object] = {}
+
+        def _start_process(cmd, *, cwd, env, start_new_session):  # noqa: ANN001
+            recorded["cmd"] = cmd
+            recorded["cwd"] = cwd
+            recorded["env"] = env
+            recorded["start_new_session"] = start_new_session
+            proc = MagicMock()
+            proc.pid = 12345
+            proc.poll.return_value = None
+            proc.returncode = None
+            return proc
+
+        worker._cmd.start_process = _start_process  # type: ignore[method-assign]
+        worker._wait_for_run_id = (  # type: ignore[method-assign]
+            lambda *_args, **_kwargs: None
+        )
+
+        job = RunJob(
+            run_id="placeholder",
+            task="Test task",
+            repo_path=str(repo_root),
+            config_overrides={"engine": "gemini", "model": "gemini-1.5-pro"},
+        )
+        worker._execute_job(job)
+
+        cmd = recorded["cmd"]
+        assert isinstance(cmd, list)
+        assert "--config" not in cmd
+        assert cmd[:2] == [mock_config.orx_bin, "run"]
+        assert "--engine" in cmd and cmd[cmd.index("--engine") + 1] == "gemini"
+        assert "--model" in cmd and cmd[cmd.index("--model") + 1] == "gemini-1.5-pro"
+
+    def test_execute_job_uses_temp_config_for_stage_overrides(
+        self, mock_config: MockConfig, repo_root: Path, tmp_path: Path
+    ) -> None:
+        """Per-stage overrides should be passed via a generated config file."""
+        import os
+
+        import yaml
+
+        from orx.dashboard.worker import local as local_mod
+        from orx.dashboard.worker.local import LocalWorker, RunJob
+
+        (repo_root / "runs").mkdir(exist_ok=True)
+        worker = LocalWorker(mock_config)
+
+        recorded: dict[str, object] = {}
+        temp_config_path = tmp_path / "orx_dashboard_test.yaml"
+
+        def _mkstemp(*, suffix, prefix):  # noqa: ANN001
+            path = str(temp_config_path)
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            _ = (suffix, prefix)
+            return fd, path
+
+        def _start_process(cmd, *, cwd, env, start_new_session):  # noqa: ANN001
+            recorded["cmd"] = cmd
+            recorded["cwd"] = cwd
+            recorded["env"] = env
+            recorded["start_new_session"] = start_new_session
+            proc = MagicMock()
+            proc.pid = 12346
+            proc.poll.return_value = None
+            proc.returncode = None
+            return proc
+
+        worker._cmd.start_process = _start_process  # type: ignore[method-assign]
+        worker._wait_for_run_id = (  # type: ignore[method-assign]
+            lambda *_args, **_kwargs: None
+        )
+
+        with patch.object(local_mod.tempfile, "mkstemp", side_effect=_mkstemp):
+            job = RunJob(
+                run_id="placeholder",
+                task="Test task",
+                repo_path=str(repo_root),
+                config_overrides={
+                    "engine": "gemini",
+                    "model": "gemini-2.0-flash",
+                    "stages": {"plan": {"executor": "codex", "model": "gpt-4o"}},
+                },
+            )
+            worker._execute_job(job)
+
+        cmd = recorded["cmd"]
+        assert isinstance(cmd, list)
+        assert "--config" in cmd
+        cfg_path = Path(cmd[cmd.index("--config") + 1])
+        assert cfg_path == temp_config_path
+        assert "--engine" not in cmd
+        assert "--model" not in cmd
+
+        cfg_data = yaml.safe_load(temp_config_path.read_text())
+        assert cfg_data["engine"]["type"] == "gemini"
+        assert cfg_data["engine"]["model"] == "gemini-2.0-flash"
+        assert cfg_data["stages"]["plan"]["executor"] == "codex"
+        assert cfg_data["stages"]["plan"]["model"] == "gpt-4o"
+
+    def test_temp_config_engine_defaults_from_repo_config(
+        self, mock_config: MockConfig, repo_root: Path, tmp_path: Path
+    ) -> None:
+        """Temp config should inherit engine.type from repo's orx.yaml when omitted."""
+        import os
+
+        import yaml
+
+        from orx.dashboard.worker import local as local_mod
+        from orx.dashboard.worker.local import LocalWorker, RunJob
+
+        (repo_root / "runs").mkdir(exist_ok=True)
+        (repo_root / "orx.yaml").write_text("engine:\n  type: gemini\n")
+        worker = LocalWorker(mock_config)
+
+        recorded: dict[str, object] = {}
+        temp_config_path = tmp_path / "orx_dashboard_test_inherit.yaml"
+
+        def _mkstemp(*, suffix, prefix):  # noqa: ANN001
+            path = str(temp_config_path)
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            _ = (suffix, prefix)
+            return fd, path
+
+        def _start_process(cmd, *, cwd, env, start_new_session):  # noqa: ANN001
+            recorded["cmd"] = cmd
+            _ = (cwd, env, start_new_session)
+            proc = MagicMock()
+            proc.pid = 12347
+            proc.poll.return_value = None
+            proc.returncode = None
+            return proc
+
+        worker._cmd.start_process = _start_process  # type: ignore[method-assign]
+        worker._wait_for_run_id = (  # type: ignore[method-assign]
+            lambda *_args, **_kwargs: None
+        )
+
+        with patch.object(local_mod.tempfile, "mkstemp", side_effect=_mkstemp):
+            job = RunJob(
+                run_id="placeholder",
+                task="Test task",
+                repo_path=str(repo_root),
+                config_overrides={
+                    "stages": {"plan": {"executor": "codex"}},
+                },
+            )
+            worker._execute_job(job)
+
+        cmd = recorded["cmd"]
+        assert isinstance(cmd, list)
+        assert "--config" in cmd
+
+        cfg_data = yaml.safe_load(temp_config_path.read_text())
+        assert cfg_data["engine"]["type"] == "gemini"
+
     def test_empty_task_raises_error(self, mock_config: MockConfig) -> None:
         """Test that empty task raises ValueError."""
         from orx.dashboard.worker.local import LocalWorker

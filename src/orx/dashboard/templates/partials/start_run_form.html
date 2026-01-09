@@ -34,13 +34,21 @@
         </select>
         <small>Executor to use for all stages</small>
     </div>
+
+    <div class="form-group" id="global-model-group" style="display: none;">
+        <label for="model">🤖 Default Model</label>
+        <select id="model">
+            <option value="">Default</option>
+        </select>
+        <small>Model to use for all stages (unless overridden below)</small>
+    </div>
     
     <details class="form-group" id="per-stage-config">
         <summary style="cursor: pointer; font-weight: 500; margin-bottom: 0.5rem;">
-            🔧 Advanced: Per-Stage Engine
+            🔧 Advanced: Per-Stage Configuration
         </summary>
-        <div id="stage-engines-grid" 
-             style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-top: 0.5rem;">
+        <div id="stage-config-grid" 
+             style="display: flex; flex-direction: column; gap: 1rem; margin-top: 0.5rem;">
             <!-- Dynamically populated -->
         </div>
     </details>
@@ -61,6 +69,15 @@
 (function() {
     // Cache for engine config
     let engineConfig = null;
+
+    function getBoolDataAttr(el, name) {
+        return el?.dataset?.[name] === '1';
+    }
+
+    function setBoolDataAttr(el, name, value) {
+        if (!el || !el.dataset) return;
+        el.dataset[name] = value ? '1' : '0';
+    }
     
     // Load engine configuration from API
     async function loadEngineConfig() {
@@ -106,15 +123,39 @@
             select.appendChild(opt);
         }
     }
+
+    // Populate model select dropdown
+    function populateModelSelect(select, models, defaultValue = '') {
+        if (!select) return;
+        select.innerHTML = '';
+
+        const hasModels = Array.isArray(models) && models.length > 0;
+        select.disabled = !hasModels;
+        
+        const defaultOpt = document.createElement('option');
+        defaultOpt.value = '';
+        defaultOpt.textContent = 'Default';
+        select.appendChild(defaultOpt);
+        
+        for (const model of models) {
+            const opt = document.createElement('option');
+            opt.value = model;
+            opt.textContent = model;
+            if (model === defaultValue) {
+                opt.selected = true;
+            }
+            select.appendChild(opt);
+        }
+    }
     
     // Get production engines (non-test only)
     function getProductionEngines(engines) {
         return engines.filter(e => !e.is_test);
     }
     
-    // Build per-stage engine selects dynamically
-    function buildStageEngineSelects(stages, engines) {
-        const grid = document.getElementById('stage-engines-grid');
+    // Build per-stage configuration grid dynamically
+    function buildStageConfigGrid(stages, engines) {
+        const grid = document.getElementById('stage-config-grid');
         if (!grid) return;
         
         grid.innerHTML = '';
@@ -125,81 +166,240 @@
         );
         
         for (const stage of configurableStages) {
-            const div = document.createElement('div');
+            const row = document.createElement('div');
+            row.className = 'stage-config-row';
+            row.style.display = 'grid';
+            row.style.gridTemplateColumns = '120px 1fr 1fr';
+            row.style.gap = '0.5rem';
+            row.style.alignItems = 'center';
+            row.style.padding = '0.5rem';
+            row.style.background = 'rgba(0,0,0,0.05)';
+            row.style.borderRadius = '4px';
             
             const label = document.createElement('label');
-            label.setAttribute('for', `engine_${stage.value}`);
-            label.style.fontSize = '0.9rem';
+            label.style.fontSize = '0.85rem';
+            label.style.fontWeight = '600';
             label.textContent = stage.label;
             
-            const select = document.createElement('select');
-            select.id = `engine_${stage.value}`;
-            select.style.fontSize = '0.9rem';
+            // Engine Select
+            const engineSelect = document.createElement('select');
+            engineSelect.id = `engine_${stage.value}`;
+            engineSelect.className = 'stage-engine-select';
+            engineSelect.style.fontSize = '0.85rem';
+            engineSelect.dataset.stage = stage.value;
             
-            // Add default option
             const defaultOpt = document.createElement('option');
             defaultOpt.value = '';
-            defaultOpt.textContent = 'Default';
-            select.appendChild(defaultOpt);
+            defaultOpt.textContent = 'Engine: Inherit';
+            engineSelect.appendChild(defaultOpt);
             
-            // Add engine options (exclude test engines)
             for (const engine of engines) {
-                if (engine.is_test) continue;
-                
                 const opt = document.createElement('option');
                 opt.value = engine.value;
                 opt.textContent = engine.label;
-                select.appendChild(opt);
+                engineSelect.appendChild(opt);
             }
             
-            div.appendChild(label);
-            div.appendChild(select);
-            grid.appendChild(div);
+            // Model Select
+            const modelSelect = document.createElement('select');
+            modelSelect.id = `model_${stage.value}`;
+            modelSelect.className = 'stage-model-select';
+            modelSelect.style.fontSize = '0.85rem';
+            modelSelect.dataset.stage = stage.value;
+            
+            const modelDefaultOpt = document.createElement('option');
+            modelDefaultOpt.value = '';
+            modelDefaultOpt.textContent = 'Model: Default';
+            modelSelect.appendChild(modelDefaultOpt);
+
+            // Track whether a user has overridden this stage.
+            // Programmatic updates do not dispatch change events, so this is safe.
+            setBoolDataAttr(engineSelect, 'overridden', false);
+            setBoolDataAttr(modelSelect, 'overridden', false);
+            
+            engineSelect.addEventListener('change', (e) => {
+                const globalEngineSelect = document.getElementById('engine');
+                const globalEngine = globalEngineSelect ? globalEngineSelect.value : '';
+                const selectedEngineValue = engineSelect.value;
+
+                // If user explicitly sets a stage engine, treat it as override unless
+                // it matches the global engine (then it's equivalent to inherit).
+                if (e.isTrusted) {
+                    const overridden = Boolean(selectedEngineValue) && selectedEngineValue !== globalEngine;
+                    setBoolDataAttr(engineSelect, 'overridden', overridden);
+
+                    // Changing the engine resets any prior model override.
+                    setBoolDataAttr(modelSelect, 'overridden', false);
+                }
+
+                // Resolve which engine's model list should be shown.
+                const effectiveEngine = selectedEngineValue || globalEngine;
+                const selectedEngine = engines.find(e => e.value === effectiveEngine);
+                const availableModels = selectedEngine ? selectedEngine.available_models : [];
+                const stageDefaultModel = selectedEngine ? (selectedEngine.stage_models[stage.value] || '') : '';
+                populateModelSelect(modelSelect, availableModels, stageDefaultModel);
+            });
+
+            modelSelect.addEventListener('change', (e) => {
+                if (!e.isTrusted) return;
+                const globalEngineSelect = document.getElementById('engine');
+                const globalModelSelect = document.getElementById('model');
+                const globalEngine = globalEngineSelect ? globalEngineSelect.value : '';
+                const globalModel = globalModelSelect ? globalModelSelect.value : '';
+
+                const stageEngine = engineSelect.value;
+                const modelValue = modelSelect.value;
+                const effectiveEngine = stageEngine || globalEngine;
+
+                // A manual selection is considered an override unless it is
+                // effectively identical to the global selection.
+                let overridden = false;
+                if (modelValue) {
+                    if (!globalEngine || !globalModel) {
+                        overridden = true;
+                    } else {
+                        overridden = !(effectiveEngine === globalEngine && modelValue === globalModel);
+                    }
+                }
+                setBoolDataAttr(modelSelect, 'overridden', overridden);
+            });
+            
+            row.appendChild(label);
+            row.appendChild(engineSelect);
+            row.appendChild(modelSelect);
+            grid.appendChild(row);
         }
     }
     
     // Initialize form
     async function initForm() {
         const config = await loadEngineConfig();
-        if (!config) {
-            // Fallback to hardcoded values
-            const fallbackEngines = [
-                { value: 'codex', label: 'Codex', is_test: false },
-                { value: 'gemini', label: 'Gemini', is_test: false },
-                { value: 'fake', label: 'Fake', is_test: true }
-            ];
-            const fallbackStages = [
-                { value: 'plan', label: 'Plan' },
-                { value: 'spec', label: 'Spec' },
-                { value: 'decompose', label: 'Decompose' },
-                { value: 'implement', label: 'Implement' },
-                { value: 'fix', label: 'Fix' },
-                { value: 'review', label: 'Review' }
-            ];
-            // Only show production engines in main dropdown
-            populateEngineSelect('engine', getProductionEngines(fallbackEngines), true, false);
-            buildStageEngineSelects(fallbackStages, getProductionEngines(fallbackEngines));
-            return;
-        }
+        const fallbackEngines = [
+            { value: 'codex', label: 'Codex', is_test: false, available_models: [], stage_models: {} },
+            { value: 'gemini', label: 'Gemini', is_test: false, available_models: [], stage_models: {} },
+            { value: 'fake', label: 'Fake', is_test: true, available_models: [], stage_models: {} }
+        ];
+        const engines = config ? config.engines : fallbackEngines;
+        const stages = config ? config.stages : [];
         
-        // Only show production engines in main dropdown (exclude test engines like fake)
-        const productionEngines = getProductionEngines(config.engines);
+        const productionEngines = getProductionEngines(engines);
         populateEngineSelect('engine', productionEngines, true, false);
-        buildStageEngineSelects(config.stages, productionEngines);
+
+        const perStageDetails = document.getElementById('per-stage-config');
+        if (stages.length > 0) {
+            buildStageConfigGrid(stages, productionEngines);
+        } else {
+            // Stages are intentionally loaded from the API so the frontend does not
+            // need to know the stage list ahead of time.
+            if (perStageDetails) {
+                perStageDetails.style.display = 'none';
+            }
+        }
+
+        const globalEngineSelect = document.getElementById('engine');
+        const globalModelSelect = document.getElementById('model');
+        const globalModelGroup = document.getElementById('global-model-group');
+
+        // Global engine change handler: sync per-stage configs
+        globalEngineSelect.addEventListener('change', (e) => {
+            const globalEngine = e.target.value;
+            if (!globalEngine) {
+                globalModelGroup.style.display = 'none';
+                globalModelSelect.value = '';
+
+                // Reset per-stage selects to inherited defaults.
+                document.querySelectorAll('.stage-engine-select').forEach(select => {
+                    select.value = '';
+                    setBoolDataAttr(select, 'overridden', false);
+
+                    const stage = select.dataset.stage;
+                    const modelSelect = document.getElementById(`model_${stage}`);
+                    if (modelSelect) {
+                        populateModelSelect(modelSelect, []);
+                        modelSelect.value = '';
+                        setBoolDataAttr(modelSelect, 'overridden', false);
+                    }
+                });
+                return;
+            }
+
+            const selectedEngineData = engines.find(eng => eng.value === globalEngine);
+            
+            // Update global model select
+            if (selectedEngineData && selectedEngineData.available_models.length > 0) {
+                globalModelGroup.style.display = 'block';
+                populateModelSelect(globalModelSelect, selectedEngineData.available_models);
+            } else {
+                globalModelGroup.style.display = 'none';
+                globalModelSelect.value = '';
+            }
+
+            // Sync per-stage selects
+            document.querySelectorAll('.stage-engine-select').forEach(select => {
+                select.value = globalEngine;
+                setBoolDataAttr(select, 'overridden', false);
+                const stage = select.dataset.stage;
+                const modelSelect = document.getElementById(`model_${stage}`);
+                if (selectedEngineData) {
+                    const defaultModel = selectedEngineData.stage_models[stage] || '';
+                    populateModelSelect(modelSelect, selectedEngineData.available_models, defaultModel);
+                    setBoolDataAttr(modelSelect, 'overridden', false);
+                } else {
+                    populateModelSelect(modelSelect, []);
+                    setBoolDataAttr(modelSelect, 'overridden', false);
+                }
+            });
+        });
+
+        // Global model change handler: sync per-stage models
+        globalModelSelect.addEventListener('change', (e) => {
+            const globalModel = e.target.value;
+            if (!globalModel) return;
+
+            document.querySelectorAll('.stage-model-select').forEach(select => {
+                // Only sync if the engine matches the global engine
+                const stage = select.dataset.stage;
+                const engineSelect = document.getElementById(`engine_${stage}`);
+                const isOverridden = getBoolDataAttr(select, 'overridden');
+                const effectiveEngine = (engineSelect.value || globalEngineSelect.value);
+                if (effectiveEngine === globalEngineSelect.value && !isOverridden) {
+                    select.value = globalModel;
+                }
+            });
+        });
+
+        // Initialize defaults from API (if provided)
+        if (config && config.default_engine) {
+            globalEngineSelect.value = config.default_engine;
+            globalEngineSelect.dispatchEvent(new Event('change'));
+        }
     }
     
-    // Collect per-stage engine overrides
+    // Collect per-stage overrides
     function collectStageOverrides() {
         const stages = {};
-        const grid = document.getElementById('stage-engines-grid');
+        const grid = document.getElementById('stage-config-grid');
         if (!grid) return stages;
         
-        const selects = grid.querySelectorAll('select');
-        for (const select of selects) {
-            const stageName = select.id.replace('engine_', '');
-            const value = select.value;
-            if (value) {
-                stages[stageName] = { executor: value };
+        const configurable_stages = [...new Set([...grid.querySelectorAll('select')].map(s => s.dataset.stage))];
+        
+        for (const stageName of configurable_stages) {
+            const engineValue = document.getElementById(`engine_${stageName}`).value;
+            const modelValue = document.getElementById(`model_${stageName}`).value;
+
+            const engineSelect = document.getElementById(`engine_${stageName}`);
+            const modelSelect = document.getElementById(`model_${stageName}`);
+            const engineOverridden = getBoolDataAttr(engineSelect, 'overridden');
+            const modelOverridden = getBoolDataAttr(modelSelect, 'overridden');
+
+            if (!engineOverridden && !modelOverridden) {
+                continue;
+            }
+
+            if (engineValue || modelValue) {
+                stages[stageName] = {};
+                if (engineOverridden && engineValue) stages[stageName].executor = engineValue;
+                if (modelOverridden && modelValue) stages[stageName].model = modelValue;
             }
         }
         
@@ -214,6 +414,7 @@
         const repo_path = document.getElementById('repo_path').value || null;
         const base_branch = document.getElementById('base_branch').value || null;
         const engine = document.getElementById('engine').value || null;
+        const model = document.getElementById('model').value || null;
         
         // Build config_overrides
         const config_overrides = {};
@@ -222,8 +423,13 @@
         if (engine) {
             config_overrides.engine = engine;
         }
+
+        // Global model override
+        if (model) {
+            config_overrides.model = model;
+        }
         
-        // Per-stage engine overrides
+        // Per-stage engine/model overrides
         const stages_config = collectStageOverrides();
         if (Object.keys(stages_config).length > 0) {
             config_overrides.stages = stages_config;

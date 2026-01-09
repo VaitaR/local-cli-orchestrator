@@ -14,7 +14,6 @@ from queue import Empty, Queue
 from typing import TYPE_CHECKING, Any
 
 import structlog
-import yaml
 
 from orx.infra.command import CommandRunner
 
@@ -289,15 +288,19 @@ class LocalWorker:
         if job.base_branch:
             cmd.extend(["--base-branch", job.base_branch])
 
+        base_dir = self._resolve_repo_path(job.repo_path)
+
         # Handle config overrides
-        temp_config_path = self._create_temp_config(job.config_overrides)
+        temp_config_path = self._create_temp_config(base_dir, job.config_overrides)
         if temp_config_path:
             cmd.extend(["--config", str(temp_config_path)])
-        elif job.config_overrides.get("engine"):
-            # Simple engine override via CLI flag
-            cmd.extend(["--engine", job.config_overrides["engine"]])
+        else:
+            # Simple overrides via CLI flags
+            if job.config_overrides.get("engine"):
+                cmd.extend(["--engine", job.config_overrides["engine"]])
+            if job.config_overrides.get("model"):
+                cmd.extend(["--model", job.config_overrides["model"]])
 
-        base_dir = self._resolve_repo_path(job.repo_path)
         runs_dir = base_dir / "runs"
         if self.config.runs_root.resolve() != runs_dir.resolve():
             self._log.warning(
@@ -404,7 +407,7 @@ class LocalWorker:
             for run_id in completed:
                 del self._active_jobs[run_id]
 
-    def _create_temp_config(self, overrides: dict[str, Any]) -> Path | None:
+    def _create_temp_config(self, base_dir: Path, overrides: dict[str, Any]) -> Path | None:
         """Create a temporary config file from overrides.
 
         Args:
@@ -424,29 +427,50 @@ class LocalWorker:
             # Simple engine override can be handled via CLI flag
             return None
 
-        # Build config structure
-        engine_type = overrides.get("engine", "codex")
-        config_data: dict[str, Any] = {
-            "version": "1.0",
-            "engine": {
-                "type": engine_type,
-            },
-            "stages": {},
-        }
+        from orx.config import EngineType, OrxConfig
 
-        # Add per-stage executor overrides
+        # Determine engine type based on overrides, then project defaults.
+        try:
+            base_cfg = OrxConfig.load(base_dir / "orx.yaml")
+        except Exception:
+            base_cfg = OrxConfig.default()
+
+        engine_override: EngineType | None = None
+        if overrides.get("engine"):
+            try:
+                engine_override = EngineType(overrides["engine"])
+            except Exception:
+                engine_override = None
+
+        cfg = base_cfg
+        cfg.apply_overrides(engine=engine_override, model=overrides.get("model"))
+
+        # Apply per-stage executor and model overrides
         for stage_name, stage_config in stages.items():
-            if isinstance(stage_config, dict) and stage_config.get("executor"):
-                config_data["stages"][stage_name] = {
-                    "executor": stage_config["executor"],
-                }
+            if not isinstance(stage_config, dict):
+                continue
+
+            stage_cfg = cfg.stages.get_stage_config(stage_name)
+            if stage_config.get("executor"):
+                try:
+                    stage_cfg.executor = EngineType(stage_config["executor"])
+                except Exception:
+                    stage_cfg.executor = None
+            if stage_config.get("model"):
+                stage_cfg.model = stage_config["model"]
 
         # Write to temp file
         fd, path = tempfile.mkstemp(suffix=".yaml", prefix="orx_dashboard_")
         try:
             with os.fdopen(fd, "w") as f:
-                yaml.dump(config_data, f, default_flow_style=False)
-            self._log.debug("Created temp config", path=path, config=config_data)
+                f.write(cfg.to_yaml())
+            self._log.debug(
+                "Created temp config",
+                path=path,
+                engine=cfg.engine.type.value,
+                model=cfg.engine.model,
+                stage_overrides=list(stages.keys()),
+            )
             return Path(path)
         except Exception as e:
             self._log.error("Failed to create temp config", error=str(e))
