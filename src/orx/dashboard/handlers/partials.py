@@ -44,23 +44,64 @@ def _build_metrics_context(
     stages: list[dict[str, Any]] = []
     for stage_metric in stage_metrics:
         stage_tokens = stage_metric.get("tokens")
+        error_info = stage_metric.get("error_info")
+        failure_msg = stage_metric.get("failure_message")
+
+        # Build error display
+        error_display = None
+        if error_info:
+            error_display = error_info.get("message", failure_msg)
+        elif failure_msg:
+            error_display = failure_msg
+
+        # Get model info with fallback
+        model = stage_metric.get("model")
+        executor = stage_metric.get("executor")
+        fallback_applied = stage_metric.get("fallback_applied", False)
+        original_model = stage_metric.get("original_model")
+
         stages.append(
             {
                 "name": stage_metric.get("stage", "unknown"),
+                "item_id": stage_metric.get("item_id"),
+                "attempt": stage_metric.get("attempt", 1),
                 "duration": float(stage_metric.get("duration_ms") or 0) / 1000.0,
                 "status": stage_metric.get("status", "unknown"),
                 "tokens": stage_tokens.get("total")
                 if isinstance(stage_tokens, dict)
                 else None,
+                "tokens_in": stage_tokens.get("input")
+                if isinstance(stage_tokens, dict)
+                else None,
+                "tokens_out": stage_tokens.get("output")
+                if isinstance(stage_tokens, dict)
+                else None,
+                "model": model,
+                "executor": executor,
+                "fallback_applied": fallback_applied,
+                "original_model": original_model,
+                "error": error_display,
+                "failure_category": stage_metric.get("failure_category"),
+                "llm_duration": float(stage_metric.get("llm_duration_ms") or 0) / 1000.0,
+                "gates": stage_metric.get("gates", []),
             }
         )
+
+    # Calculate total LLM time
+    total_llm_time = sum(s["llm_duration"] for s in stages)
 
     return {
         "tokens": tokens,
         "duration": float(duration_ms) / 1000.0,
+        "llm_duration": total_llm_time,
         "fix_loops": run_metrics.get("fix_attempts_total"),
         "model": run_metrics.get("model") or fallback_model,
+        "engine": run_metrics.get("engine") or fallback_model,
         "stages": stages,
+        "stages_failed": run_metrics.get("stages_failed", 0),
+        "items_total": run_metrics.get("items_total", 0),
+        "items_completed": run_metrics.get("items_completed", 0),
+        "items_failed": run_metrics.get("items_failed", 0),
     }
 
 

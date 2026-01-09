@@ -856,6 +856,7 @@ class Runner:
             StageResult from the stage execution.
         """
         ctx = self._get_stage_context(stage_name)
+        original_model = ctx.model_selector.model if ctx.model_selector else None
 
         if self.events:
             self.events.log("stage_start", stage=stage_name)
@@ -871,9 +872,10 @@ class Runner:
             self._record_stage_inputs(stage_name)
 
             # Time LLM call
-            timer.start_llm()
+            timer.start_llm(model=ctx.model_selector.model if ctx.model_selector else None)
             result = run_fn(ctx)
             # If stage failed, attempt model fallback and a single retry.
+            fallback_applied = False
             if result and not result.success:
                 try:
                     # Build a synthetic ExecResult from available agent logs so
@@ -899,9 +901,13 @@ class Runner:
                             original_model=(ctx.model_selector.model if ctx.model_selector else None),
                             fallback_model=new_selector.model,
                         )
+                        # Record fallback
+                        self.metrics.record_fallback(original_model, new_selector.model)
+                        fallback_applied = True
                         # Update the stage context model selector and retry once
                         ctx.model_selector = new_selector
                         # Retry the stage once
+                        timer.start_llm(model=new_selector.model)
                         result = run_fn(ctx)
                 except Exception as e:
                     logger.warning("Fallback attempt failed", error=str(e))
@@ -910,11 +916,21 @@ class Runner:
             # Record outputs and result
             self._record_stage_outputs(stage_name, result)
 
+            # Try to extract token usage from stage execution
+            self._record_tokens_from_stage(ctx, stage_name)
+
             if result.success:
                 self.metrics.record_success()
             else:
                 failure_cat = self._categorize_failure(result.message)
                 self.metrics.record_failure(failure_cat, result.message)
+                # Record detailed error info
+                self.metrics.record_error_info(
+                    category=failure_cat.value,
+                    message=result.message or "Unknown error",
+                    details=result.data or {},
+                    recoverable=fallback_applied,
+                )
 
         if self.events:
             self.events.log(
@@ -1011,6 +1027,43 @@ class Runner:
             return FailureCategory.EXECUTOR_ERROR
 
         return FailureCategory.UNKNOWN
+
+    def _record_tokens_from_stage(
+        self,
+        ctx: StageContext,
+        stage_name: str,
+    ) -> None:
+        """Try to extract and record token usage from stage execution.
+
+        Reads executor output logs and parses token usage.
+
+        Args:
+            ctx: Stage context.
+            stage_name: Stage name for log path lookup.
+        """
+        try:
+            stdout_path, stderr_path = ctx.paths.agent_log_paths(stage_name)
+            if not stdout_path.exists():
+                return
+
+            # Build a minimal ExecResult to use get_token_usage
+            from orx.executors.base import ExecResult
+
+            exec_result = ExecResult(
+                returncode=0,
+                stdout_path=stdout_path,
+                stderr_path=stderr_path,
+            )
+
+            tokens = exec_result.get_token_usage()
+            if tokens:
+                self.metrics.record_tokens(
+                    input=tokens.get("input", 0),
+                    output=tokens.get("output", 0),
+                    total=tokens.get("total", 0),
+                )
+        except Exception as e:
+            logger.debug("Failed to extract tokens from stage", error=str(e))
 
     def _run_plan(self, ctx: StageContext) -> StageResult:
         """Run the plan stage."""

@@ -1,25 +1,60 @@
 <div class="tab-content">
-{% set has_metrics_data = metrics and (metrics.tokens or metrics.duration or metrics.stages or metrics.fix_loops or metrics.model) %}
+{% set has_metrics_data = metrics and (metrics.tokens or metrics.duration or metrics.stages or metrics.fix_loops or metrics.model or metrics.engine) %}
 {% if has_metrics_data %}
 <div class="metrics-grid">
-    {% if metrics.tokens %}
-    <div class="metric-card">
-        <h4>🔤 Token Usage</h4>
-        <div class="metric-value">{{ "{:,}".format(metrics.tokens.total | default(0)) }}</div>
-        <div class="metric-breakdown">
-            <span>📥 Input: {{ "{:,}".format(metrics.tokens.input | default(0)) }}</span>
-            <span>📤 Output: {{ "{:,}".format(metrics.tokens.output | default(0)) }}</span>
+    {# Summary Cards Row #}
+    <div class="metrics-summary-row">
+        {% if metrics.duration %}
+        <div class="metric-card">
+            <h4>⏱️ Total Duration</h4>
+            <div class="metric-value">{{ metrics.duration | round(1) }}s</div>
+            {% if metrics.llm_duration %}
+            <div class="metric-breakdown">
+                <span>🧠 LLM: {{ metrics.llm_duration | round(1) }}s</span>
+            </div>
+            {% endif %}
         </div>
+        {% endif %}
+        
+        {% if metrics.tokens %}
+        <div class="metric-card">
+            <h4>🔤 Token Usage</h4>
+            <div class="metric-value">{{ "{:,}".format(metrics.tokens.total | default(0)) }}</div>
+            <div class="metric-breakdown">
+                <span>📥 {{ "{:,}".format(metrics.tokens.input | default(0)) }}</span>
+                <span>📤 {{ "{:,}".format(metrics.tokens.output | default(0)) }}</span>
+            </div>
+        </div>
+        {% endif %}
+        
+        {% if metrics.model or metrics.engine %}
+        <div class="metric-card">
+            <h4>🤖 Engine</h4>
+            <div class="metric-value small">{{ metrics.engine | default(metrics.model) }}</div>
+        </div>
+        {% endif %}
+        
+        {% if metrics.fix_loops %}
+        <div class="metric-card">
+            <h4>🔧 Fix Attempts</h4>
+            <div class="metric-value">{{ metrics.fix_loops }}</div>
+        </div>
+        {% endif %}
+        
+        {% if metrics.items_total %}
+        <div class="metric-card">
+            <h4>📦 Work Items</h4>
+            <div class="metric-value">{{ metrics.items_completed }}/{{ metrics.items_total }}</div>
+            {% if metrics.items_failed %}
+            <div class="metric-breakdown error">
+                <span>❌ {{ metrics.items_failed }} failed</span>
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
     </div>
-    {% endif %}
     
-    {% if metrics.duration %}
-    <div class="metric-card">
-        <h4>⏱️ Duration</h4>
-        <div class="metric-value">{{ metrics.duration | round(1) }}s</div>
-    </div>
-    {% endif %}
-    
+    {# Detailed Stage Breakdown #}
     {% if metrics.stages %}
     <div class="metric-card wide">
         <h4>📊 Stage Breakdown</h4>
@@ -27,23 +62,70 @@
             <thead>
                 <tr>
                     <th>Stage</th>
+                    <th>Model</th>
                     <th>Duration</th>
                     <th>Tokens</th>
                     <th>Status</th>
+                    <th>Details</th>
                 </tr>
             </thead>
             <tbody>
                 {% for stage in metrics.stages %}
-                <tr>
-                    <td>{{ stage.name }}</td>
-                    <td>{{ stage.duration | default('-') | round(1) }}s</td>
-                    <td>{{ stage.tokens | default('-') }}</td>
+                <tr class="{% if stage.status == 'fail' %}row-error{% endif %}">
+                    <td>
+                        <strong>{{ stage.name }}</strong>
+                        {% if stage.item_id %}
+                        <br><small class="text-muted">{{ stage.item_id }}{% if stage.attempt > 1 %} (attempt {{ stage.attempt }}){% endif %}</small>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if stage.model %}
+                        <span class="model-badge">{{ stage.model }}</span>
+                        {% elif stage.executor %}
+                        <span class="executor-badge">{{ stage.executor }}</span>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                        {% if stage.fallback_applied %}
+                        <br><small class="text-warning" title="Original: {{ stage.original_model }}">↩️ fallback</small>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {{ stage.duration | round(1) }}s
+                        {% if stage.llm_duration and stage.llm_duration != stage.duration %}
+                        <br><small class="text-muted">LLM: {{ stage.llm_duration | round(1) }}s</small>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if stage.tokens %}
+                        {{ "{:,}".format(stage.tokens) }}
+                        {% if stage.tokens_in or stage.tokens_out %}
+                        <br><small class="text-muted">↓{{ stage.tokens_in | default(0) }} ↑{{ stage.tokens_out | default(0) }}</small>
+                        {% endif %}
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
                     <td>
                         <span class="badge badge-{{ stage.status | default('unknown') }}">
-                            {% if stage.status == 'success' %}✓{% endif %}
-                            {% if stage.status == 'failed' %}✕{% endif %}
+                            {% if stage.status == 'success' %}✓{% elif stage.status == 'fail' %}✕{% endif %}
                             {{ stage.status | default('unknown') }}
                         </span>
+                    </td>
+                    <td class="details-cell">
+                        {% if stage.error %}
+                        <span class="error-message" title="{{ stage.error }}">
+                            ⚠️ {{ stage.error[:50] }}{% if stage.error|length > 50 %}...{% endif %}
+                        </span>
+                        {% elif stage.gates %}
+                        {% for gate in stage.gates %}
+                        <span class="gate-badge gate-{{ 'pass' if gate.passed else 'fail' }}" title="{{ gate.name }}: {{ gate.duration_ms }}ms">
+                            {{ gate.name }}{% if gate.passed %}✓{% else %}✕{% endif %}
+                        </span>
+                        {% endfor %}
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
                     </td>
                 </tr>
                 {% endfor %}
@@ -51,21 +133,73 @@
         </table>
     </div>
     {% endif %}
-    
-    {% if metrics.fix_loops %}
-    <div class="metric-card">
-        <h4>🔧 Fix Loops</h4>
-        <div class="metric-value">{{ metrics.fix_loops }}</div>
-    </div>
-    {% endif %}
-    
-    {% if metrics.model %}
-    <div class="metric-card">
-        <h4>🤖 Model</h4>
-        <div class="metric-value small">{{ metrics.model }}</div>
-    </div>
-    {% endif %}
 </div>
+
+<style>
+.metrics-summary-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+.metrics-summary-row .metric-card {
+    flex: 1;
+    min-width: 150px;
+}
+.metric-card.wide {
+    width: 100%;
+    flex-basis: 100%;
+}
+.model-badge {
+    background: #e3f2fd;
+    color: #1565c0;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.85em;
+    font-family: monospace;
+}
+.executor-badge {
+    background: #f3e5f5;
+    color: #7b1fa2;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.85em;
+}
+.gate-badge {
+    display: inline-block;
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 0.75em;
+    margin-right: 4px;
+}
+.gate-pass {
+    background: #c8e6c9;
+    color: #2e7d32;
+}
+.gate-fail {
+    background: #ffcdd2;
+    color: #c62828;
+}
+.row-error {
+    background: #fff3f3;
+}
+.error-message {
+    color: #c62828;
+    font-size: 0.85em;
+}
+.text-muted {
+    color: #999;
+}
+.text-warning {
+    color: #f57c00;
+}
+.metric-breakdown.error {
+    color: #c62828;
+}
+.details-cell {
+    max-width: 200px;
+}
+</style>
 {% else %}
 <div class="empty-state">
     <p>📊 No metrics available</p>

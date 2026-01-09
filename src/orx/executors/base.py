@@ -122,6 +122,119 @@ class ExecResult:
 
         return any(marker in stderr or marker in error_msg for marker in error_markers)
 
+    def get_token_usage(self) -> dict[str, int] | None:
+        """Extract token usage from execution result.
+
+        Parses stdout/extra for token usage information.
+        Supports both Codex and Gemini output formats.
+
+        Returns:
+            Dict with input, output, total tokens or None if not found.
+        """
+        # First check extra dict (Gemini JSON output)
+        if self.extra:
+            # Gemini format: usage.input_tokens, usage.output_tokens
+            usage = self.extra.get("usage", {})
+            if usage:
+                input_tokens = usage.get("input_tokens", 0) or usage.get("prompt_tokens", 0)
+                output_tokens = usage.get("output_tokens", 0) or usage.get("completion_tokens", 0)
+                if input_tokens or output_tokens:
+                    return {
+                        "input": input_tokens,
+                        "output": output_tokens,
+                        "total": input_tokens + output_tokens,
+                    }
+
+            # Alternative format in extra
+            if "tokens" in self.extra:
+                tokens = self.extra["tokens"]
+                if isinstance(tokens, dict):
+                    return {
+                        "input": tokens.get("input", 0),
+                        "output": tokens.get("output", 0),
+                        "total": tokens.get("total", 0),
+                    }
+
+        # Try parsing stdout for token info (Codex JSON format)
+        import json
+        import re
+
+        try:
+            stdout = self.read_stdout()
+            if not stdout:
+                return None
+
+            # Look for JSON with usage info
+            for line in stdout.splitlines():
+                line = line.strip()
+                if not line.startswith("{"):
+                    continue
+                try:
+                    data = json.loads(line)
+                    usage = data.get("usage", {})
+                    if usage:
+                        input_tokens = usage.get("input_tokens", 0) or usage.get("prompt_tokens", 0)
+                        output_tokens = usage.get("output_tokens", 0) or usage.get("completion_tokens", 0)
+                        if input_tokens or output_tokens:
+                            return {
+                                "input": input_tokens,
+                                "output": output_tokens,
+                                "total": input_tokens + output_tokens,
+                            }
+                except json.JSONDecodeError:
+                    continue
+
+            # Fallback: regex patterns for token counts in logs
+            patterns = [
+                r"input[_\s]?tokens?[:\s]+([\d,]+)",
+                r"prompt[_\s]?tokens?[:\s]+([\d,]+)",
+                r"output[_\s]?tokens?[:\s]+([\d,]+)",
+                r"completion[_\s]?tokens?[:\s]+([\d,]+)",
+                r"total[_\s]?tokens?[:\s]+([\d,]+)",
+            ]
+
+            tokens: dict[str, int] = {"input": 0, "output": 0, "total": 0}
+            for pattern in patterns:
+                match = re.search(pattern, stdout, re.IGNORECASE)
+                if match:
+                    value = int(match.group(1).replace(",", ""))
+                    if "input" in pattern or "prompt" in pattern:
+                        tokens["input"] = value
+                    elif "output" in pattern or "completion" in pattern:
+                        tokens["output"] = value
+                    elif "total" in pattern:
+                        tokens["total"] = value
+
+            if tokens["input"] or tokens["output"] or tokens["total"]:
+                if tokens["total"] == 0:
+                    tokens["total"] = tokens["input"] + tokens["output"]
+                return tokens
+
+        except Exception:
+            pass
+
+        return None
+
+    def get_model_used(self) -> str | None:
+        """Extract the model name actually used from execution result.
+
+        Returns:
+            Model name string or None if not found.
+        """
+        # Check invocation first
+        if self.invocation and self.invocation.model_info:
+            model = self.invocation.model_info.get("model")
+            if model:
+                return model
+
+        # Check extra dict
+        if self.extra:
+            model = self.extra.get("model") or self.extra.get("model_id")
+            if model:
+                return model
+
+        return None
+
 
 @runtime_checkable
 class Executor(Protocol):
