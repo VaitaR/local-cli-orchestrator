@@ -891,24 +891,47 @@ class Runner:
                         invocation=None,
                     )
 
-                    new_selector, applied = self.model_router.apply_fallback(
-                        stage_name, synthetic, ctx.model_selector
-                    )
-                    if applied:
+                    # Check if this is a transient error (429, capacity, timeout)
+                    # These should be retried with backoff before trying fallback
+                    if synthetic.is_transient_error():
+                        import time
+                        retry_after = synthetic.get_retry_after_seconds() or 30
+                        # Cap backoff at 120 seconds for stage retry
+                        backoff_seconds = min(retry_after, 120)
                         logger.info(
-                            "Applying model fallback and retrying stage",
+                            "Transient error detected, retrying with backoff",
                             stage=stage_name,
-                            original_model=(ctx.model_selector.model if ctx.model_selector else None),
-                            fallback_model=new_selector.model,
+                            backoff_seconds=backoff_seconds,
                         )
-                        # Record fallback
-                        self.metrics.record_fallback(original_model, new_selector.model)
-                        fallback_applied = True
-                        # Update the stage context model selector and retry once
-                        ctx.model_selector = new_selector
-                        # Retry the stage once
-                        timer.start_llm(model=new_selector.model)
+                        time.sleep(backoff_seconds)
+                        # Retry with same model first
+                        timer.start_llm(model=ctx.model_selector.model if ctx.model_selector else None)
                         result = run_fn(ctx)
+                        if result and result.success:
+                            # Transient retry succeeded, skip fallback
+                            fallback_applied = False
+                        # If still failed, continue to fallback logic below
+
+                    # Try model fallback if still failing
+                    if result and not result.success:
+                        new_selector, applied = self.model_router.apply_fallback(
+                            stage_name, synthetic, ctx.model_selector
+                        )
+                        if applied:
+                            logger.info(
+                                "Applying model fallback and retrying stage",
+                                stage=stage_name,
+                                original_model=(ctx.model_selector.model if ctx.model_selector else None),
+                                fallback_model=new_selector.model,
+                            )
+                            # Record fallback
+                            self.metrics.record_fallback(original_model, new_selector.model)
+                            fallback_applied = True
+                            # Update the stage context model selector and retry once
+                            ctx.model_selector = new_selector
+                            # Retry the stage once
+                            timer.start_llm(model=new_selector.model)
+                            result = run_fn(ctx)
                 except Exception as e:
                     logger.warning("Fallback attempt failed", error=str(e))
             timer.end_llm()

@@ -122,6 +122,85 @@ class ExecResult:
 
         return any(marker in stderr or marker in error_msg for marker in error_markers)
 
+    def is_transient_error(self) -> bool:
+        """Check if this is a transient error that should be retried with backoff.
+
+        Transient errors include:
+        - Rate limits (429, "too many requests")
+        - Capacity exhausted (MODEL_CAPACITY_EXHAUSTED)
+        - Temporary server errors (5xx)
+        - Timeout errors
+
+        Returns:
+            True if error is likely transient and retry may succeed.
+        """
+        if not self.failed:
+            return False
+
+        transient_markers = [
+            # Rate limiting
+            "429",
+            "too many requests",
+            "rate limit",
+            "ratelimitexceeded",
+            # Capacity
+            "capacity",
+            "model_capacity_exhausted",
+            "resource_exhausted",
+            "no capacity available",
+            # Server errors
+            "500",
+            "502",
+            "503",
+            "504",
+            "internal server error",
+            "service unavailable",
+            "bad gateway",
+            # Timeout
+            "timeout",
+            "timed out",
+            "deadline exceeded",
+            # Connection
+            "connection reset",
+            "connection refused",
+            "network error",
+        ]
+        stderr = self.read_stderr().lower()
+        error_msg = self.error_message.lower()
+        combined = stderr + " " + error_msg
+
+        return any(marker in combined for marker in transient_markers)
+
+    def get_retry_after_seconds(self) -> int | None:
+        """Extract retry-after hint from error response if present.
+
+        Returns:
+            Suggested wait time in seconds, or None if not found.
+        """
+        import re
+
+        stderr = self.read_stderr()
+        # Look for patterns like "retry after 60s", "wait 30 seconds", "4h23m31s"
+        patterns = [
+            r"retry[\s-]*after[:\s]*(\d+)\s*s",
+            r"wait[:\s]*(\d+)\s*second",
+            r"reset after (\d+)h?(\d+)?m?(\d+)?s?",
+            r"quota will reset after (\d+)h",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, stderr, re.IGNORECASE)
+            if match:
+                groups = match.groups()
+                if len(groups) >= 3 and groups[0] and groups[1]:
+                    # Hours + minutes format
+                    hours = int(groups[0]) if groups[0] else 0
+                    minutes = int(groups[1]) if groups[1] else 0
+                    seconds = int(groups[2]) if len(groups) > 2 and groups[2] else 0
+                    return hours * 3600 + minutes * 60 + seconds
+                elif groups[0]:
+                    return int(groups[0])
+        return None
+
     def get_token_usage(self) -> dict[str, int] | None:
         """Extract token usage from execution result.
 

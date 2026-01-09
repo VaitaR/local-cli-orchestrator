@@ -22,6 +22,10 @@ class MetricsWriter:
     - runs/<id>/metrics/stages.jsonl - One line per stage attempt
     - runs/<id>/metrics/run.json - Aggregated run metrics
 
+    ROBUSTNESS: All write operations are wrapped in try/except to ensure
+    partial failures don't prevent other metrics from being written.
+    The stages.jsonl file is flushed after each write to minimize data loss.
+
     Example:
         >>> writer = MetricsWriter(paths)
         >>> writer.write_stage(stage_metrics)
@@ -61,52 +65,99 @@ class MetricsWriter:
         """Write a single stage metrics record.
 
         Appends to stages.jsonl (one JSON object per line).
+        Uses explicit flush to ensure data is written immediately.
 
         Args:
             metrics: StageMetrics to write.
         """
-        self._ensure_dir()
+        try:
+            self._ensure_dir()
 
-        with self.stages_jsonl.open("a") as f:
-            f.write(json.dumps(metrics.to_dict()) + "\n")
+            with self.stages_jsonl.open("a") as f:
+                f.write(json.dumps(metrics.to_dict()) + "\n")
+                f.flush()
 
-        self._log.debug(
-            "Wrote stage metrics",
-            stage=metrics.stage,
-            attempt=metrics.attempt,
-        )
+            self._log.debug(
+                "Wrote stage metrics",
+                stage=metrics.stage,
+                attempt=metrics.attempt,
+            )
+        except Exception as e:
+            self._log.error(
+                "Failed to write stage metrics",
+                stage=metrics.stage,
+                error=str(e),
+            )
 
     def write_stages(self, metrics_list: list[StageMetrics]) -> None:
         """Write multiple stage metrics records.
 
+        Writes each record individually with error handling to ensure
+        partial failures don't prevent other metrics from being saved.
+
         Args:
             metrics_list: List of StageMetrics to write.
         """
-        self._ensure_dir()
+        if not metrics_list:
+            return
 
-        with self.stages_jsonl.open("a") as f:
-            for metrics in metrics_list:
-                f.write(json.dumps(metrics.to_dict()) + "\n")
+        written = 0
+        errors = 0
 
-        self._log.debug("Wrote stage metrics", count=len(metrics_list))
+        try:
+            self._ensure_dir()
+
+            with self.stages_jsonl.open("a") as f:
+                for metrics in metrics_list:
+                    try:
+                        f.write(json.dumps(metrics.to_dict()) + "\n")
+                        written += 1
+                    except Exception as e:
+                        errors += 1
+                        self._log.warning(
+                            "Failed to serialize stage metrics",
+                            stage=metrics.stage,
+                            error=str(e),
+                        )
+                f.flush()
+
+            self._log.debug(
+                "Wrote stage metrics",
+                count=written,
+                errors=errors,
+            )
+        except Exception as e:
+            self._log.error(
+                "Failed to write stages.jsonl",
+                error=str(e),
+                metrics_count=len(metrics_list),
+            )
 
     def write_run(self, metrics: RunMetrics) -> None:
         """Write run-level metrics.
 
         Writes to run.json (overwrites if exists).
+        Failures are logged but don't raise exceptions.
 
         Args:
             metrics: RunMetrics to write.
         """
-        self._ensure_dir()
+        try:
+            self._ensure_dir()
 
-        self.run_json.write_text(json.dumps(metrics.to_dict(), indent=2))
+            self.run_json.write_text(json.dumps(metrics.to_dict(), indent=2))
 
-        self._log.debug(
-            "Wrote run metrics",
-            status=metrics.final_status.value,
-            duration_ms=metrics.total_duration_ms,
-        )
+            self._log.debug(
+                "Wrote run metrics",
+                status=metrics.final_status.value,
+                duration_ms=metrics.total_duration_ms,
+            )
+        except Exception as e:
+            self._log.error(
+                "Failed to write run.json",
+                run_id=self.paths.run_id,
+                error=str(e),
+            )
 
     def read_stages(self) -> list[StageMetrics]:
         """Read all stage metrics from stages.jsonl.
