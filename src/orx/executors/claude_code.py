@@ -139,6 +139,12 @@ class ClaudeCodeExecutor(BaseExecutor):
         if resolved["model"]:
             cmd.extend(["--model", resolved["model"]])
 
+        # Prompt from file (read content and pass as argument)
+        # Claude Code expects prompt as positional argument BEFORE other options
+        # NOTE: Must come before --add-dir to avoid parsing issues
+        prompt_content = prompt_path.read_text() if prompt_path.exists() else ""
+        cmd.append(prompt_content)
+
         # Tool permissions based on mode
         if text_only:
             # Read-only mode: restrict to safe tools
@@ -164,11 +170,6 @@ class ClaudeCodeExecutor(BaseExecutor):
 
         # Additional args from config
         cmd.extend(self.extra_args)
-
-        # Prompt from file (read content and pass as argument)
-        # Claude Code expects prompt as positional argument, not file reference
-        prompt_content = prompt_path.read_text() if prompt_path.exists() else ""
-        cmd.append(prompt_content)
 
         return cmd, resolved
 
@@ -333,34 +334,30 @@ class ClaudeCodeExecutor(BaseExecutor):
         Returns:
             ExecResult with execution status.
         """
-        cmd, resolved = self._build_command(
+        # Resolve invocation (includes command, artifacts, model_info)
+        invocation = self.resolve_invocation(
             prompt_path=prompt_path,
             cwd=cwd,
-            model_selector=model_selector,
+            logs=logs,
             out_path=out_path,
+            model_selector=model_selector,
             text_only=True,
         )
+        cmd = invocation.cmd
+        resolved = invocation.model_info
 
         logger.info(
             "Running Claude Code (text mode)",
-            model=resolved["model"],
+            model=resolved.get("model"),
             cwd=str(cwd),
             tools=self.TEXT_MODE_TOOLS,
         )
 
-        if self.dry_run:
-            logger.info("Dry run - skipping execution", cmd=cmd[:5])
-            out_path.write_text("(dry run output)")
-            return ExecResult(
-                returncode=0,
-                stdout_path=logs.stdout,
-                stderr_path=logs.stderr,
-                success=True,
-            )
-
         # Use provided timeout if set, otherwise default to 10 minutes
         text_timeout = timeout or 600
-        result = self.cmd.run(
+
+        # Execute command (CommandRunner handles dry_run internally)
+        cmd_result = self.cmd.run(
             cmd,
             cwd=cwd,
             stdout_path=logs.stdout,
@@ -370,23 +367,30 @@ class ClaudeCodeExecutor(BaseExecutor):
 
         # Parse JSON output and extract text
         text, extra = self._parse_output(logs.stdout)
-        self._check_result_errors(result, extra)
+        # Convert cmd_result to ExecResult-like check by passing to checker
+        self._check_result_errors(self._create_result(returncode=cmd_result.returncode, logs=logs, extra=extra, success=(cmd_result.returncode == 0), invocation=invocation), extra)
 
         # Write extracted text to output file
         out_path.write_text(text)
 
-        # Attach extra metadata to result
-        result.extra = extra
+        # Build ExecResult from CommandResult
+        exec_result = self._create_result(
+            returncode=cmd_result.returncode,
+            logs=logs,
+            extra=extra,
+            success=(cmd_result.returncode == 0),
+            invocation=invocation,
+        )
 
         logger.info(
             "Claude Code text mode completed",
-            success=result.success,
-            returncode=result.returncode,
+            success=exec_result.success,
+            returncode=exec_result.returncode,
             cost_usd=extra.get("cost_usd"),
             num_turns=extra.get("num_turns"),
         )
 
-        return result
+        return exec_result
 
     def run_apply(
         self,
@@ -414,32 +418,29 @@ class ClaudeCodeExecutor(BaseExecutor):
         Returns:
             ExecResult with execution status.
         """
-        cmd, resolved = self._build_command(
+        # Resolve invocation (includes command, artifacts, model_info)
+        invocation = self.resolve_invocation(
             prompt_path=prompt_path,
             cwd=cwd,
+            logs=logs,
             model_selector=model_selector,
             text_only=False,
         )
+        cmd = invocation.cmd
+        resolved = invocation.model_info
 
         logger.info(
             "Running Claude Code (apply mode)",
-            model=resolved["model"],
+            model=resolved.get("model"),
             cwd=str(cwd),
             permissions="dangerously-skip-permissions",
         )
 
-        if self.dry_run:
-            logger.info("Dry run - skipping execution", cmd=cmd[:5])
-            return ExecResult(
-                returncode=0,
-                stdout_path=logs.stdout,
-                stderr_path=logs.stderr,
-                success=True,
-            )
-
         # Use provided timeout if set, otherwise default to 30 minutes
         apply_timeout = timeout or 1800
-        result = self.cmd.run(
+
+        # Execute command (CommandRunner handles dry_run internally)
+        cmd_result = self.cmd.run(
             cmd,
             cwd=cwd,
             stdout_path=logs.stdout,
@@ -449,17 +450,24 @@ class ClaudeCodeExecutor(BaseExecutor):
 
         # Parse output for metadata
         text, extra = self._parse_output(logs.stdout)
-        self._check_result_errors(result, extra)
+        # Check for Claude-specific errors
+        self._check_result_errors(self._create_result(returncode=cmd_result.returncode, logs=logs, extra=extra, success=(cmd_result.returncode == 0), invocation=invocation), extra)
 
-        # Attach extra metadata
-        result.extra = extra
+        # Build ExecResult from CommandResult
+        exec_result = self._create_result(
+            returncode=cmd_result.returncode,
+            logs=logs,
+            extra=extra,
+            success=(cmd_result.returncode == 0),
+            invocation=invocation,
+        )
 
         logger.info(
             "Claude Code apply mode completed",
-            success=result.success,
-            returncode=result.returncode,
+            success=exec_result.success,
+            returncode=exec_result.returncode,
             cost_usd=extra.get("cost_usd"),
             num_turns=extra.get("num_turns"),
         )
 
-        return result
+        return exec_result

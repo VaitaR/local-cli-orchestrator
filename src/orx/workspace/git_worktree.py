@@ -82,7 +82,14 @@ class WorkspaceGitWorktree:
             msg = f"Failed to resolve base branch '{base_branch}': {stderr}"
             raise WorkspaceError(msg, operation="create", path=self.worktree_path)
 
-        self._baseline_sha = stdout.strip()
+        # In dry-run mode CommandRunner.run_git returns (0, "", "") and
+        # does not actually create worktrees. Provide a sensible placeholder
+        # baseline SHA and create the worktree directory so subsequent
+        # operations that check for existence don't fail in dry-run.
+        if getattr(self.cmd, "dry_run", False):
+            self._baseline_sha = "dry-run"
+        else:
+            self._baseline_sha = stdout.strip()
 
         # Create the worktree
         # Use a detached HEAD to avoid branch conflicts
@@ -95,6 +102,10 @@ class WorkspaceGitWorktree:
         if returncode != 0:
             msg = f"Failed to create worktree: {stderr}"
             raise WorkspaceError(msg, operation="create", path=self.worktree_path)
+
+        # If dry-run, the git command was skipped; ensure directory exists
+        if getattr(self.cmd, "dry_run", False) and not self.worktree_path.exists():
+            self.worktree_path.mkdir(parents=True, exist_ok=True)
 
         log.info("Worktree created", baseline_sha=self._baseline_sha)
         return self.worktree_path
