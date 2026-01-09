@@ -567,11 +567,13 @@ class OrxConfig(BaseModel):
         if reasoning_effort is not None:
             self.engine.reasoning_effort = reasoning_effort
             self.executors.codex.default.reasoning_effort = reasoning_effort
+            # Apply to all stages so ModelRouter picks it up
+            for stage in StageName:
+                stage_cfg = self.stages.get_stage_config(stage.value)
+                stage_cfg.reasoning_effort = reasoning_effort
 
         if thinking_budget is not None:
-            # Store thinking_budget in engine config for access by GeminiExecutor
-            # Note: EngineConfig doesn't have thinking_budget field yet
-            # We can pass it through extra_args or via stages config
+            # Apply thinking_budget to all stages for ModelRouter
             for stage in StageName:
                 stage_cfg = self.stages.get_stage_config(stage.value)
                 stage_cfg.thinking_budget = thinking_budget

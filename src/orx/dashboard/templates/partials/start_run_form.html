@@ -70,7 +70,7 @@
                    placeholder="Default"
                    style="width: 80px;">
         </div>
-        <small>Tokens for model thinking (0 = disabled, blank = default)</small>
+        <small style="color: #888;">⚠️ Note: Thinking budget requires modelConfigs in Gemini settings.json</small>
     </div>
     
     <details class="form-group" id="per-stage-config">
@@ -191,6 +191,15 @@
                 opt.selected = true;
             }
             select.appendChild(opt);
+        }
+        
+        // Debug: log first model's capabilities
+        if (models.length > 0 && typeof models[0] === 'object') {
+            console.log('Model capabilities loaded:', {
+                id: models[0].id,
+                supports_reasoning: models[0].supports_reasoning,
+                supports_thinking_budget: models[0].supports_thinking_budget
+            });
         }
     }
 
@@ -445,6 +454,11 @@
             if (availableModels.length > 0) {
                 globalModelGroup.style.display = 'block';
                 populateModelSelect(globalModelSelect, availableModels);
+                
+                // Trigger capability controls update if a model is already selected
+                if (globalModelSelect.value) {
+                    updateModelCapabilityControls(globalModelSelect, globalEngine);
+                }
             } else {
                 globalModelGroup.style.display = 'none';
                 globalModelSelect.value = '';

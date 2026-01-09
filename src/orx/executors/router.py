@@ -277,6 +277,8 @@ class ModelRouter:
         # Stage-level flags apply regardless of how model/profile was resolved.
         if stage_cfg.reasoning_effort:
             selector.reasoning_effort = stage_cfg.reasoning_effort
+        if stage_cfg.thinking_budget is not None:
+            selector.thinking_budget = stage_cfg.thinking_budget
         if stage_cfg.web_search:
             selector.web_search = True
 
