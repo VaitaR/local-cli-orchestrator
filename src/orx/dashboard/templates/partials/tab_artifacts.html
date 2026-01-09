@@ -1,31 +1,68 @@
 <div class="tab-content">
     {% if artifacts %}
-    <div class="card">
-        <div class="card-header">
-            <h3>📁 Generated Artifacts</h3>
-            <span class="badge badge-info">{{ artifacts | length }} files</span>
-        </div>
-        <div class="card-body">
-            <div class="artifacts-list">
+    <div class="artifacts-layout">
+        {# File Explorer Sidebar #}
+        <div class="artifacts-sidebar">
+            <div class="artifacts-header">
+                <h3>📁 Files</h3>
+                <span class="badge badge-info">{{ artifacts | length }}</span>
+            </div>
+            <div class="artifacts-search">
+                <input
+                    type="text"
+                    id="artifact-search"
+                    class="search-input"
+                    placeholder="Search files..."
+                    autocomplete="off"
+                >
+            </div>
+            <div class="artifacts-list" id="artifacts-list">
                 {% for artifact in artifacts %}
-                <div class="artifact-item"
+                <div class="artifact-item {% if loop.first %}active{% endif %}"
                      hx-get="/partials/artifact/{{ run_id }}?path={{ artifact.path | urlencode }}"
-                     hx-target="#artifact-preview"
-                     hx-swap="innerHTML">
-                    <div class="artifact-name">
-                        <span class="artifact-icon">📄</span>
-                        <span>{{ artifact.name }}</span>
+                     hx-target="#artifact-preview-content"
+                     hx-swap="innerHTML"
+                     hx-indicator=".artifact-loading">
+                    <div class="artifact-info">
+                        <span class="artifact-icon">{{ artifact.icon | default('📄') }}</span>
+                        <div class="artifact-details">
+                            <span class="artifact-name">{{ artifact.name }}</span>
+                            <span class="artifact-meta">{{ (artifact.size_bytes / 1024) | round(1) }} KB</span>
+                        </div>
                     </div>
-                    <span class="artifact-size">{{ (artifact.size_bytes / 1024) | round(1) }} KB</span>
                 </div>
                 {% endfor %}
             </div>
         </div>
-    </div>
-    
-    <div id="artifact-preview" class="artifact-preview">
-        <div class="empty-state">
-            <p>👆 Select an artifact to preview</p>
+
+        {# Code Preview Panel #}
+        <div class="artifacts-preview">
+            <div class="preview-header">
+                <div class="preview-title">
+                    <span class="preview-icon">📄</span>
+                    <span class="preview-filename">{{ artifacts[0].name if artifacts else 'Select a file' }}</span>
+                </div>
+                <div class="preview-actions">
+                    <button class="btn btn-sm btn-secondary" onclick="copyArtifactContent()" title="Copy to clipboard">
+                        📋 Copy
+                    </button>
+                </div>
+            </div>
+            <div class="artifact-loading"></div>
+            <div id="artifact-preview-content" class="preview-content">
+                {% if artifacts[0].path %}
+                <iframe
+                    hx-get="/partials/artifact/{{ run_id }}?path={{ artifacts[0].path | urlencode }}"
+                    hx-swap="none"
+                    hx-trigger="load"
+                    style="display:none;">
+                </iframe>
+                {% else %}
+                <div class="empty-state">
+                    <p>Select a file to preview</p>
+                </div>
+                {% endif %}
+            </div>
         </div>
     </div>
     {% else %}
@@ -35,3 +72,121 @@
     </div>
     {% endif %}
 </div>
+
+<script>
+function copyArtifactContent() {
+    const codeElement = document.querySelector('#artifact-preview-content code');
+    if (!codeElement) return;
+
+    const text = codeElement.innerText || codeElement.textContent;
+
+    // Try modern Clipboard API first
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+            showCopyFeedback();
+        }).catch(() => {
+            // Fallback to execCommand if modern API fails
+            fallbackCopy(text);
+        });
+    } else {
+        // Fallback for older browsers
+        fallbackCopy(text);
+    }
+}
+
+function fallbackCopy(text) {
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    textArea.style.position = 'fixed';
+    textArea.style.top = '-9999px';
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+
+    try {
+        document.execCommand('copy');
+        showCopyFeedback();
+    } catch (err) {
+        console.error('Failed to copy:', err);
+    }
+
+    document.body.removeChild(textArea);
+}
+
+function showCopyFeedback() {
+    const btn = document.querySelector('.preview-actions .btn');
+    if (!btn) return;
+
+    const originalHTML = btn.innerHTML;
+    btn.innerHTML = '✓ Copied!';
+    btn.style.background = 'var(--success)';
+    btn.style.color = 'white';
+
+    setTimeout(() => {
+        btn.innerHTML = originalHTML;
+        btn.style.background = '';
+        btn.style.color = '';
+    }, 2000);
+}
+
+// Debounced search functionality for artifacts
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('artifact-search');
+    const artifactsList = document.getElementById('artifacts-list');
+    if (!searchInput || !artifactsList) return;
+
+    let searchTimeout;
+
+    searchInput.addEventListener('input', function() {
+        clearTimeout(searchTimeout);
+
+        searchTimeout = setTimeout(function() {
+            const searchTerm = searchInput.value.toLowerCase().trim();
+            const artifactItems = artifactsList.querySelectorAll('.artifact-item');
+            let visibleCount = 0;
+
+            artifactItems.forEach(function(item) {
+                const nameElement = item.querySelector('.artifact-name');
+                if (!nameElement) return;
+
+                const name = nameElement.textContent.toLowerCase();
+                const path = nameElement.getAttribute('data-path') || '';
+                const extension = name.split('.').pop().toLowerCase();
+
+                const matchesSearch = name.includes(searchTerm) ||
+                                     path.includes(searchTerm) ||
+                                     extension.includes(searchTerm);
+
+                if (matchesSearch || searchTerm === '') {
+                    item.style.display = '';
+                    visibleCount++;
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+
+            // Show "no results" message if needed
+            let noResultsMsg = artifactsList.querySelector('.no-artifacts-message');
+            if (visibleCount === 0 && searchTerm !== '') {
+                if (!noResultsMsg) {
+                    noResultsMsg = document.createElement('div');
+                    noResultsMsg.className = 'no-artifacts-message';
+                    noResultsMsg.innerHTML = '<p>No artifacts found</p>';
+                    artifactsList.appendChild(noResultsMsg);
+                }
+            } else if (noResultsMsg) {
+                noResultsMsg.remove();
+            }
+        }, 150);
+    });
+
+    // Clear search on Escape key
+    searchInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            searchInput.value = '';
+            searchInput.dispatchEvent(new Event('input'));
+            searchInput.blur();
+        }
+    });
+});
+</script>

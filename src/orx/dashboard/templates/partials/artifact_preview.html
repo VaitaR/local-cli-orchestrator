@@ -1,4 +1,23 @@
-<div class="preview-header">
-    <span class="preview-path">{{ path }}</span>
+<div class="code-toolbar">
+    <div class="toolbar-info">
+        {% if language %}
+        <span class="language-badge">{{ language }}</span>
+        {% else %}
+        <span class="language-badge">text</span>
+        {% endif %}
+        {% if line_count %}
+        <span class="line-count">{{ line_count }} lines</span>
+        {% endif %}
+    </div>
 </div>
-<pre class="code-block">{{ content }}</pre>
+
+{% if is_binary %}
+<div class="empty-state">
+    <p>Binary file - preview not available</p>
+    <small>{{ path }} ({{ size_bytes }} bytes)</small>
+</div>
+{% elif language %}
+<pre class="artifact-code line-numbers" data-start="1"><code class="language-{{ language }}">{{ content }}</code></pre>
+{% else %}
+<pre class="artifact-code"><code class="language-plaintext">{{ content }}</code></pre>
+{% endif %}
