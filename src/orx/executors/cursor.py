@@ -10,7 +10,7 @@ import structlog
 
 from orx.exceptions import ExecutorError
 from orx.executors.base import BaseExecutor, ExecResult, LogPaths, ResolvedInvocation
-from orx.infra.command import CommandRunner
+from orx.infra.command import CommandResult, CommandRunner
 
 if TYPE_CHECKING:
     from orx.config import ModelSelector
@@ -254,7 +254,7 @@ class CursorExecutor(BaseExecutor):
         # Fallback: return raw content
         return content, {}
 
-    def _check_result_errors(self, _result: ExecResult, extra: dict[str, Any]) -> None:
+    def _check_result_errors(self, _result: CommandResult | ExecResult, extra: dict[str, Any]) -> None:
         """Check for Cursor-specific errors in the result.
 
         Args:
@@ -338,7 +338,7 @@ class CursorExecutor(BaseExecutor):
 
         # Use provided timeout if set, otherwise default to 10 minutes
         text_timeout = timeout or 600
-        result = self.cmd.run(
+        cmd_result = self.cmd.run(
             cmd,
             cwd=cwd,
             stdout_path=logs.stdout,
@@ -349,13 +349,20 @@ class CursorExecutor(BaseExecutor):
 
         # Parse JSON output and extract text
         text, extra = self._parse_output(logs.stdout)
-        self._check_result_errors(result, extra)
+        self._check_result_errors(cmd_result, extra)
 
         # Write extracted text to output file
         out_path.write_text(text)
 
-        # Attach extra metadata to result
-        result.extra = extra
+        # Create ExecResult from CommandResult
+        success = cmd_result.returncode == 0
+        result = ExecResult(
+            returncode=cmd_result.returncode,
+            stdout_path=logs.stdout,
+            stderr_path=logs.stderr,
+            extra=extra,
+            success=success,
+        )
 
         logger.info(
             "Cursor CLI text mode completed",
@@ -415,7 +422,7 @@ class CursorExecutor(BaseExecutor):
 
         # Use provided timeout if set, otherwise default to 30 minutes
         apply_timeout = timeout or 1800
-        result = self.cmd.run(
+        cmd_result = self.cmd.run(
             cmd,
             cwd=cwd,
             stdout_path=logs.stdout,
@@ -426,10 +433,17 @@ class CursorExecutor(BaseExecutor):
 
         # Parse output for metadata
         text, extra = self._parse_output(logs.stdout)
-        self._check_result_errors(result, extra)
+        self._check_result_errors(cmd_result, extra)
 
-        # Attach extra metadata
-        result.extra = extra
+        # Create ExecResult from CommandResult
+        success = cmd_result.returncode == 0
+        result = ExecResult(
+            returncode=cmd_result.returncode,
+            stdout_path=logs.stdout,
+            stderr_path=logs.stderr,
+            extra=extra,
+            success=success,
+        )
 
         logger.info(
             "Cursor CLI apply mode completed",
