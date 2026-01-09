@@ -259,10 +259,19 @@ class WorkspaceGitWorktree:
         # Build diff command with exclusions
         diff_cmd = ["git", "diff", "--cached", "--patch", "--no-color"]
 
-        # Add exclusions using git pathspec syntax
+        # ORX internal artifacts that should never count as repo changes.
+        # These are copied into the worktree for sandboxed executors.
+        internal_excludes = [".orx-prompts", ".orx-prompts/**"]
+
+        patterns: list[str] = []
         if exclude_patterns:
+            patterns.extend(exclude_patterns)
+        patterns.extend(internal_excludes)
+
+        # Add exclusions using git pathspec syntax
+        if patterns:
             diff_cmd.append("--")
-            for pattern in exclude_patterns:
+            for pattern in patterns:
                 diff_cmd.append(f":(exclude){pattern}")
 
         # Run git diff against HEAD with patch format (shows staged changes)
@@ -302,7 +311,13 @@ class WorkspaceGitWorktree:
             check=False,
         )
 
-        return returncode == 0 and not stdout.strip() and not untracked.strip()
+        filtered = [
+            line
+            for line in untracked.splitlines()
+            if line.strip() and not self._is_orx_internal_status_line(line)
+        ]
+
+        return returncode == 0 and not stdout.strip() and not filtered
 
     def get_changed_files(self) -> list[str]:
         """Get a list of changed files.
@@ -318,7 +333,11 @@ class WorkspaceGitWorktree:
             cwd=self.worktree_path,
             check=False,
         )
-        files.extend(line for line in stdout.strip().split("\n") if line)
+        files.extend(
+            line
+            for line in stdout.strip().split("\n")
+            if line and not self._is_orx_internal_path(line)
+        )
 
         # Get untracked files
         _, stdout, _ = self.cmd.run_git(
@@ -328,7 +347,9 @@ class WorkspaceGitWorktree:
         )
         for line in stdout.strip().split("\n"):
             if line.startswith("??"):
-                files.append(line[3:].strip())
+                path = line[3:].strip()
+                if not self._is_orx_internal_path(path):
+                    files.append(path)
 
         return files
 
@@ -350,6 +371,13 @@ class WorkspaceGitWorktree:
         # Stage all changes
         self.cmd.run_git(["add", "-A"], cwd=self.worktree_path, check=True)
 
+        # Ensure ORX internal artifacts are never committed.
+        self.cmd.run_git(
+            ["reset", "-q", "--", ".orx-prompts"],
+            cwd=self.worktree_path,
+            check=False,
+        )
+
         # Check if there's anything to commit
         returncode, stdout, _ = self.cmd.run_git(
             ["status", "--porcelain"],
@@ -357,7 +385,7 @@ class WorkspaceGitWorktree:
             check=False,
         )
 
-        if not stdout.strip():
+        if not self._status_has_non_internal_changes(stdout):
             log.warning("Nothing to commit")
             return self.baseline_sha()
 
@@ -381,6 +409,25 @@ class WorkspaceGitWorktree:
 
         log.info("Changes committed", sha=sha.strip()[:8])
         return sha.strip()
+
+    def _is_orx_internal_path(self, path: str) -> bool:
+        return path == ".orx-prompts" or path.startswith(".orx-prompts/")
+
+    def _is_orx_internal_status_line(self, line: str) -> bool:
+        if len(line) < 4:
+            return False
+        # Porcelain format: XY<space>path
+        path = line[3:].strip()
+        return self._is_orx_internal_path(path)
+
+    def _status_has_non_internal_changes(self, porcelain: str) -> bool:
+        for line in porcelain.splitlines():
+            if not line.strip():
+                continue
+            if self._is_orx_internal_status_line(line):
+                continue
+            return True
+        return False
 
     def push(self, remote: str, branch: str) -> None:
         """Push to remote.

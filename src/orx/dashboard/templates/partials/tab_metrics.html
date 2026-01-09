@@ -1,5 +1,6 @@
 <div class="tab-content">
-{% if metrics %}
+{% set has_metrics_data = metrics and (metrics.tokens or metrics.duration or metrics.stages or metrics.fix_loops or metrics.model) %}
+{% if has_metrics_data %}
 <div class="metrics-grid">
     {% if metrics.tokens %}
     <div class="metric-card">
@@ -68,7 +69,7 @@
 {% else %}
 <div class="empty-state">
     <p>📊 No metrics available</p>
-    <small>Metrics will appear once the run completes</small>
+    <small>Metrics will appear as the run progresses</small>
 </div>
 {% endif %}
 </div>

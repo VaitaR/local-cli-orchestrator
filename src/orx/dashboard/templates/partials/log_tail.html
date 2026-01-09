@@ -1,14 +1,14 @@
 <pre class="log-content">{{ content }}</pre>
 
 {% if has_more %}
-<div hx-get="/partials/log-tail/{{ run_id }}?cursor={{ next_cursor }}"
-     hx-trigger="revealed, every 2s"
+<div hx-get="/partials/log-tail/{{ run_id }}?name={{ log_name }}&cursor={{ next_cursor }}&lines={{ lines }}"
+     hx-trigger="revealed"
      hx-swap="outerHTML"
      hx-target="this">
 </div>
 {% elif is_running %}
-<div hx-get="/partials/log-tail/{{ run_id }}?cursor={{ next_cursor }}"
-     hx-trigger="every 2s"
+<div hx-get="/partials/log-tail/{{ run_id }}?name={{ log_name }}&cursor={{ next_cursor }}&lines={{ lines }}"
+     hx-trigger="every {{ poll_interval }}s"
      hx-swap="outerHTML"
      hx-target="this">
     <span class="log-waiting">Waiting for more output...</span>

@@ -2,12 +2,66 @@
 
 from __future__ import annotations
 
-from typing import cast
+from typing import Any, cast
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse
 
 router = APIRouter(tags=["partials"])
+
+
+def _build_metrics_context(
+    *,
+    run_metrics: dict[str, Any],
+    stage_metrics: list[dict[str, Any]],
+    fallback_duration_ms: int,
+    fallback_model: str | None,
+) -> dict[str, Any]:
+    duration_ms = int(run_metrics.get("total_duration_ms") or fallback_duration_ms)
+    tokens = run_metrics.get("tokens")
+
+    if not tokens and stage_metrics:
+        input_tokens = 0
+        output_tokens = 0
+        total_tokens = 0
+
+        for stage_metric in stage_metrics:
+            stage_tokens = stage_metric.get("tokens")
+            if not isinstance(stage_tokens, dict):
+                continue
+
+            input_tokens += int(stage_tokens.get("input") or 0)
+            output_tokens += int(stage_tokens.get("output") or 0)
+            total_tokens += int(stage_tokens.get("total") or 0)
+
+        if total_tokens > 0:
+            tokens = {
+                "input": input_tokens,
+                "output": output_tokens,
+                "total": total_tokens,
+            }
+
+    stages: list[dict[str, Any]] = []
+    for stage_metric in stage_metrics:
+        stage_tokens = stage_metric.get("tokens")
+        stages.append(
+            {
+                "name": stage_metric.get("stage", "unknown"),
+                "duration": float(stage_metric.get("duration_ms") or 0) / 1000.0,
+                "status": stage_metric.get("status", "unknown"),
+                "tokens": stage_tokens.get("total")
+                if isinstance(stage_tokens, dict)
+                else None,
+            }
+        )
+
+    return {
+        "tokens": tokens,
+        "duration": float(duration_ms) / 1000.0,
+        "fix_loops": run_metrics.get("fix_attempts_total"),
+        "model": run_metrics.get("model") or fallback_model,
+        "stages": stages,
+    }
 
 
 @router.get("/active-runs", response_class=HTMLResponse)
@@ -93,7 +147,7 @@ async def run_tab(
 
     template_name = f"partials/tab_{tab}.html"
 
-    context: dict = {
+    context: dict[str, object] = {
         "request": request,
         "run": run,
         "run_id": run_id,
@@ -105,9 +159,16 @@ async def run_tab(
     elif tab == "logs":
         context["logs"] = store.list_logs(run_id)
         context["poll_interval"] = config.poll_interval_logs
-    elif tab == "metrics" and run.has_metrics:
-        context["run_metrics"] = store.get_run_metrics(run_id)
-        context["stage_metrics"] = store.get_stage_metrics(run_id)
+    elif tab == "metrics":
+        run_metrics = cast(dict[str, Any], store.get_run_metrics(run_id) or {})
+        stage_metrics = cast(list[dict[str, Any]], store.get_stage_metrics(run_id))
+
+        context["metrics"] = _build_metrics_context(
+            run_metrics=run_metrics,
+            stage_metrics=stage_metrics,
+            fallback_duration_ms=run.elapsed_ms or 0,
+            fallback_model=run.engine,
+        )
 
     return templates.TemplateResponse(template_name, context)
 
@@ -178,6 +239,8 @@ async def log_tail(
     config = request.app.state.config
 
     chunk = store.tail_log(run_id, name, cursor=cursor, lines=lines)
+    run = store.get_run(run_id)
+    is_running = run.is_active if run else False
 
     return cast(
         HTMLResponse,
@@ -187,8 +250,12 @@ async def log_tail(
                 "request": request,
                 "run_id": run_id,
                 "log_name": name,
-                "chunk": chunk,
+                "content": chunk.content if chunk else "",
+                "next_cursor": chunk.cursor if chunk else cursor,
+                "has_more": chunk.has_more if chunk else False,
+                "is_running": is_running,
                 "poll_interval": config.poll_interval_logs,
+                "lines": lines,
             },
         ),
     )
