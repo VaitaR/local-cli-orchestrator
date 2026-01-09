@@ -71,6 +71,7 @@ src/orx/
 ├── metrics/         # Observability
 │   ├── schema.py    # Pydantic models
 │   ├── collector.py # Stage timing + LLM metrics
+│   ├── tokens.py    # Token estimation (tiktoken + fallback)
 │   └── writer.py    # Persistence (stages.jsonl, run.json)
 │
 ├── dashboard/       # Web UI (FastAPI + HTMX)
@@ -289,8 +290,22 @@ def test_plan_stage_produces_output():
 - Validate changes with `KnowledgeGuardrails` before applying
 - Architecture updates use gatekeeping (check if changes affect structure)
 
+### Observability Patterns
+- **Token tracking**: Use `estimate_tokens()` from `metrics/tokens.py` (tiktoken with fallback)
+- **Metrics schema**: `TokenUsage` includes `input`, `output`, `total`, and `tool_calls` counts
+- **ExecResult parsing**: Executors populate `extra` dict; runner extracts via `get_token_usage()` and `get_tool_calls()`
+- **Dashboard integration**: Metrics displayed via HTMX partials; Prism.js for syntax highlighting
+
+### Dashboard UI Patterns
+- **HTMX lifecycle**: Initialize JS handlers on both `DOMContentLoaded` AND `htmx:afterSwap`
+- **Prism highlighting**: Trigger on `htmx:afterSwap` for dynamically loaded code previews
+- **File icons**: Map extensions to emoji (`.py` → 🐍, `.yaml` → ⚙️, `.json` → 📋)
+- **Keyboard shortcuts**: ⌘K for search focus, arrow keys for navigation
+
 ### ⚠️ Gotchas
 - Knowledge update is NON-FATAL: failures don't break the run
 - Markers MUST be present in files for scoped updates
 - Max 300 lines total, 200 per file, 50 deletions by default
+- **HTMX handlers**: Never rely solely on `DOMContentLoaded` for HTMX-injected content
+- **Token estimation**: Always provide fallback when tiktoken unavailable (char-based ~4 chars/token)
 <!-- ORX:END AGENTS -->

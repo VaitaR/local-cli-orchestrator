@@ -16,8 +16,19 @@
     <p>Binary file - preview not available</p>
     <small>{{ path }} ({{ size_bytes }} bytes)</small>
 </div>
-{% elif language %}
-<pre class="artifact-code line-numbers" data-start="1"><code class="language-{{ language }}">{{ content }}</code></pre>
+{% elif content %}
+<pre class="line-numbers"><code class="language-{{ language if language else 'plaintext' }}">{{ content | e }}</code></pre>
+<script>
+    // Trigger Prism highlighting immediately after content is loaded
+    (function() {
+        const preElement = document.currentScript.previousElementSibling;
+        if (preElement && typeof Prism !== 'undefined') {
+            Prism.highlightElement(preElement.querySelector('code'));
+        }
+    })();
+</script>
 {% else %}
-<pre class="artifact-code"><code class="language-plaintext">{{ content }}</code></pre>
+<div class="empty-state">
+    <p>Empty file</p>
+</div>
 {% endif %}
