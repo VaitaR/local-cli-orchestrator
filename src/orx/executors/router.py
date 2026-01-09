@@ -20,6 +20,7 @@ from orx.executors.base import ExecResult, Executor, ResolvedInvocation
 from orx.executors.claude_code import ClaudeCodeExecutor
 from orx.executors.codex import CodexExecutor
 from orx.executors.copilot import CopilotExecutor
+from orx.executors.cursor import CursorExecutor
 from orx.executors.fake import FakeExecutor
 from orx.executors.gemini import GeminiExecutor
 
@@ -196,6 +197,16 @@ class ModelRouter:
             output_format=claude_code_cfg.default.output_format or "json",
         )
 
+        # Cursor executor (agent CLI)
+        cursor_cfg = self.executors_config.cursor
+        self._executors[EngineType.CURSOR] = CursorExecutor(
+            cmd=self.cmd,
+            binary=cursor_cfg.bin or "agent",
+            dry_run=self.dry_run,
+            default_model=cursor_cfg.default.model,
+            output_format=cursor_cfg.default.output_format or "json",
+        )
+
         # Fake executor (for testing)
         self._executors[EngineType.FAKE] = FakeExecutor()
 
@@ -264,6 +275,8 @@ class ModelRouter:
                 exec_cfg = self.executors_config.copilot
             elif executor_type == EngineType.CLAUDE_CODE:
                 exec_cfg = self.executors_config.claude_code
+            elif executor_type == EngineType.CURSOR:
+                exec_cfg = self.executors_config.cursor
             else:
                 exec_cfg = None
 
@@ -296,6 +309,10 @@ class ModelRouter:
             claude_code_default = self.executors_config.claude_code.default
             if claude_code_default.model:
                 selector = ModelSelector(model=claude_code_default.model)
+        elif selector is None and executor_type == EngineType.CURSOR:
+            cursor_default = self.executors_config.cursor.default
+            if cursor_default.model:
+                selector = ModelSelector(model=cursor_default.model)
 
         # Priority 5: Engine config (legacy)
         if selector is None and self.engine.model:

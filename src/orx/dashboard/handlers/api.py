@@ -207,6 +207,10 @@ async def get_available_engines(request: Request):
             engine_data["stage_models"] = _effective_stage_models(
                 orx_config.executors.claude_code, default_config.executors.claude_code
             )
+        elif e == EngineType.CURSOR:
+            engine_data["stage_models"] = _effective_stage_models(
+                orx_config.executors.cursor, default_config.executors.cursor
+            )
 
         engines.append(engine_data)
 

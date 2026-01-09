@@ -337,6 +337,7 @@ class EngineType(str, Enum):
     GEMINI = "gemini"
     COPILOT = "copilot"
     CLAUDE_CODE = "claude_code"
+    CURSOR = "cursor"
     MYCLI = "mycli"  # Add this
     FAKE = "fake"
 ```
@@ -358,6 +359,7 @@ defaults = {
     EngineType.GEMINI: "gemini",
     EngineType.COPILOT: "copilot",
     EngineType.CLAUDE_CODE: "claude",
+    EngineType.CURSOR: "agent",
     EngineType.MYCLI: "mycli",  # Add this
     EngineType.FAKE: "",
 }
@@ -555,6 +557,7 @@ print('Command:', ' '.join(invocation.cmd[:8]))
 | Codex | `--prompt-file <path>` |
 | Copilot | `--prompt @<path>` |
 | Claude Code | Positional argument with content |
+| Cursor | Positional argument with content |
 | Gemini | `@<path>` in prompt |
 
 ### Permission Control
@@ -564,6 +567,7 @@ print('Command:', ' '.join(invocation.cmd[:8]))
 | Codex | `--full-auto` | `--sandbox read-only` |
 | Copilot | `--allow-all-tools` | `--deny-tool write` |
 | Claude Code | `--dangerously-skip-permissions` | `--tools "Read,Grep,..."` |
+| Cursor | `--force` | (no flag - default) |
 | Gemini | `--yolo` | N/A (default) |
 
 ### Output Formats
@@ -573,6 +577,7 @@ print('Command:', ' '.join(invocation.cmd[:8]))
 | Codex | `--json` | Event stream |
 | Copilot | N/A | Text output |
 | Claude Code | `--output-format json` | `{"result": "...", ...}` |
+| Cursor | `--output-format json` | `{"result": "...", ...}` |
 | Gemini | `--output-format json` | `{"markdown": "...", ...}` |
 
 ---

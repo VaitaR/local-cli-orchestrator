@@ -366,6 +366,111 @@ CLAUDE_CODE_MODELS: dict[str, ModelInfo] = {
 }
 
 
+# Cursor CLI models (agent)
+# Cursor provides access to multiple model providers
+CURSOR_MODELS: dict[str, ModelInfo] = {
+    "auto": ModelInfo(
+        id="auto",
+        name="Auto (Cursor Selects)",
+        engine="cursor",
+        description="Cursor auto-selects the best model for the task",
+        capabilities=ModelCapabilities(
+            supports_reasoning=True,
+            context_window=200000,
+            tier=1,
+        ),
+    ),
+    "sonnet-4.5": ModelInfo(
+        id="sonnet-4.5",
+        name="Claude Sonnet 4.5",
+        engine="cursor",
+        description="Claude Sonnet 4.5 via Cursor",
+        aliases=["claude-sonnet-4.5"],
+        capabilities=ModelCapabilities(
+            supports_thinking_budget=True,
+            max_thinking_budget=32768,
+            default_thinking_budget=8192,
+            context_window=200000,
+            tier=1,
+        ),
+    ),
+    "opus-4.5": ModelInfo(
+        id="opus-4.5",
+        name="Claude Opus 4.5",
+        engine="cursor",
+        description="Claude Opus 4.5 via Cursor - most capable",
+        aliases=["claude-opus-4.5"],
+        capabilities=ModelCapabilities(
+            supports_thinking_budget=True,
+            max_thinking_budget=65536,
+            default_thinking_budget=16384,
+            context_window=200000,
+            tier=1,
+        ),
+    ),
+    "gpt-5.2": ModelInfo(
+        id="gpt-5.2",
+        name="GPT-5.2",
+        engine="cursor",
+        description="OpenAI GPT-5.2 via Cursor",
+        capabilities=ModelCapabilities(
+            supports_reasoning=True,
+            reasoning_levels=[ReasoningLevel.LOW, ReasoningLevel.MEDIUM, ReasoningLevel.HIGH],
+            default_reasoning=ReasoningLevel.MEDIUM,
+            context_window=272000,
+            tier=1,
+        ),
+    ),
+    "gemini-3-pro": ModelInfo(
+        id="gemini-3-pro",
+        name="Gemini 3 Pro",
+        engine="cursor",
+        description="Google Gemini 3 Pro via Cursor",
+        capabilities=ModelCapabilities(
+            supports_thinking_budget=True,
+            max_thinking_budget=32768,
+            default_thinking_budget=8192,
+            context_window=200000,
+            tier=1,
+        ),
+    ),
+    "gemini-3-flash": ModelInfo(
+        id="gemini-3-flash",
+        name="Gemini 3 Flash",
+        engine="cursor",
+        description="Google Gemini 3 Flash via Cursor - fast",
+        capabilities=ModelCapabilities(
+            supports_thinking_budget=True,
+            max_thinking_budget=16384,
+            default_thinking_budget=8192,
+            context_window=200000,
+            tier=2,
+        ),
+    ),
+    "grok": ModelInfo(
+        id="grok",
+        name="Grok Code",
+        engine="cursor",
+        description="xAI Grok via Cursor",
+        capabilities=ModelCapabilities(
+            supports_reasoning=True,
+            context_window=256000,
+            tier=2,
+        ),
+    ),
+    "composer-1": ModelInfo(
+        id="composer-1",
+        name="Composer 1",
+        engine="cursor",
+        description="Cursor's own Composer model",
+        capabilities=ModelCapabilities(
+            context_window=200000,
+            tier=2,
+        ),
+    ),
+}
+
+
 # ============================================================================
 # Dynamic Model Discovery
 # ============================================================================
@@ -474,6 +579,26 @@ def discover_claude_code_models(binary: str = "claude") -> list[ModelInfo] | Non
     return None
 
 
+def discover_cursor_models(binary: str = "agent") -> list[ModelInfo] | None:
+    """Attempt to discover available Cursor models via CLI.
+
+    Args:
+        binary: Path to agent binary.
+
+    Returns:
+        List of ModelInfo if discovery succeeds, None otherwise.
+    """
+    # Check if agent CLI is available
+    output = _run_cli_command([binary, "--version"])
+    if output is None:
+        return None
+
+    # Cursor CLI doesn't expose a model list command
+    # Models are listed in documentation, use static definitions
+    logger.debug("Cursor discovery: using static model definitions")
+    return None
+
+
 @lru_cache(maxsize=1)
 def get_available_models(
     engine: str,
@@ -506,6 +631,9 @@ def get_available_models(
     elif engine == "claude_code":
         discovered = discover_claude_code_models(binary or "claude")
         models = discovered or list(CLAUDE_CODE_MODELS.values())
+    elif engine == "cursor":
+        discovered = discover_cursor_models(binary or "agent")
+        models = discovered or list(CURSOR_MODELS.values())
 
     if not include_preview:
         models = [m for m in models if not m.capabilities.is_preview]
@@ -559,6 +687,15 @@ def get_model_info(model_id: str, engine: str | None = None) -> ModelInfo | None
             return CLAUDE_CODE_MODELS[model_id]
         # Check aliases
         for model in CLAUDE_CODE_MODELS.values():
+            if model_id in model.aliases:
+                return model
+
+    # Check Cursor models
+    if engine is None or engine == "cursor":
+        if model_id in CURSOR_MODELS:
+            return CURSOR_MODELS[model_id]
+        # Check aliases
+        for model in CURSOR_MODELS.values():
             if model_id in model.aliases:
                 return model
 
@@ -617,6 +754,8 @@ def get_default_model(engine: str) -> str:
         return "claude-haiku-4.5"  # Fast, efficient default
     elif engine == "claude_code":
         return "sonnet"  # Balanced default
+    elif engine == "cursor":
+        return "auto"  # Cursor auto-selects best model
     return ""
 
 

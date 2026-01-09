@@ -1,4 +1,4 @@
-"""Claude Code CLI executor implementation."""
+"""Cursor CLI executor implementation."""
 
 from __future__ import annotations
 
@@ -18,74 +18,64 @@ if TYPE_CHECKING:
 logger = structlog.get_logger()
 
 
-class ClaudeCodeExecutor(BaseExecutor):
-    """Executor adapter for Claude Code CLI.
+class CursorExecutor(BaseExecutor):
+    """Executor adapter for Cursor CLI (agent).
 
-    Wraps the Claude Code CLI (`claude`) in non-interactive print mode.
-    Supports model selection via --model flag with aliases (sonnet, opus, haiku)
-    or full model names.
+    Wraps the Cursor CLI (`agent`) in non-interactive print mode.
+    Supports model selection via --model flag.
 
     Key features:
-    - Uses `claude -p` for non-interactive execution
+    - Uses `agent -p` for non-interactive execution
     - Uses `--output-format json` for structured parsing
-    - Apply mode: `--dangerously-skip-permissions` for full tool access
-    - Text mode: `--tools "Read,Grep,Glob,LS"` for read-only access
-    - Supports `--fallback-model` for resilience
-    - Supports `--max-turns` for cost control
+    - Apply mode: `--force` to allow file modifications
+    - Text mode: omits --force (read-only analysis)
+    - Supports CURSOR_API_KEY environment variable for auth
 
-    Available models (aliases):
-    - sonnet: Claude Sonnet 4.5 (default, balanced)
-    - opus: Claude Opus 4 (most capable)
-    - haiku: Claude Haiku 4.5 (fast, cost-effective)
-
-    External providers (via MCP):
-    - GLM and other providers can be configured in ~/.claude/mcp-config.json
-    - Pass model name directly to use external providers
+    Available models (via Cursor service):
+    - sonnet-4.5: Claude Sonnet 4.5 (default, balanced)
+    - opus-4.5: Claude Opus 4.5 (most capable)
+    - gpt-5.2: GPT-5.2 (OpenAI)
+    - gemini-3-pro: Gemini 3 Pro (Google)
+    - grok: Grok (xAI)
+    - auto: Cursor auto-selects best model
 
     Model selection priority:
     1. stage.model (explicit model override)
     2. executor.default.model (default model)
     3. engine.model (legacy global config)
-    4. CLI default (sonnet)
+    4. CLI default (auto)
 
     Example:
-        >>> executor = ClaudeCodeExecutor(cmd=CommandRunner())
+        >>> executor = CursorExecutor(cmd=CommandRunner())
         >>> result = executor.run_apply(
         ...     cwd=Path("/workspace"),
         ...     prompt_path=Path("/prompts/implement.md"),
         ...     logs=LogPaths(stdout=Path("out.log"), stderr=Path("err.log")),
-        ...     model_selector=ModelSelector(model="sonnet"),
+        ...     model_selector=ModelSelector(model="sonnet-4.5"),
         ... )
     """
-
-    # Read-only tools for text mode (planning, spec, review)
-    TEXT_MODE_TOOLS = "Read,Grep,Glob,LS,Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(wc:*)"
 
     def __init__(
         self,
         *,
         cmd: CommandRunner,
-        binary: str = "claude",
+        binary: str = "agent",
         extra_args: list[str] | None = None,
         dry_run: bool = False,
         default_model: str | None = None,
         output_format: str = "json",
-        max_turns: int | None = None,
-        fallback_model: str | None = None,
-        verbose: bool = False,
+        api_key: str | None = None,
     ) -> None:
-        """Initialize the Claude Code executor.
+        """Initialize the Cursor executor.
 
         Args:
             cmd: CommandRunner instance.
-            binary: Path to the claude binary.
-            extra_args: Additional arguments to pass to claude.
+            binary: Path to the agent binary.
+            extra_args: Additional arguments to pass to agent.
             dry_run: If True, commands are logged but not executed.
-            default_model: Default model to use (e.g., "sonnet", "opus").
+            default_model: Default model to use (e.g., "sonnet-4.5", "auto").
             output_format: Output format (text, json, stream-json).
-            max_turns: Maximum agentic turns (safety limit).
-            fallback_model: Fallback model on overload.
-            verbose: Enable verbose logging.
+            api_key: Optional API key (otherwise uses CURSOR_API_KEY env).
         """
         super().__init__(
             binary=binary,
@@ -95,14 +85,12 @@ class ClaudeCodeExecutor(BaseExecutor):
         )
         self.cmd = cmd
         self.output_format = output_format
-        self.max_turns = max_turns
-        self.fallback_model = fallback_model
-        self.verbose = verbose
+        self.api_key = api_key
 
     @property
     def name(self) -> str:
         """Name of the executor."""
-        return "claude_code"
+        return "cursor"
 
     def _build_command(
         self,
@@ -113,14 +101,14 @@ class ClaudeCodeExecutor(BaseExecutor):
         out_path: Path | None = None,
         text_only: bool = False,
     ) -> tuple[list[str], dict[str, Any]]:
-        """Build the claude command line.
+        """Build the agent command line.
 
         Args:
             prompt_path: Path to the prompt file.
             cwd: Working directory.
             model_selector: Optional model selection configuration.
             out_path: Optional output path (unused, for interface compat).
-            text_only: If True, restrict to read-only tools.
+            text_only: If True, run in read-only mode (no --force).
 
         Returns:
             Tuple of (command list, resolved model info dict).
@@ -139,34 +127,21 @@ class ClaudeCodeExecutor(BaseExecutor):
         if resolved["model"]:
             cmd.extend(["--model", resolved["model"]])
 
-        # Tool permissions based on mode
-        if text_only:
-            # Read-only mode: restrict to safe tools
-            cmd.extend(["--tools", self.TEXT_MODE_TOOLS])
-        else:
-            # Apply mode: full permissions (use with caution!)
-            cmd.append("--dangerously-skip-permissions")
+        # File modification permissions
+        if not text_only:
+            # Apply mode: allow file modifications
+            cmd.append("--force")
+        # Text mode: no --force flag, agent won't modify files
 
-        # Add working directory for tool access
-        cmd.extend(["--add-dir", str(cwd)])
-
-        # Safety limit on agentic turns
-        if self.max_turns:
-            cmd.extend(["--max-turns", str(self.max_turns)])
-
-        # Fallback model for resilience
-        if self.fallback_model:
-            cmd.extend(["--fallback-model", self.fallback_model])
-
-        # Verbose logging for debugging
-        if self.verbose:
-            cmd.append("--verbose")
+        # API key via flag (if provided, otherwise env var is used)
+        if self.api_key:
+            cmd.extend(["--api-key", self.api_key])
 
         # Additional args from config
         cmd.extend(self.extra_args)
 
         # Prompt from file (read content and pass as argument)
-        # Claude Code expects prompt as positional argument, not file reference
+        # Cursor CLI expects prompt as positional argument
         prompt_content = prompt_path.read_text() if prompt_path.exists() else ""
         cmd.append(prompt_content)
 
@@ -218,21 +193,19 @@ class ClaudeCodeExecutor(BaseExecutor):
                 "model": resolved["model"],
                 "output_format": self.output_format,
                 "text_only": text_only,
-                "max_turns": self.max_turns,
             },
         )
 
     def _parse_output(self, stdout_path: Path) -> tuple[str, dict[str, Any]]:
-        """Parse output from Claude Code CLI.
+        """Parse output from Cursor CLI.
 
-        Claude Code with --output-format json returns structured data:
+        Cursor CLI with --output-format json returns structured data:
         {
             "type": "result",
-            "subtype": "success" | "error_*",
+            "subtype": "success",
             "result": "response text",
-            "cost_usd": 0.0123,
             "duration_ms": 1234,
-            "num_turns": 3,
+            "duration_api_ms": 1234,
             "session_id": "uuid",
             "is_error": false
         }
@@ -258,12 +231,10 @@ class ClaudeCodeExecutor(BaseExecutor):
                 data = json.loads(content)
                 text = data.get("result", "")
                 extra = {
-                    "cost_usd": data.get("cost_usd"),
-                    "total_cost_usd": data.get("total_cost_usd"),
                     "duration_ms": data.get("duration_ms"),
                     "duration_api_ms": data.get("duration_api_ms"),
-                    "num_turns": data.get("num_turns"),
                     "session_id": data.get("session_id"),
+                    "request_id": data.get("request_id"),
                     "is_error": data.get("is_error", False),
                     "subtype": data.get("subtype"),
                     "type": data.get("type"),
@@ -271,7 +242,7 @@ class ClaudeCodeExecutor(BaseExecutor):
                 return text, extra
             except json.JSONDecodeError:
                 logger.warning(
-                    "Failed to parse Claude Code JSON output, using raw text",
+                    "Failed to parse Cursor CLI JSON output, using raw text",
                     content_preview=content[:200],
                 )
 
@@ -281,7 +252,7 @@ class ClaudeCodeExecutor(BaseExecutor):
     def _check_result_errors(
         self, result: ExecResult, extra: dict[str, Any]
     ) -> None:
-        """Check for Claude Code specific errors in the result.
+        """Check for Cursor-specific errors in the result.
 
         Args:
             result: Execution result.
@@ -294,19 +265,24 @@ class ClaudeCodeExecutor(BaseExecutor):
             return
 
         subtype = extra.get("subtype", "unknown")
-        error_msg = f"Claude Code error: {subtype}"
+        error_msg = f"Cursor CLI error: {subtype}"
 
-        # Classify error types
-        if subtype in ("error_rate_limit", "error_overloaded"):
-            # Transient errors - can be retried
-            logger.warning("Claude Code transient error", subtype=subtype)
-            # Don't raise - let caller handle retry
-        elif subtype == "error_max_turns":
-            raise ExecutorError(f"{error_msg} - max turns exceeded")
-        elif subtype == "error_api":
-            raise ExecutorError(f"{error_msg} - API error")
-        else:
-            logger.error("Claude Code error", subtype=subtype, extra=extra)
+        # Log the error
+        logger.error("Cursor CLI error", subtype=subtype, extra=extra)
+
+        if "error" in subtype:
+            raise ExecutorError(error_msg)
+
+    def _get_env(self) -> dict[str, str] | None:
+        """Get environment variables for the subprocess.
+
+        Returns:
+            Dict of env vars or None if none needed.
+        """
+        # API key can be passed via env var if not using --api-key flag
+        if self.api_key and "--api-key" not in self.extra_args:
+            return {"CURSOR_API_KEY": self.api_key}
+        return None
 
     def run_text(
         self,
@@ -315,10 +291,9 @@ class ClaudeCodeExecutor(BaseExecutor):
         prompt_path: Path,
         logs: LogPaths,
         out_path: Path,
-        timeout: int | None = None,
         model_selector: ModelSelector | None = None,
     ) -> ExecResult:
-        """Run Claude Code in text-only mode (read-only tools).
+        """Run Cursor CLI in text-only mode (read-only).
 
         Used for PLAN, SPEC, DECOMPOSE, REVIEW stages where no file
         modifications should occur.
@@ -342,10 +317,9 @@ class ClaudeCodeExecutor(BaseExecutor):
         )
 
         logger.info(
-            "Running Claude Code (text mode)",
+            "Running Cursor CLI (text mode)",
             model=resolved["model"],
             cwd=str(cwd),
-            tools=self.TEXT_MODE_TOOLS,
         )
 
         if self.dry_run:
@@ -358,14 +332,13 @@ class ClaudeCodeExecutor(BaseExecutor):
                 success=True,
             )
 
-        # Use provided timeout if set, otherwise default to 10 minutes
-        text_timeout = timeout or 600
         result = self.cmd.run(
             cmd,
             cwd=cwd,
             stdout_path=logs.stdout,
             stderr_path=logs.stderr,
-            timeout=text_timeout,
+            timeout=600,  # 10 min timeout for text generation
+            env=self._get_env(),
         )
 
         # Parse JSON output and extract text
@@ -379,11 +352,10 @@ class ClaudeCodeExecutor(BaseExecutor):
         result.extra = extra
 
         logger.info(
-            "Claude Code text mode completed",
+            "Cursor CLI text mode completed",
             success=result.success,
             returncode=result.returncode,
-            cost_usd=extra.get("cost_usd"),
-            num_turns=extra.get("num_turns"),
+            duration_ms=extra.get("duration_ms"),
         )
 
         return result
@@ -394,16 +366,12 @@ class ClaudeCodeExecutor(BaseExecutor):
         cwd: Path,
         prompt_path: Path,
         logs: LogPaths,
-        timeout: int | None = None,
         model_selector: ModelSelector | None = None,
     ) -> ExecResult:
-        """Run Claude Code in apply mode (full tool access).
+        """Run Cursor CLI in apply mode (with --force for file modifications).
 
         Used for IMPLEMENT and FIX stages where file modifications
-        are expected. Uses --dangerously-skip-permissions.
-
-        WARNING: This mode has full filesystem access. Only use in
-        sandboxed/trusted environments.
+        are expected.
 
         Args:
             cwd: Working directory.
@@ -422,10 +390,10 @@ class ClaudeCodeExecutor(BaseExecutor):
         )
 
         logger.info(
-            "Running Claude Code (apply mode)",
+            "Running Cursor CLI (apply mode)",
             model=resolved["model"],
             cwd=str(cwd),
-            permissions="dangerously-skip-permissions",
+            force=True,
         )
 
         if self.dry_run:
@@ -437,14 +405,13 @@ class ClaudeCodeExecutor(BaseExecutor):
                 success=True,
             )
 
-        # Use provided timeout if set, otherwise default to 30 minutes
-        apply_timeout = timeout or 1800
         result = self.cmd.run(
             cmd,
             cwd=cwd,
             stdout_path=logs.stdout,
             stderr_path=logs.stderr,
-            timeout=apply_timeout,
+            timeout=1800,  # 30 min timeout for implementation
+            env=self._get_env(),
         )
 
         # Parse output for metadata
@@ -455,11 +422,10 @@ class ClaudeCodeExecutor(BaseExecutor):
         result.extra = extra
 
         logger.info(
-            "Claude Code apply mode completed",
+            "Cursor CLI apply mode completed",
             success=result.success,
             returncode=result.returncode,
-            cost_usd=extra.get("cost_usd"),
-            num_turns=extra.get("num_turns"),
+            duration_ms=extra.get("duration_ms"),
         )
 
         return result
