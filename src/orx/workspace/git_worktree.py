@@ -454,8 +454,10 @@ class WorkspaceGitWorktree:
         log.info("Pushing to remote")
 
         # Push with force to handle rebases
+        # Use fully qualified ref name for the destination branch
+        refspec = f"HEAD:refs/heads/{branch}"
         returncode, _, stderr = self.cmd.run_git(
-            ["push", "--force", remote, f"HEAD:{branch}"],
+            ["push", "--force", remote, refspec],
             cwd=self.worktree_path,
             check=False,
         )
