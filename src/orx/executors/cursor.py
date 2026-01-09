@@ -114,8 +114,7 @@ class CursorExecutor(BaseExecutor):
             Tuple of (command list, resolved model info dict).
         """
         resolved = self._resolve_model(model_selector)
-        # Reference unused parameters for linting compatibility
-        _ = cwd
+        # Mark out_path as used for linting compatibility
         _ = out_path
 
         cmd = [self.binary]
@@ -140,13 +139,16 @@ class CursorExecutor(BaseExecutor):
         if self.api_key:
             cmd.extend(["--api-key", self.api_key])
 
+        # Add working directory for tool access
+        cmd.extend(["--add-dir", str(cwd)])
+
         # Additional args from config
         cmd.extend(self.extra_args)
 
-        # Prompt from file (read content and pass as argument)
-        # Cursor CLI expects prompt as positional argument
+        # Prompt via --prompt flag with file reference
+        # Cursor agent expects prompt with @file syntax or direct text
         prompt_content = prompt_path.read_text() if prompt_path.exists() else ""
-        cmd.append(prompt_content)
+        cmd.extend(["--prompt", prompt_content])
 
         return cmd, resolved
 
@@ -391,6 +393,7 @@ class CursorExecutor(BaseExecutor):
             prompt_path=prompt_path,
             cwd=cwd,
             model_selector=model_selector,
+            out_path=None,
             text_only=False,
         )
 
