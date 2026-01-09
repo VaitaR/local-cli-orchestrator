@@ -16,6 +16,7 @@ class EngineType(str, Enum):
     CODEX = "codex"
     GEMINI = "gemini"
     COPILOT = "copilot"
+    CLAUDE_CODE = "claude_code"
     FAKE = "fake"
 
 
@@ -188,11 +189,13 @@ class ExecutorsConfig(BaseModel):
         codex: Codex executor configuration.
         gemini: Gemini executor configuration.
         copilot: GitHub Copilot CLI executor configuration.
+        claude_code: Claude Code CLI executor configuration.
     """
 
     codex: ExecutorConfig = Field(default_factory=ExecutorConfig)
     gemini: ExecutorConfig = Field(default_factory=ExecutorConfig)
     copilot: ExecutorConfig = Field(default_factory=ExecutorConfig)
+    claude_code: ExecutorConfig = Field(default_factory=ExecutorConfig)
 
 
 class StagesConfig(BaseModel):
@@ -276,6 +279,7 @@ class EngineConfig(BaseModel):
                 EngineType.CODEX: "codex",
                 EngineType.GEMINI: "gemini",
                 EngineType.COPILOT: "copilot",
+                EngineType.CLAUDE_CODE: "claude",
                 EngineType.FAKE: "",
             }
             object.__setattr__(self, "binary", defaults.get(self.type, ""))

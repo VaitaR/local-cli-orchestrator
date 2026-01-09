@@ -321,6 +321,51 @@ COPILOT_MODELS: dict[str, ModelInfo] = {
 }
 
 
+# Claude Code CLI models (claude)
+# Supports aliases (sonnet, opus, haiku) or full model names
+CLAUDE_CODE_MODELS: dict[str, ModelInfo] = {
+    "sonnet": ModelInfo(
+        id="sonnet",
+        name="Claude Sonnet 4.5",
+        engine="claude_code",
+        description="Latest Sonnet - balanced performance (default)",
+        aliases=["claude-sonnet-4-5-20250929"],
+        capabilities=ModelCapabilities(
+            supports_thinking_budget=True,
+            max_thinking_budget=32768,
+            default_thinking_budget=8192,
+            context_window=200000,
+            tier=1,
+        ),
+    ),
+    "opus": ModelInfo(
+        id="opus",
+        name="Claude Opus 4",
+        engine="claude_code",
+        description="Most capable Claude model",
+        aliases=["claude-opus-4-20250514"],
+        capabilities=ModelCapabilities(
+            supports_thinking_budget=True,
+            max_thinking_budget=65536,
+            default_thinking_budget=16384,
+            context_window=200000,
+            tier=1,
+        ),
+    ),
+    "haiku": ModelInfo(
+        id="haiku",
+        name="Claude Haiku 4.5",
+        engine="claude_code",
+        description="Fast and cost-effective",
+        aliases=["claude-haiku-4-5-20250929"],
+        capabilities=ModelCapabilities(
+            context_window=200000,
+            tier=2,
+        ),
+    ),
+}
+
+
 # ============================================================================
 # Dynamic Model Discovery
 # ============================================================================
@@ -409,6 +454,26 @@ def discover_copilot_models(binary: str = "copilot") -> list[ModelInfo] | None:
     return None
 
 
+def discover_claude_code_models(binary: str = "claude") -> list[ModelInfo] | None:
+    """Attempt to discover available Claude Code models via CLI.
+
+    Args:
+        binary: Path to claude binary.
+
+    Returns:
+        List of ModelInfo if discovery succeeds, None otherwise.
+    """
+    # Check if claude CLI is available
+    output = _run_cli_command([binary, "--version"])
+    if output is None:
+        return None
+
+    # Claude Code uses aliases (sonnet, opus, haiku) or full model names
+    # No discovery command available, use static definitions
+    logger.debug("Claude Code discovery: using static model definitions")
+    return None
+
+
 @lru_cache(maxsize=1)
 def get_available_models(
     engine: str,
@@ -438,6 +503,9 @@ def get_available_models(
     elif engine == "copilot":
         discovered = discover_copilot_models(binary or "copilot")
         models = discovered or list(COPILOT_MODELS.values())
+    elif engine == "claude_code":
+        discovered = discover_claude_code_models(binary or "claude")
+        models = discovered or list(CLAUDE_CODE_MODELS.values())
 
     if not include_preview:
         models = [m for m in models if not m.capabilities.is_preview]
@@ -482,6 +550,15 @@ def get_model_info(model_id: str, engine: str | None = None) -> ModelInfo | None
             return COPILOT_MODELS[model_id]
         # Check aliases
         for model in COPILOT_MODELS.values():
+            if model_id in model.aliases:
+                return model
+
+    # Check Claude Code models
+    if engine is None or engine == "claude_code":
+        if model_id in CLAUDE_CODE_MODELS:
+            return CLAUDE_CODE_MODELS[model_id]
+        # Check aliases
+        for model in CLAUDE_CODE_MODELS.values():
             if model_id in model.aliases:
                 return model
 
@@ -538,6 +615,8 @@ def get_default_model(engine: str) -> str:
         return "gemini-2.5-flash"
     elif engine == "copilot":
         return "claude-haiku-4.5"  # Fast, efficient default
+    elif engine == "claude_code":
+        return "sonnet"  # Balanced default
     return ""
 
 

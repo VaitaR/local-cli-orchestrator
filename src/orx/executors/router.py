@@ -17,6 +17,7 @@ from orx.config import (
     StagesConfig,
 )
 from orx.executors.base import ExecResult, Executor, ResolvedInvocation
+from orx.executors.claude_code import ClaudeCodeExecutor
 from orx.executors.codex import CodexExecutor
 from orx.executors.copilot import CopilotExecutor
 from orx.executors.fake import FakeExecutor
@@ -185,6 +186,16 @@ class ModelRouter:
             default_model=copilot_cfg.default.model,
         )
 
+        # Claude Code executor (claude CLI)
+        claude_code_cfg = self.executors_config.claude_code
+        self._executors[EngineType.CLAUDE_CODE] = ClaudeCodeExecutor(
+            cmd=self.cmd,
+            binary=claude_code_cfg.bin or "claude",
+            dry_run=self.dry_run,
+            default_model=claude_code_cfg.default.model,
+            output_format=claude_code_cfg.default.output_format or "json",
+        )
+
         # Fake executor (for testing)
         self._executors[EngineType.FAKE] = FakeExecutor()
 
@@ -251,6 +262,8 @@ class ModelRouter:
                 exec_cfg = self.executors_config.gemini
             elif executor_type == EngineType.COPILOT:
                 exec_cfg = self.executors_config.copilot
+            elif executor_type == EngineType.CLAUDE_CODE:
+                exec_cfg = self.executors_config.claude_code
             else:
                 exec_cfg = None
 
@@ -279,6 +292,10 @@ class ModelRouter:
             copilot_default = self.executors_config.copilot.default
             if copilot_default.model:
                 selector = ModelSelector(model=copilot_default.model)
+        elif selector is None and executor_type == EngineType.CLAUDE_CODE:
+            claude_code_default = self.executors_config.claude_code.default
+            if claude_code_default.model:
+                selector = ModelSelector(model=claude_code_default.model)
 
         # Priority 5: Engine config (legacy)
         if selector is None and self.engine.model:

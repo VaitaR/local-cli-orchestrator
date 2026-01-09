@@ -616,6 +616,159 @@ class TestCopilotCommandBuilder:
         assert "/workspace/project" in invocation.cmd[add_dir_idx + 1]
 
 
+class TestClaudeCodeCommandBuilder:
+    """Test Claude Code command building with model selection."""
+
+    @pytest.fixture
+    def cmd(self) -> CommandRunner:
+        """Create a dry-run command runner."""
+        return CommandRunner(dry_run=True)
+
+    @pytest.fixture
+    def prompt_file(self, tmp_path: Path) -> Path:
+        """Create a temporary prompt file."""
+        prompt = tmp_path / "prompt.md"
+        prompt.write_text("Test prompt content")
+        return prompt
+
+    def test_claude_code_command_with_model(
+        self, cmd: CommandRunner, prompt_file: Path
+    ) -> None:
+        """Claude Code command includes --model flag when specified."""
+        from orx.executors.claude_code import ClaudeCodeExecutor
+
+        executor = ClaudeCodeExecutor(cmd=cmd, dry_run=True)
+        selector = ModelSelector(model="sonnet")
+
+        invocation = executor.resolve_invocation(
+            prompt_path=prompt_file,
+            cwd=Path("/tmp/workspace"),
+            logs=LogPaths(
+                stdout=Path("/tmp/stdout.log"),
+                stderr=Path("/tmp/stderr.log"),
+            ),
+            model_selector=selector,
+        )
+
+        assert "--model" in invocation.cmd
+        assert "sonnet" in invocation.cmd
+        assert invocation.model_info["model"] == "sonnet"
+
+    def test_claude_code_uses_print_mode(
+        self, cmd: CommandRunner, prompt_file: Path
+    ) -> None:
+        """Claude Code command uses -p flag for non-interactive mode."""
+        from orx.executors.claude_code import ClaudeCodeExecutor
+
+        executor = ClaudeCodeExecutor(cmd=cmd, dry_run=True)
+        selector = ModelSelector(model="haiku")
+
+        invocation = executor.resolve_invocation(
+            prompt_path=prompt_file,
+            cwd=Path("/tmp/workspace"),
+            logs=LogPaths(
+                stdout=Path("/tmp/stdout.log"),
+                stderr=Path("/tmp/stderr.log"),
+            ),
+            model_selector=selector,
+        )
+
+        assert "-p" in invocation.cmd
+
+    def test_claude_code_uses_json_output(
+        self, cmd: CommandRunner, prompt_file: Path
+    ) -> None:
+        """Claude Code command includes --output-format json."""
+        from orx.executors.claude_code import ClaudeCodeExecutor
+
+        executor = ClaudeCodeExecutor(cmd=cmd, dry_run=True, output_format="json")
+        selector = ModelSelector(model="opus")
+
+        invocation = executor.resolve_invocation(
+            prompt_path=prompt_file,
+            cwd=Path("/tmp/workspace"),
+            logs=LogPaths(
+                stdout=Path("/tmp/stdout.log"),
+                stderr=Path("/tmp/stderr.log"),
+            ),
+            model_selector=selector,
+        )
+
+        assert "--output-format" in invocation.cmd
+        assert "json" in invocation.cmd
+        assert invocation.model_info["output_format"] == "json"
+
+    def test_claude_code_apply_mode_skips_permissions(
+        self, cmd: CommandRunner, prompt_file: Path
+    ) -> None:
+        """Claude Code apply mode uses --dangerously-skip-permissions."""
+        from orx.executors.claude_code import ClaudeCodeExecutor
+
+        executor = ClaudeCodeExecutor(cmd=cmd, dry_run=True)
+        selector = ModelSelector(model="sonnet")
+
+        invocation = executor.resolve_invocation(
+            prompt_path=prompt_file,
+            cwd=Path("/tmp/workspace"),
+            logs=LogPaths(
+                stdout=Path("/tmp/stdout.log"),
+                stderr=Path("/tmp/stderr.log"),
+            ),
+            model_selector=selector,
+            text_only=False,  # Apply mode
+        )
+
+        assert "--dangerously-skip-permissions" in invocation.cmd
+        assert invocation.model_info["text_only"] is False
+
+    def test_claude_code_text_mode_restricts_tools(
+        self, cmd: CommandRunner, prompt_file: Path
+    ) -> None:
+        """Claude Code text mode uses --tools to restrict to read-only."""
+        from orx.executors.claude_code import ClaudeCodeExecutor
+
+        executor = ClaudeCodeExecutor(cmd=cmd, dry_run=True)
+        selector = ModelSelector(model="haiku")
+
+        invocation = executor.resolve_invocation(
+            prompt_path=prompt_file,
+            cwd=Path("/tmp/workspace"),
+            logs=LogPaths(
+                stdout=Path("/tmp/stdout.log"),
+                stderr=Path("/tmp/stderr.log"),
+            ),
+            model_selector=selector,
+            text_only=True,  # Text mode - read only
+        )
+
+        assert "--tools" in invocation.cmd
+        assert "--dangerously-skip-permissions" not in invocation.cmd
+        assert invocation.model_info["text_only"] is True
+
+    def test_claude_code_adds_working_directory(
+        self, cmd: CommandRunner, prompt_file: Path
+    ) -> None:
+        """Claude Code command adds --add-dir for working directory."""
+        from orx.executors.claude_code import ClaudeCodeExecutor
+
+        executor = ClaudeCodeExecutor(cmd=cmd, dry_run=True)
+        selector = ModelSelector()
+
+        invocation = executor.resolve_invocation(
+            prompt_path=prompt_file,
+            cwd=Path("/workspace/project"),
+            logs=LogPaths(
+                stdout=Path("/tmp/stdout.log"),
+                stderr=Path("/tmp/stderr.log"),
+            ),
+            model_selector=selector,
+        )
+
+        assert "--add-dir" in invocation.cmd
+        add_dir_idx = invocation.cmd.index("--add-dir")
+        assert "/workspace/project" in invocation.cmd[add_dir_idx + 1]
+
+
 class TestModelResolutionPriority:
     """Test model resolution priority order."""
 
