@@ -107,6 +107,7 @@ def _build_metrics_context(
         input_tokens = 0
         output_tokens = 0
         total_tokens = 0
+        tool_calls = 0
 
         for stage_metric in stage_metrics:
             stage_tokens = stage_metric.get("tokens")
@@ -116,6 +117,7 @@ def _build_metrics_context(
             input_tokens += int(stage_tokens.get("input") or 0)
             output_tokens += int(stage_tokens.get("output") or 0)
             total_tokens += int(stage_tokens.get("total") or 0)
+            tool_calls += int(stage_tokens.get("tool_calls") or 0)
 
         if total_tokens > 0:
             tokens = {
@@ -123,6 +125,8 @@ def _build_metrics_context(
                 "output": output_tokens,
                 "total": total_tokens,
             }
+            if tool_calls > 0:
+                tokens["tool_calls"] = tool_calls
 
     stages: list[dict[str, Any]] = []
     for stage_metric in stage_metrics:
@@ -157,6 +161,9 @@ def _build_metrics_context(
                 if isinstance(stage_tokens, dict)
                 else None,
                 "tokens_out": stage_tokens.get("output")
+                if isinstance(stage_tokens, dict)
+                else None,
+                "tool_calls": stage_tokens.get("tool_calls")
                 if isinstance(stage_tokens, dict)
                 else None,
                 "model": model,

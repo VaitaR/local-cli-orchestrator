@@ -336,20 +336,28 @@ class ExecResult:
         """Extract the number of tool calls from execution result.
 
         Returns:
-            Number of tool calls made during execution, 0 if not found.
+            Number of tool-call *batches* made during execution, 0 if not found.
+
+        Notes:
+            If the model returns multiple tool calls in a single response, we count
+            that as 1 (one agent request/turn), not N tools.
         """
         # Check extra dict for tool_calls
         if self.extra:
             tool_calls = self.extra.get("tool_calls", 0)
             if isinstance(tool_calls, int) and tool_calls > 0:
-                return tool_calls
+                return 1
+            if isinstance(tool_calls, list) and len(tool_calls) > 0:
+                return 1
 
             # Check usage dict for tool_calls
             usage = self.extra.get("usage", {})
             if usage:
                 tool_calls = usage.get("tool_calls", 0)
                 if isinstance(tool_calls, int) and tool_calls > 0:
-                    return tool_calls
+                    return 1
+                if isinstance(tool_calls, list) and len(tool_calls) > 0:
+                    return 1
 
         return 0
 
