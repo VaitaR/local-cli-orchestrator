@@ -493,6 +493,129 @@ class TestGeminiCommandBuilder:
         assert "json" in invocation.cmd
 
 
+class TestCopilotCommandBuilder:
+    """Test Copilot command building with model selection."""
+
+    @pytest.fixture
+    def cmd(self) -> CommandRunner:
+        """Create a dry-run command runner."""
+        return CommandRunner(dry_run=True)
+
+    def test_copilot_command_with_model(self, cmd: CommandRunner) -> None:
+        """Copilot command includes --model flag when specified."""
+        from orx.executors.copilot import CopilotExecutor
+
+        executor = CopilotExecutor(cmd=cmd, dry_run=True)
+        selector = ModelSelector(model="claude-haiku-4.5")
+
+        invocation = executor.resolve_invocation(
+            prompt_path=Path("/tmp/prompt.md"),
+            cwd=Path("/tmp/workspace"),
+            logs=LogPaths(
+                stdout=Path("/tmp/stdout.log"),
+                stderr=Path("/tmp/stderr.log"),
+            ),
+            model_selector=selector,
+        )
+
+        assert "--model" in invocation.cmd
+        assert "claude-haiku-4.5" in invocation.cmd
+        assert invocation.model_info["model"] == "claude-haiku-4.5"
+
+    def test_copilot_apply_mode_allows_tools(self, cmd: CommandRunner) -> None:
+        """Copilot command includes --allow-all-tools in apply mode."""
+        from orx.executors.copilot import CopilotExecutor
+
+        executor = CopilotExecutor(cmd=cmd, dry_run=True)
+        selector = ModelSelector(model="claude-sonnet-4")
+
+        invocation = executor.resolve_invocation(
+            prompt_path=Path("/tmp/prompt.md"),
+            cwd=Path("/tmp/workspace"),
+            logs=LogPaths(
+                stdout=Path("/tmp/stdout.log"),
+                stderr=Path("/tmp/stderr.log"),
+            ),
+            model_selector=selector,
+            text_only=False,  # Apply mode
+        )
+
+        assert "--allow-all-tools" in invocation.cmd
+        assert "--allow-all-paths" in invocation.cmd
+        assert invocation.model_info["allow_all_tools"] is True
+        assert invocation.model_info["text_only"] is False
+
+    def test_copilot_text_mode_denies_write_tools(self, cmd: CommandRunner) -> None:
+        """Copilot command denies write/shell tools in text mode."""
+        from orx.executors.copilot import CopilotExecutor
+
+        executor = CopilotExecutor(cmd=cmd, dry_run=True)
+        selector = ModelSelector(model="claude-haiku-4.5")
+
+        invocation = executor.resolve_invocation(
+            prompt_path=Path("/tmp/prompt.md"),
+            cwd=Path("/tmp/workspace"),
+            logs=LogPaths(
+                stdout=Path("/tmp/stdout.log"),
+                stderr=Path("/tmp/stderr.log"),
+            ),
+            model_selector=selector,
+            text_only=True,  # Text mode - read only
+        )
+
+        assert "--allow-all-tools" not in invocation.cmd
+        assert "--deny-tool" in invocation.cmd
+        # Check deny-tool write and shell are present
+        cmd_str = " ".join(invocation.cmd)
+        assert "deny-tool" in cmd_str
+        assert invocation.model_info["allow_all_tools"] is False
+        assert invocation.model_info["text_only"] is True
+
+    def test_copilot_uses_prompt_file_reference(self, cmd: CommandRunner) -> None:
+        """Copilot command uses @ file reference for prompt."""
+        from orx.executors.copilot import CopilotExecutor
+
+        executor = CopilotExecutor(cmd=cmd, dry_run=True)
+        selector = ModelSelector(model="gpt-5")
+
+        invocation = executor.resolve_invocation(
+            prompt_path=Path("/tmp/prompt.md"),
+            cwd=Path("/tmp/workspace"),
+            logs=LogPaths(
+                stdout=Path("/tmp/stdout.log"),
+                stderr=Path("/tmp/stderr.log"),
+            ),
+            model_selector=selector,
+        )
+
+        assert "--prompt" in invocation.cmd
+        # Check that @ syntax is used for file reference
+        prompt_idx = invocation.cmd.index("--prompt")
+        assert invocation.cmd[prompt_idx + 1].startswith("@")
+        assert "/tmp/prompt.md" in invocation.cmd[prompt_idx + 1]
+
+    def test_copilot_adds_working_directory(self, cmd: CommandRunner) -> None:
+        """Copilot command adds --add-dir for working directory."""
+        from orx.executors.copilot import CopilotExecutor
+
+        executor = CopilotExecutor(cmd=cmd, dry_run=True)
+        selector = ModelSelector()
+
+        invocation = executor.resolve_invocation(
+            prompt_path=Path("/tmp/prompt.md"),
+            cwd=Path("/workspace/project"),
+            logs=LogPaths(
+                stdout=Path("/tmp/stdout.log"),
+                stderr=Path("/tmp/stderr.log"),
+            ),
+            model_selector=selector,
+        )
+
+        assert "--add-dir" in invocation.cmd
+        add_dir_idx = invocation.cmd.index("--add-dir")
+        assert "/workspace/project" in invocation.cmd[add_dir_idx + 1]
+
+
 class TestModelResolutionPriority:
     """Test model resolution priority order."""
 

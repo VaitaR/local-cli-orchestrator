@@ -18,6 +18,7 @@ from orx.config import (
 )
 from orx.executors.base import ExecResult, Executor, ResolvedInvocation
 from orx.executors.codex import CodexExecutor
+from orx.executors.copilot import CopilotExecutor
 from orx.executors.fake import FakeExecutor
 from orx.executors.gemini import GeminiExecutor
 
@@ -175,6 +176,15 @@ class ModelRouter:
             approval_mode=gemini_cfg.approval_mode,
         )
 
+        # Copilot executor (GitHub Copilot CLI)
+        copilot_cfg = self.executors_config.copilot
+        self._executors[EngineType.COPILOT] = CopilotExecutor(
+            cmd=self.cmd,
+            binary=copilot_cfg.bin or "copilot",
+            dry_run=self.dry_run,
+            default_model=copilot_cfg.default.model,
+        )
+
         # Fake executor (for testing)
         self._executors[EngineType.FAKE] = FakeExecutor()
 
@@ -235,21 +245,25 @@ class ModelRouter:
 
         # Priority 2: Executor stage models
         if selector is None:
-            exec_cfg = (
-                self.executors_config.codex
-                if executor_type == EngineType.CODEX
-                else self.executors_config.gemini
-            )
-            if stage in exec_cfg.stage_models:
+            if executor_type == EngineType.CODEX:
+                exec_cfg = self.executors_config.codex
+            elif executor_type == EngineType.GEMINI:
+                exec_cfg = self.executors_config.gemini
+            elif executor_type == EngineType.COPILOT:
+                exec_cfg = self.executors_config.copilot
+            else:
+                exec_cfg = None
+
+            if exec_cfg and stage in exec_cfg.stage_models:
                 selector = ModelSelector(model=exec_cfg.stage_models[stage])
 
-        # Priority 3: Executor profiles (for Codex)
+        # Priority 3: Executor profiles (for Codex only)
         if selector is None and executor_type == EngineType.CODEX:
             codex_cfg = self.executors_config.codex
             if stage in codex_cfg.profiles:
                 selector = ModelSelector(profile=codex_cfg.profiles[stage])
 
-        # Priority 3: Executor default
+        # Priority 4: Executor default
         if selector is None and executor_type == EngineType.CODEX:
             codex_default = self.executors_config.codex.default
             if codex_default.model:
@@ -261,8 +275,12 @@ class ModelRouter:
             gemini_default = self.executors_config.gemini.default
             if gemini_default.model:
                 selector = ModelSelector(model=gemini_default.model)
+        elif selector is None and executor_type == EngineType.COPILOT:
+            copilot_default = self.executors_config.copilot.default
+            if copilot_default.model:
+                selector = ModelSelector(model=copilot_default.model)
 
-        # Priority 4: Engine config (legacy)
+        # Priority 5: Engine config (legacy)
         if selector is None and self.engine.model:
             selector = ModelSelector(
                 model=self.engine.model,

@@ -199,6 +199,10 @@ async def get_available_engines(request: Request):
             engine_data["stage_models"] = _effective_stage_models(
                 orx_config.executors.gemini, default_config.executors.gemini
             )
+        elif e == EngineType.COPILOT:
+            engine_data["stage_models"] = _effective_stage_models(
+                orx_config.executors.copilot, default_config.executors.copilot
+            )
 
         engines.append(engine_data)
 

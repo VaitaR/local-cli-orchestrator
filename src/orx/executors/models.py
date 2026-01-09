@@ -268,6 +268,58 @@ GEMINI_MODELS: dict[str, ModelInfo] = {
     ),
 }
 
+COPILOT_MODELS: dict[str, ModelInfo] = {
+    "claude-sonnet-4.5": ModelInfo(
+        id="claude-sonnet-4.5",
+        name="Claude Sonnet 4.5",
+        engine="copilot",
+        description="Most capable Claude model via Copilot",
+        capabilities=ModelCapabilities(
+            supports_reasoning=False,
+            supports_thinking_budget=True,
+            max_thinking_budget=32768,
+            default_thinking_budget=8192,
+            context_window=200000,
+            tier=1,
+        ),
+    ),
+    "claude-sonnet-4": ModelInfo(
+        id="claude-sonnet-4",
+        name="Claude Sonnet 4",
+        engine="copilot",
+        description="Previous generation Claude Sonnet",
+        capabilities=ModelCapabilities(
+            supports_reasoning=False,
+            context_window=200000,
+            tier=2,
+        ),
+    ),
+    "claude-haiku-4.5": ModelInfo(
+        id="claude-haiku-4.5",
+        name="Claude Haiku 4.5",
+        engine="copilot",
+        description="Fast and efficient Claude model",
+        capabilities=ModelCapabilities(
+            supports_reasoning=False,
+            context_window=200000,
+            tier=2,
+        ),
+    ),
+    "gpt-5": ModelInfo(
+        id="gpt-5",
+        name="GPT-5",
+        engine="copilot",
+        description="OpenAI GPT-5 via Copilot",
+        capabilities=ModelCapabilities(
+            supports_reasoning=True,
+            reasoning_levels=[ReasoningLevel.LOW, ReasoningLevel.MEDIUM, ReasoningLevel.HIGH],
+            default_reasoning=ReasoningLevel.MEDIUM,
+            context_window=200000,
+            tier=1,
+        ),
+    ),
+}
+
 
 # ============================================================================
 # Dynamic Model Discovery
@@ -337,6 +389,26 @@ def discover_gemini_models(binary: str = "gemini") -> list[ModelInfo] | None:
     return None
 
 
+def discover_copilot_models(binary: str = "copilot") -> list[ModelInfo] | None:
+    """Attempt to discover available Copilot models via CLI.
+
+    Args:
+        binary: Path to copilot binary.
+
+    Returns:
+        List of ModelInfo if discovery succeeds, None otherwise.
+    """
+    # Check if copilot CLI is available
+    output = _run_cli_command([binary, "--version"])
+    if output is None:
+        return None
+
+    # Copilot CLI shows models in --help but doesn't have a list command
+    # Return None to use static definitions
+    logger.debug("Copilot discovery: using static model definitions")
+    return None
+
+
 @lru_cache(maxsize=1)
 def get_available_models(
     engine: str,
@@ -348,7 +420,7 @@ def get_available_models(
     Attempts dynamic discovery first, falls back to static definitions.
 
     Args:
-        engine: Engine type ("codex" or "gemini").
+        engine: Engine type ("codex", "gemini", or "copilot").
         binary: Optional path to CLI binary.
         include_preview: Whether to include preview models.
 
@@ -363,6 +435,9 @@ def get_available_models(
     elif engine == "gemini":
         discovered = discover_gemini_models(binary or "gemini")
         models = discovered or list(GEMINI_MODELS.values())
+    elif engine == "copilot":
+        discovered = discover_copilot_models(binary or "copilot")
+        models = discovered or list(COPILOT_MODELS.values())
 
     if not include_preview:
         models = [m for m in models if not m.capabilities.is_preview]
@@ -398,6 +473,15 @@ def get_model_info(model_id: str, engine: str | None = None) -> ModelInfo | None
             return GEMINI_MODELS[model_id]
         # Check aliases
         for model in GEMINI_MODELS.values():
+            if model_id in model.aliases:
+                return model
+
+    # Check Copilot models
+    if engine is None or engine == "copilot":
+        if model_id in COPILOT_MODELS:
+            return COPILOT_MODELS[model_id]
+        # Check aliases
+        for model in COPILOT_MODELS.values():
             if model_id in model.aliases:
                 return model
 
@@ -439,7 +523,6 @@ def get_fallback_model(
 
     return None
 
-
 def get_default_model(engine: str) -> str:
     """Get the default model for an engine.
 
@@ -453,6 +536,8 @@ def get_default_model(engine: str) -> str:
         return "gpt-5.2-codex"
     elif engine == "gemini":
         return "gemini-2.5-flash"
+    elif engine == "copilot":
+        return "claude-haiku-4.5"  # Fast, efficient default
     return ""
 
 
