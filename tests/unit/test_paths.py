@@ -37,6 +37,7 @@ def test_run_paths_properties(tmp_path: Path) -> None:
     assert paths.prompts_dir == tmp_path / "runs" / "test_run" / "prompts"
     assert paths.artifacts_dir == tmp_path / "runs" / "test_run" / "artifacts"
     assert paths.logs_dir == tmp_path / "runs" / "test_run" / "logs"
+    assert paths.metrics_dir == tmp_path / "runs" / "test_run" / "metrics"
     assert paths.worktree_path == tmp_path / ".worktrees" / "test_run"
 
 
@@ -121,6 +122,7 @@ def test_create_directories(tmp_path: Path) -> None:
     assert paths.prompts_dir.exists()
     assert paths.artifacts_dir.exists()
     assert paths.logs_dir.exists()
+    assert paths.metrics_dir.exists()
     assert paths.worktrees_dir.exists()
 
 
