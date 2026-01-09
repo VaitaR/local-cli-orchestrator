@@ -109,10 +109,21 @@
         el.dataset[name] = value ? '1' : '0';
     }
     
-    // Load engine configuration from API
+    // Load engine configuration from API (with session caching)
     async function loadEngineConfig() {
         if (engineConfig) return engineConfig;
-        
+
+        // Try sessionStorage cache first to avoid repeated network calls
+        try {
+            const cached = sessionStorage.getItem('orx_engine_config');
+            if (cached) {
+                engineConfig = JSON.parse(cached);
+                return engineConfig;
+            }
+        } catch (e) {
+            console.debug('Failed to read engine config from sessionStorage', e);
+        }
+
         try {
             const response = await fetch('/api/config/engines');
             if (!response.ok) {
@@ -120,6 +131,14 @@
                 return null;
             }
             engineConfig = await response.json();
+
+            // Cache into sessionStorage for the browser session
+            try {
+                sessionStorage.setItem('orx_engine_config', JSON.stringify(engineConfig));
+            } catch (e) {
+                console.debug('Failed to write engine config to sessionStorage', e);
+            }
+
             return engineConfig;
         } catch (error) {
             console.error('Error loading engine config:', error);
