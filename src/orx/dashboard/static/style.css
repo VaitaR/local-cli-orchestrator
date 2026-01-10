@@ -678,7 +678,7 @@ a:hover {
 }
 
 /* ===== Code & Pre ===== */
-.code-block {
+pre.code-block {
     background: var(--bg-tertiary);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
@@ -689,6 +689,16 @@ a:hover {
     overflow-x: auto;
     white-space: pre-wrap;
     word-break: break-word;
+}
+
+/* If a template ever uses `.code-block` on inline elements (e.g. `code`/`span`),
+   avoid multi-line “striped” backgrounds by keeping it unstyled. */
+code.code-block,
+span.code-block {
+    background: none;
+    border: 0;
+    border-radius: 0;
+    padding: 0;
 }
 
 pre {
@@ -1049,19 +1059,6 @@ pre {
     color: var(--text-muted);
 }
 
-.artifact-code {
-    margin: 0;
-    padding: var(--space-md);
-    font-family: var(--font-mono);
-    font-size: 0.85rem;
-    line-height: 1.7;
-    background: var(--bg-primary);
-    color: var(--text-primary);
-    overflow: auto;
-    white-space: pre;
-    tab-size: 4;
-}
-
 .code-content {
     font-family: var(--font-mono);
 }
@@ -1098,82 +1095,140 @@ pre {
     }
 }
 
-/* Line numbers for code */
-.artifact-code {
-    counter-reset: line;
-    padding-left: calc(var(--space-md) + 40px);
-    position: relative;
-}
 
-.artifact-code::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 40px;
-    background: var(--bg-secondary);
-    border-right: 1px solid var(--border-color);
-}
-
-.code-content {
-    display: block;
-}
-
-.code-content .line {
-    counter-increment: line;
-    display: block;
-    position: relative;
-    padding-left: var(--space-md);
-    margin-left: -40px;
-}
-
-.code-content .line::before {
-    content: counter(line);
-    position: absolute;
-    left: 0;
-    width: 40px;
-    text-align: right;
-    color: var(--text-muted);
-    font-size: 0.75rem;
-    user-select: none;
-    padding-right: var(--space-sm);
-}
-
-/* Prism.js line numbers plugin overrides */
-.line-numbers .line-numbers-rows {
-    border-right: 1px solid var(--border-color) !important;
-}
-
-.line-numbers-rows > span:before {
-    color: var(--text-muted) !important;
-    font-family: var(--font-mono) !important;
-    font-size: 0.85rem !important;
-    line-height: 1.7 !important;
-}
-
-/* Ensure Prism syntax highlighting uses our colors */
+/* Ensure Prism syntax highlighting uses our colors (keep defaults otherwise) */
 pre[class*="language-"] {
     margin: 0;
     padding: var(--space-md);
     font-family: var(--font-mono);
-    font-size: 0.85rem;
+    font-size: 0.9rem;
     line-height: 1.7;
     background: var(--bg-primary);
-    overflow: auto;
+    overflow-x: auto;
+    overflow-y: visible;
     tab-size: 4;
+    -moz-tab-size: 4;
+    color: var(--text-primary);
+    position: relative;
 }
 
 code[class*="language-"] {
     font-family: var(--font-mono);
-    font-size: 0.85rem;
+    font-size: 0.9rem;
     line-height: 1.7;
     text-shadow: none;
+    background: none;
+    color: inherit;
+    white-space: pre;
+    word-spacing: normal;
+    word-break: normal;
+    overflow-wrap: normal;
 }
 
-/* Fix for line numbers background */
-.line-numbers .line-numbers-rows {
-    background: var(--bg-secondary);
+/* Prism.js token colors for syntax highlighting (One Dark Pro theme) */
+.token.comment,
+.token.prolog,
+.token.doctype,
+.token.cdata {
+    color: #5c6370;
+    font-style: italic;
+}
+
+.token.punctuation {
+    color: #abb2bf;
+}
+
+.token.property,
+.token.tag,
+.token.boolean,
+.token.number,
+.token.constant,
+.token.symbol,
+.token.deleted {
+    color: #d19a66;
+}
+
+.token.selector,
+.token.attr-name,
+.token.string,
+.token.char,
+.token.builtin,
+.token.inserted {
+    color: #98c379;
+}
+
+.token.operator,
+.token.entity,
+.token.url,
+.language-css .token.string,
+.style .token.string {
+    color: #56b6c2;
+}
+
+.token.atrule,
+.token.attr-value,
+.token.keyword {
+    color: #c678dd;
+}
+
+.token.function,
+.token.class-name {
+    color: #61afef;
+}
+
+.token.regex,
+.token.important,
+.token.variable {
+    color: #e06c75;
+}
+
+.token.important,
+.token.bold {
+    font-weight: bold;
+}
+
+.token.italic {
+    font-style: italic;
+}
+
+/* Light mode token colors */
+@media (prefers-color-scheme: light) {
+    .token.comment,
+    .token.prolog,
+    .token.doctype,
+    .token.cdata {
+        color: #a0a1a7;
+    }
+    
+    .token.punctuation {
+        color: #383a42;
+    }
+    
+    .token.selector,
+    .token.attr-name,
+    .token.string,
+    .token.char,
+    .token.builtin,
+    .token.inserted {
+        color: #50a14f;
+    }
+    
+    .token.function,
+    .token.class-name {
+        color: #4078f2;
+    }
+    
+    .token.atrule,
+    .token.attr-value,
+    .token.keyword {
+        color: #a626a4;
+    }
+    
+    .token.regex,
+    .token.important,
+    .token.variable {
+        color: #e45649;
+    }
 }
 
 /* Scrollbar styling */

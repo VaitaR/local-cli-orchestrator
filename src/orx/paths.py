@@ -73,6 +73,11 @@ class RunPaths:
         return self.run_dir / "logs"
 
     @property
+    def metrics_dir(self) -> Path:
+        """Directory for metrics files."""
+        return self.run_dir / "metrics"
+
+    @property
     def events_jsonl(self) -> Path:
         """Path to the events.jsonl timeline."""
         return self.run_dir / "events.jsonl"
@@ -260,6 +265,7 @@ class RunPaths:
         self.prompts_dir.mkdir(parents=True, exist_ok=True)
         self.artifacts_dir.mkdir(parents=True, exist_ok=True)
         self.logs_dir.mkdir(parents=True, exist_ok=True)
+        self.metrics_dir.mkdir(parents=True, exist_ok=True)
         self.worktrees_dir.mkdir(parents=True, exist_ok=True)
         self._created = True
 
@@ -276,6 +282,7 @@ class RunPaths:
                 self.context_dir,
                 self.prompts_dir,
                 self.artifacts_dir,
+                self.metrics_dir,
                 self.logs_dir,
             ]
         )

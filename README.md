@@ -1,17 +1,20 @@
 # orx - Local CLI Agent Orchestrator
 
-A local, transparent, CLI-first orchestrator that enables long, sequential, self-checking, self-improving coding work using subscription CLI agents with filesystem access.
+> A local, transparent orchestrator that coordinates AI coding agents (Codex, Gemini, Cursor) through a sequential FSM with git isolation, quality gates, and self-improvement.
 
 ## Features
 
-- **Multi-engine support**: Codex CLI (`codex exec --full-auto`) and Gemini CLI (headless + auto-approve)
-- **Stage-specific engine overrides**: Configure different engines/models per stage
-- **Sequential FSM**: Plan → Spec → Decompose → Implement → Verify → Review → Ship
+- **Multi-engine support**: Codex CLI, Gemini CLI, Cursor Agent (CLI mode)
+- **Per-stage routing**: Configure different executors/models per stage (plan, implement, fix, etc.)
+- **Sequential FSM**: Plan → Spec → Decompose → Implement → Verify → Review → Ship → Knowledge Update
 - **Git isolation**: Each run uses a separate git worktree
-- **Quality gates**: Ruff linting, pytest, optional Docker build
-- **Fix loops**: Automatic retry with failure evidence
+- **Quality gates**: Ruff, pytest, generic command gates (helm-lint, e2e tests, etc.)
+- **Fix loops**: Automatic retry with failure evidence and token tracking
 - **Resume support**: Continue interrupted runs from checkpoint
-- **Full auditability**: All artifacts, logs, and state persisted under `runs/<id>/`
+- **Web Dashboard**: Local FastAPI + HTMX UI with real-time monitoring
+- **Metrics & Observability**: Token usage tracking, stage timings, quality analysis
+- **Self-improvement**: Automatic updates to AGENTS.md and ARCHITECTURE.md after successful runs
+- **Full auditability**: All artifacts, logs, prompts, and metrics persisted under `runs/<id>/`
 
 ## Installation
 
@@ -52,19 +55,39 @@ Create `orx.yaml` in your project root:
 ```yaml
 version: "1.0"
 engine:
-  type: codex  # or gemini, fake
+  type: codex  # or gemini, cursor, fake
   enabled: true
   binary: codex
-  extra_args: []
   timeout: 600
+  model: gpt-4.1  # fallback default
 
-stage_engines:
+# Per-executor configuration
+executors:
+  codex:
+    bin: codex
+    default:
+      model: gpt-4.1
+      reasoning_effort: high
+  cursor:
+    bin: cursor  # or 'agent' if using standalone CLI
+    api_key: ${CURSOR_API_KEY}  # or set in environment
+  gemini:
+    bin: gemini
+    default:
+      model: gemini-2.0-flash
+      output_format: json
+
+# Per-stage executor/model overrides
+stages:
   plan:
-    type: gemini
-    extra_args: ["--model", "gemini-2.0-flash"]
+    executor: gemini
+    model: gemini-2.0-flash
   implement:
-    type: codex
-    extra_args: ["--model", "gpt-4.1"]
+    executor: cursor
+    model: grok
+  fix:
+    executor: codex
+    model: gpt-4.1
 
 git:
   base_branch: main
@@ -131,6 +154,30 @@ runs/<run_id>/
     pytest.log
 ```
 
+## Dashboard
+
+Run the local web UI for monitoring and controlling orchestrator runs:
+
+```bash
+# Install dashboard dependencies
+pip install -e ".[dashboard]"
+
+# Start dashboard
+python -m orx.dashboard
+# or
+make run
+
+# Open browser to http://127.0.0.1:8421
+```
+
+**Features:**
+- Real-time run monitoring with auto-refresh
+- IDE-style artifacts explorer with syntax highlighting
+- Token usage and tool call metrics
+- Stage timeline with success/failure indicators
+- Log tailing with search and filtering
+- Start/cancel runs from UI
+
 ## Development
 
 ```bash
@@ -146,30 +193,44 @@ make test
 # Run integration tests
 make test-integration
 
-# Run with real LLM (requires codex/gemini)
+# Run with real LLM (requires codex/gemini/cursor)
 RUN_LLM_TESTS=1 make smoke-llm
 ```
 
 ## Architecture
 
 ```
-CLI (Typer)
-    │
-    ▼
-Runner (FSM)
-    │
-    ├── StateManager (state.json)
-    ├── ContextPack (artifacts)
-    ├── WorkspaceGitWorktree
-    │
-    └── Stages
-        ├── PlanStage      → Executor (text mode)
-        ├── SpecStage      → Executor (text mode)
-        ├── DecomposeStage → Executor (text mode)
-        ├── ImplementStage → Executor (apply mode)
-        ├── VerifyStage    → Gates (ruff, pytest)
-        ├── ReviewStage    → Executor (text mode)
-        └── ShipStage      → Git (commit, push, PR)
+Dashboard (FastAPI + HTMX)  ←→  CLI (Typer)
+                                     │
+                                     ▼
+                                Runner (FSM)
+                                     │
+    ┌────────────────────────────────┼────────────────────────────────┐
+    │                                │                                │
+    ▼                                ▼                                ▼
+StateManager                    ContextPack                    MetricsCollector
+(state.json)                    (artifacts)                    (stages.jsonl)
+                                     │
+                                     ▼
+                            WorkspaceGitWorktree
+                                     │
+                                     ▼
+                                  Stages
+        ├── PlanStage           → Executor (text mode) → Metrics
+        ├── SpecStage           → Executor (text mode) → Metrics
+        ├── DecomposeStage      → Executor (text mode) → Metrics
+        ├── ImplementStage      → Executor (apply mode) → Metrics
+        ├── VerifyStage         → Gates (ruff, pytest) → Metrics
+        ├── ReviewStage         → Executor (text mode) → Metrics
+        ├── ShipStage           → Git (commit, push, PR)
+        └── KnowledgeUpdateStage → Self-improvement (AGENTS.md)
+                                                             │
+                                                             ▼
+                                                    ModelRouter
+                                                    ├── CodexExecutor
+                                                    ├── GeminiExecutor
+                                                    ├── CursorExecutor
+                                                    └── FakeExecutor (tests)
 ```
 
 ## License

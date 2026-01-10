@@ -257,6 +257,8 @@ Gate Failure (ruff/pytest)
 | Linting | Ruff |
 | Testing | Pytest |
 | Type Checking | mypy (strict) |
+| Token Counting | tiktoken (with fallback) |
+| Dashboard | FastAPI + HTMX + Prism.js |
 
 ---
 
@@ -571,9 +573,16 @@ Comprehensive observability for data-driven improvements. Tracks stage-level and
 | Metric Type | Data Captured |
 |-------------|---------------|
 | **Stage** | Duration (total, LLM, verify), attempt #, status, failure category |
+| **Tokens** | Input/output counts, total usage, tool call counts (per stage + aggregate) |
 | **Gate** | Name, passed, duration, error count, test counts |
 | **Quality** | Spec score, plan score, diff hygiene, pack relevance |
 | **Run** | Total duration, stage breakdown, fix attempts, gate pass/fail |
+
+**Token Estimation:**
+- Uses `tiktoken` library with model-specific encodings (gpt-4, gpt-3.5-turbo, etc.)
+- Fallback to character-based estimation (~4 chars per token) when tiktoken unavailable
+- Cached tokenizers per model to avoid repeated initialization
+- Tool call counts extracted from executor `extra` metadata
 
 **File Structure:**
 ```
@@ -712,6 +721,27 @@ class RunDetail(RunSummary):
 | `/runs/{run_id}/cancel` | POST | Cancel running run |
 | `/runs/{run_id}/status` | GET | Get run status (JSON) |
 | `/health` | GET | Health check |
+
+### UI/UX Design (v0.5.1)
+
+**Metrics Tab:**
+- Responsive grid layout (auto-fill, min 180px per card)
+- Compact metric cards with hover effects (accent border + shadow)
+- Token usage breakdown: input/output counts with tool call tracking
+- Stage-level metrics table with model, duration, tokens, and gate status
+
+**Artifacts Tab (IDE-style):**
+- Two-panel layout: file explorer (280px) + code preview
+- File type icons: Python 🐍, YAML ⚙️, JSON 📋, Markdown 📝, Diff 🔀
+- Search with keyboard shortcuts: ⌘K focus, Escape clear, arrow key navigation
+- Syntax highlighting via Prism.js with line numbers
+- Active file indicator: subtle accent background + left border
+
+**Technical Implementation:**
+- HTMX for partial updates without page reloads
+- Prism.js syntax highlighting triggered on `htmx:afterSwap`
+- JavaScript handlers initialized on both `DOMContentLoaded` and HTMX lifecycle events
+- CSS custom properties for consistent theming (dark/light mode support)
 
 ### Usage
 

@@ -68,6 +68,7 @@
                     <th>Model</th>
                     <th>Duration</th>
                     <th>Tokens</th>
+                    <th>Tool Calls</th>
                     <th>Status</th>
                     <th>Details</th>
                 </tr>
@@ -96,7 +97,7 @@
                     <td>
                         {{ stage.duration | round(1) }}s
                         {% if stage.llm_duration and stage.llm_duration != stage.duration %}
-                        <br><small class="text-muted">LLM: {{ stage.llm_duration | round(1) }}s</small>
+                        <br><small class="text-muted">LLM: {{ stage.llm_duration | round(3) }}s</small>
                         {% endif %}
                     </td>
                     <td>
@@ -105,6 +106,13 @@
                         {% if stage.tokens_in or stage.tokens_out %}
                         <br><small class="text-muted">↓{{ stage.tokens_in | default(0) }} ↑{{ stage.tokens_out | default(0) }}</small>
                         {% endif %}
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if stage.tool_calls %}
+                        {{ stage.tool_calls }}
                         {% else %}
                         <span class="text-muted">-</span>
                         {% endif %}
