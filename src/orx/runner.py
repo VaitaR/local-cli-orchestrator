@@ -718,6 +718,7 @@ class Runner:
                     renderer=self.renderer,
                     state=self.state,
                     router=self.model_router,
+                    metrics_writer=self.metrics_writer,
                 )
 
                 # Run pipeline
