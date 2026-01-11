@@ -25,7 +25,7 @@
         <div class="meta-item">
             <span class="label">🕐 Started</span>
             <span class="value mono">
-                <span data-local-time data-iso="{{ run.created_at_iso or '' }}">-</span>
+                <span data-local-time data-iso="{{ run.started_at or '' }}">{{ run.started_at_short or '-' }}</span>
             </span>
         </div>
         {% endif %}

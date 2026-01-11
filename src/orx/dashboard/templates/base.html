@@ -58,7 +58,7 @@
         document.body.addEventListener('htmx:afterSwap', (evt) => {
             RunTimer.initialize();
             const target = evt && evt.detail && evt.detail.target;
-            LocalTime.initialize(target || document);
+            LocalTime.initialize(target && target.isConnected ? target : document);
         });
     </script>
     <script>

@@ -107,6 +107,13 @@ class RunSummary(BaseModel):
         return self.created_at.isoformat()
 
     @property
+    def started_at_short(self) -> str | None:
+        """Get a short start time string (HH:MM) for server-rendered fallback."""
+        if self.created_at is None:
+            return None
+        return self.created_at.strftime("%H:%M")
+
+    @property
     def created_at_iso(self) -> str | None:
         """Alias for started_at property.
 

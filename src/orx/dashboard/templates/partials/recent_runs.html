@@ -27,7 +27,7 @@
                 </span>
             </td>
             <td class="mono">
-                <span data-local-time data-iso="{{ run.created_at_iso or '' }}">-</span>
+                <span data-local-time data-iso="{{ run.started_at or '' }}">{{ run.started_at_short or '-' }}</span>
             </td>
             <td class="mono">
                 <span data-timer-for="{{ run.run_id }}"
