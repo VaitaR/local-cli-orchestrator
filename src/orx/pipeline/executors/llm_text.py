@@ -81,7 +81,7 @@ class LLMTextNodeExecutor:
             # Build outputs
             outputs: dict[str, Any] = {}
             metadata: dict[str, Any] = {}
-            
+
             if node.outputs:
                 output_key = node.outputs[0]
 
