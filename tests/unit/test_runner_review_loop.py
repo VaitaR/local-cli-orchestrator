@@ -1,24 +1,30 @@
+from unittest.mock import MagicMock, patch
 
 import pytest
-from unittest.mock import MagicMock, call, patch
+
 from orx.runner import Runner, Stage
 from orx.stages.base import StageResult
-from orx.context.backlog import Backlog, WorkItem, WorkItemStatus
+
 
 class MockState:
     def __init__(self):
         self.current_stage = Stage.PLAN
+
     def transition_to(self, stage):
         self.current_stage = stage
+
     def mark_stage_completed(self, stage=None):
         pass
+
     def mark_stage_failed(self, msg):
         pass
+
 
 class MockPaths:
     def __init__(self):
         self.run_id = "test_run"
         self.backlog_yaml = MagicMock()
+
 
 @pytest.fixture
 def mock_runner():
@@ -39,49 +45,49 @@ def mock_runner():
         runner._run_review = MagicMock()
         runner._run_ship = MagicMock()
         runner._run_knowledge_update = MagicMock()
-        
+
         # Mock Backlog loading
         runner._add_backlog_item_for_review = MagicMock()
-        
+
         return runner
+
 
 def test_runner_review_loop(mock_runner):
     # Setup - first pass review fails, second pass review passes
-    
+
     # Mock stage execution results
     # Plan, Spec, Decompose, Implement, Review(Fail), Implement, Review(Pass), Ship, Knowledge
-    
+
     # We need to control the side effects of _run_stage_with_metrics based on calls
-    
-    def side_effect(stage_name, run_fn):
+
+    def side_effect(stage_name):
         if stage_name == "review":
-            # Count calls to determine outcome
-            call_count = mock_runner._run_stage_with_metrics.call_count
-            # This is hard because call_count increments for other stages too
-            # Let's use a mutable counter on the mock
+            # Use a mutable counter on the mock to track review attempts
             if not hasattr(mock_runner, "review_attempts"):
                 mock_runner.review_attempts = 0
             mock_runner.review_attempts += 1
-            
+
             if mock_runner.review_attempts == 1:
-                return StageResult(success=True, data={"verdict": "changes_requested", "feedback": "Fix typos"})
+                return StageResult(
+                    success=True,
+                    data={"verdict": "changes_requested", "feedback": "Fix typos"},
+                )
             else:
                 return StageResult(success=True, data={"verdict": "approved"})
-        
+
         return StageResult(success=True)
 
     mock_runner._run_stage_with_metrics.side_effect = side_effect
-    
+
     # Run
     mock_runner._execute_stages()
-    
+
     # Assert
     assert mock_runner.review_attempts == 2
     mock_runner._add_backlog_item_for_review.assert_called_once_with("Fix typos")
     assert mock_runner._run_implement_loop.call_count == 2
-    
+
     # Check that ship was called via _run_stage_with_metrics
     calls = [args[0] for args, _ in mock_runner._run_stage_with_metrics.call_args_list]
     assert "ship" in calls
     assert "knowledge_update" in calls
-
