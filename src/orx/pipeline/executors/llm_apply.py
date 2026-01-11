@@ -158,15 +158,24 @@ class LLMApplyNodeExecutor:
         """
         template_ctx: dict[str, Any] = {}
 
-        # Task summary
-        task = context.get("task", "")
-        template_ctx["task_summary"] = compact_text(task, max_lines=40)
+        # Helper to get context value with artifact store fallback
+        def get_context_value(key: str, default: str = "") -> str:
+            """Get value from context or artifact store."""
+            if key in context:
+                return context[key]
+            if exec_ctx.store.exists(key):
+                return exec_ctx.store.get(key)
+            return default
 
-        # Spec highlights
-        spec = context.get("spec", "")
+        # Task
+        task = get_context_value("task")
+        template_ctx["task"] = compact_text(task, max_lines=40)
+
+        # Spec
+        spec = get_context_value("spec")
         if hasattr(spec, "model_dump"):
             spec = str(spec)
-        template_ctx["spec_highlights"] = extract_spec_highlights(spec, max_lines=120)
+        template_ctx["spec"] = extract_spec_highlights(spec, max_lines=120)
 
         # Work item context
         if item:
@@ -185,14 +194,17 @@ class LLMApplyNodeExecutor:
             )
             template_ctx["file_snippets"] = snippets
 
-        # Pass through context items
-        if "repo_context" in context or "tooling_snapshot" in context:
-            template_ctx["repo_context"] = context.get("tooling_snapshot", context.get("repo_context", ""))
+        # Pass through context items (with artifact store fallback)
+        tooling = get_context_value("tooling_snapshot", get_context_value("repo_context"))
+        if tooling:
+            template_ctx["repo_context"] = tooling
 
-        if "verify_commands" in context:
-            template_ctx["verify_commands"] = context["verify_commands"]
+        verify_cmds = get_context_value("verify_commands")
+        if verify_cmds:
+            template_ctx["verify_commands"] = verify_cmds
 
-        if "agents_context" in context:
-            template_ctx["agents_context"] = context["agents_context"]
+        agents = get_context_value("agents_context")
+        if agents:
+            template_ctx["agents_context"] = agents
 
         return template_ctx
