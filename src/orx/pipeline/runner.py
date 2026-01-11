@@ -170,7 +170,8 @@ class PipelineRunner:
             node_log = log.bind(node_id=node.id, node_type=node.type.value)
             node_log.info("Executing node")
 
-            node_start = time.perf_counter()
+            node_start_perf = time.perf_counter()
+            node_start_ts = datetime.now(UTC)  # Wall-clock time for metrics
 
             # Build context for this node
             context = self.context_builder.build_for_node(node)
@@ -197,7 +198,7 @@ class PipelineRunner:
                 node_log.error("Node execution error", error=str(e))
                 node_result = NodeResult(success=False, error=str(e))
 
-            node_duration_ms = int((time.perf_counter() - node_start) * 1000)
+            node_duration_ms = int((time.perf_counter() - node_start_perf) * 1000)
 
             # Record metrics
             metrics = NodeMetrics(
@@ -214,7 +215,6 @@ class PipelineRunner:
             # Write stage metrics if writer available
             if self.metrics_writer:
                 try:
-                    node_start_ts = datetime.fromtimestamp(node_start, tz=UTC)
                     stage_metrics = self._convert_node_metrics(metrics, node_start_ts)
                     self.metrics_writer.write_stage(stage_metrics)
                 except Exception as e:
@@ -289,11 +289,11 @@ class PipelineRunner:
                         try:
                             node_result = self._execute_node(implement_node, context, exec_ctx)
 
-                            # If implement succeeds, reset completed nodes to after implement and continue
+                            # If implement succeeds, we need to re-run verify on the new changes
                             if node_result.success:
                                 result.completed_nodes = [
                                     n for n in result.completed_nodes
-                                    if nodes[0].id != "implement" or nodes[0].id != "implement_direct"
+                                    if nodes[0].id != "implement" and nodes[0].id != "implement_direct"
                                 ]
                                 result.completed_nodes.append(implement_node.id)
 
@@ -302,10 +302,13 @@ class PipelineRunner:
                                     self.store.set(key, value, source_node=implement_node.id)
 
                                 node_log.info(
-                                    "Implement retry successful - continuing pipeline",
+                                    "Implement retry successful - re-running verify gate",
                                     fix_attempt=result.fix_attempts,
                                 )
-                                # Continue to next node (verify again)
+
+                                # Re-run verify on the new changes by continuing to next iteration
+                                # (which will be the verify node again)
+                                # NOTE: We don't skip verify - we need to confirm the fix actually works
                                 continue
                             else:
                                 node_log.error(
