@@ -126,7 +126,37 @@ Ensure your fixes pass all these gates.
 ## Output
 
 Apply your fixes directly to the filesystem. Focus only on fixing the identified issues.
-Do not run tests or shell commands; the pipeline handles verification.
+
+## MANDATORY: Run Linters and Tests
+
+**CRITICAL**: After making your fixes, you MUST:
+
+1. **Run ruff check and format**:
+   ```bash
+   python -m ruff format .
+   python -m ruff check --fix .
+   python -m ruff check .  # Verify all issues resolved
+   ```
+
+2. **Run tests** (if applicable and if pytest was failing):
+   ```bash
+   python -m pytest tests/unit -v
+   ```
+
+3. **Fix any remaining failures**: Iterate until ALL checks are green.
+   - Read the specific error message from ruff/pytest
+   - Apply the exact fix needed (import order, unused var, etc.)
+   - Re-run the check
+   - Repeat until success
+
+4. **Do NOT complete this stage until**:
+   - `ruff check .` returns zero errors
+   - All tests pass (or maintain previous passing status)
+
+{% if verify_commands is defined and verify_commands %}
+**Pipeline will verify**: {{ verify_commands }}
+You must pass these checks yourself before finishing.
+{% endif %}
 
 ---
 

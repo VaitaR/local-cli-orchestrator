@@ -98,7 +98,37 @@ Ensure your code passes all these gates.
 ## Output
 
 Apply your changes directly to the filesystem. Do not output code blocks - make the actual file changes.
-Do not run tests or shell commands; the pipeline handles verification.
+
+## MANDATORY: Run Linters and Tests
+
+**CRITICAL**: After making your changes, you MUST:
+
+1. **Run ruff check and format**:
+   ```bash
+   python -m ruff format .
+   python -m ruff check --fix .
+   python -m ruff check .  # Verify all issues resolved
+   ```
+
+2. **Run tests** (if applicable):
+   ```bash
+   python -m pytest tests/unit -v
+   ```
+
+3. **Fix any failures**: If linters or tests fail, iterate until ALL checks are green.
+   - Read error output carefully
+   - Make targeted fixes
+   - Re-run checks
+   - Repeat until success
+
+4. **Do NOT complete this stage until**:
+   - `ruff check .` returns no errors
+   - All relevant tests pass
+
+{% if verify_commands is defined and verify_commands %}
+**Pipeline will verify**: {{ verify_commands }}
+Ensure you've already passed these checks yourself before finishing.
+{% endif %}
 
 ---
 

@@ -60,7 +60,7 @@ def test_runner_review_loop(mock_runner):
 
     # We need to control the side effects of _run_stage_with_metrics based on calls
 
-    def side_effect(stage_name):
+    def side_effect(stage_name, run_fn):
         if stage_name == "review":
             # Use a mutable counter on the mock to track review attempts
             if not hasattr(mock_runner, "review_attempts"):
