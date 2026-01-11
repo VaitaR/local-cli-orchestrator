@@ -44,6 +44,10 @@ Ensure your code passes all these gates.
 **ID**: {{ item_id }}
 **Title**: {{ item_title }}
 **Objective**: {{ item_objective }}
+{% if item_notes %}
+**Notes (FAILURE EVIDENCE / FEEDBACK)**:
+{{ item_notes }}
+{% endif %}
 
 ### Acceptance Criteria
 {% for criterion in acceptance %}

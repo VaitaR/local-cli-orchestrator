@@ -103,6 +103,7 @@ class TestPromptRenderer:
             item_id="W001",
             item_title="Implement function",
             item_objective="Create the function",
+            item_notes="",
             acceptance=["Function works", "Tests pass"],
             files_hint=["src/app.py"],
             file_snippets=[],

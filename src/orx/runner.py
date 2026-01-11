@@ -906,7 +906,12 @@ class Runner:
                 break
 
         # Execute stages
-        for stage in stage_order[start_idx:]:
+        idx = start_idx
+        attempts_backlogs = 0
+        max_review_loops = 3
+
+        while idx < len(stage_order):
+            stage = stage_order[idx]
             self.state.transition_to(stage)
 
             if stage == Stage.PLAN:
@@ -926,6 +931,7 @@ class Runner:
                     "knowledge_update", self._run_knowledge_update
                 )
             else:
+                idx += 1
                 continue
 
             if not result.success:
@@ -937,12 +943,71 @@ class Runner:
 
             self.state.mark_stage_completed()
 
+            # Handle Review Loop
+            if stage == Stage.REVIEW and result.data and result.data.get("verdict") == "changes_requested":
+                if attempts_backlogs < max_review_loops:
+                    attempts_backlogs += 1
+                    feedback = result.data.get("feedback", "Changes requested in review")
+                    log.info("Review requested changes. Creating fix item.", attempt=attempts_backlogs)
+                    
+                    try:
+                        self._add_backlog_item_for_review(feedback)
+                        # Rewind to IMPLEMENT_ITEM
+                        implement_idx = -1
+                        for i, s in enumerate(stage_order):
+                            if s == Stage.IMPLEMENT_ITEM:
+                                implement_idx = i
+                                break
+                        
+                        if implement_idx >= 0:
+                            # Force reset stage context/state for re-run if needed
+                            # The implement loop reloads backlog, so it should be fine
+                            idx = implement_idx
+                            continue
+                    except Exception as e:
+                         log.error("Failed to recover from review failure", error=str(e))
+                else:
+                     log.warning("Max review loops reached. Proceeding despite review failure.")
+
+            idx += 1
+
         # All done
         self.state.transition_to(Stage.DONE)
         self.state.mark_stage_completed()
         self._save_meta(success=True)
         log.info("Run completed successfully")
         return True
+
+    def _add_backlog_item_for_review(self, feedback: str) -> None:
+        """Add a work item to address review feedback.
+        
+        Args:
+            feedback: The review content/feedback to address.
+        """
+        backlog = Backlog.load(self.paths.backlog_yaml)
+        
+        # Generate new valid ID
+        existing_ids = {item.id for item in backlog.items}
+        next_id_num = 1
+        while f"W{next_id_num:03d}" in existing_ids:
+            next_id_num += 1
+        new_id = f"W{next_id_num:03d}"
+        
+        # Create a new item
+        new_item = WorkItem(
+            id=new_id,
+            title="Address Review Feedback",
+            objective="Fix issues identified in code review",
+            acceptance=["Review comments addressed", "Tests pass"],
+            # Include feedback in description or notes
+            notes=f"Review Feedback:\n\n{feedback}",
+            status="todo",
+            files_hint=[], 
+        )
+        
+        backlog.add_item(new_item)
+        backlog.save(self.paths.backlog_yaml)
+
 
     def _run_stage_with_metrics(
         self,

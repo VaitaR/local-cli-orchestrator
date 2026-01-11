@@ -73,6 +73,7 @@ class ImplementStage(ApplyStage):
             "item_id": item.id,
             "item_title": item.title,
             "item_objective": item.objective,
+            "item_notes": item.notes,
             "acceptance": item.acceptance,
             "files_hint": item.files_hint,
             "file_snippets": snippets,
