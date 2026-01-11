@@ -5,10 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, cast
 
+import structlog
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse
 
 router = APIRouter(tags=["partials"])
+logger = structlog.get_logger()
 
 
 def _get_prism_language(file_path: str) -> str | None:
@@ -158,30 +160,59 @@ def _build_metrics_context(
             error_display = failure_msg
 
         # Get model info with fallback
+        # Handle None values for model and executor
         model = stage_metric.get("model")
         executor = stage_metric.get("executor")
+
+        # If model is None or empty string, try to use executor as fallback
+        if not model and executor:
+            model = None  # Explicitly None so template uses executor
+
+        # If both model and executor are missing (not just None), use run-level fallback
+        # Distinguish between "key not present" vs "key present with value None"
+        stage_name = stage_metric.get("stage", "unknown")
+        has_model_key = "model" in stage_metric
+        has_executor_key = "executor" in stage_metric
+
+        # Use fallback model when both keys are missing from stage metric
+        if not has_model_key and not has_executor_key and fallback_model:
+            model = fallback_model
+        # If both keys exist but are None/empty, respect explicit None (don't use fallback)
+
+        # Log debug info for stages without model/executor
+        if not model and not executor:
+            logger.debug(
+                "stage_missing_model_info",
+                stage=stage_name,
+                stage_metric=stage_metric,
+            )
+
         fallback_applied = stage_metric.get("fallback_applied", False)
         original_model = stage_metric.get("original_model")
 
+        # Safely extract token values, handling None and non-dict cases
+        tokens_total = None
+        tokens_in = None
+        tokens_out = None
+        tool_calls = None
+
+        if isinstance(stage_tokens, dict):
+            tokens_total = stage_tokens.get("total")
+            tokens_in = stage_tokens.get("input")
+            tokens_out = stage_tokens.get("output")
+            tool_calls = stage_tokens.get("tool_calls")
+
         stages.append(
             {
-                "name": stage_metric.get("stage", "unknown"),
+                "name": stage_name,
                 "item_id": stage_metric.get("item_id"),
                 "attempt": stage_metric.get("attempt", 1),
                 "duration": float(stage_metric.get("duration_ms") or 0) / 1000.0,
                 "status": stage_metric.get("status", "unknown"),
-                "tokens": stage_tokens.get("total")
-                if isinstance(stage_tokens, dict)
-                else None,
-                "tokens_in": stage_tokens.get("input")
-                if isinstance(stage_tokens, dict)
-                else None,
-                "tokens_out": stage_tokens.get("output")
-                if isinstance(stage_tokens, dict)
-                else None,
-                "tool_calls": stage_tokens.get("tool_calls")
-                if isinstance(stage_tokens, dict)
-                else None,
+                "tokens": tokens_total,
+                "tokens_in": tokens_in,
+                "tokens_out": tokens_out,
+                "tool_calls": tool_calls,
                 "model": model,
                 "executor": executor,
                 "fallback_applied": fallback_applied,
@@ -197,13 +228,21 @@ def _build_metrics_context(
     # Calculate total LLM time
     total_llm_time = sum(s["llm_duration"] for s in stages)
 
+    # Extract run-level model/engine with proper None handling
+    run_model = run_metrics.get("model")
+    run_engine = run_metrics.get("engine")
+
+    # Use fallback_model if both are None/empty
+    model = run_model if run_model else fallback_model
+    engine = run_engine if run_engine else fallback_model
+
     return {
         "tokens": tokens,
         "duration": float(duration_ms) / 1000.0,
         "llm_duration": total_llm_time,
         "fix_loops": run_metrics.get("fix_attempts_total"),
-        "model": run_metrics.get("model") or fallback_model,
-        "engine": run_metrics.get("engine") or fallback_model,
+        "model": model,
+        "engine": engine,
         "stages": stages,
         "stages_failed": run_metrics.get("stages_failed", 0),
         "items_total": run_metrics.get("items_total", 0),
