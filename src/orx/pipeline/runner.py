@@ -273,7 +273,9 @@ class PipelineRunner:
         """
         executor = self._executors.get(node.type)
         if not executor:
-            return NodeResult(success=False, error=f"No executor for node type: {node.type}")
+            return NodeResult(
+                success=False, error=f"No executor for node type: {node.type}"
+            )
 
         return executor.execute(node, context, exec_ctx)
 
@@ -355,16 +357,25 @@ class PipelineRunner:
         if "gates" in node_metrics.extra:
             gates_data = node_metrics.extra.get("gates", [])
             if not isinstance(gates_data, list):
-                log.warning("Gates field is not a list", gates_type=type(gates_data).__name__)
+                log.warning(
+                    "Gates field is not a list", gates_type=type(gates_data).__name__
+                )
             else:
                 for gate_data in gates_data:
                     if isinstance(gate_data, dict):
                         try:
                             gates.append(GateMetrics(**gate_data))
                         except Exception as e:
-                            log.error("Failed to parse gate metrics", gate_data=gate_data, error=str(e))
+                            log.error(
+                                "Failed to parse gate metrics",
+                                gate_data=gate_data,
+                                error=str(e),
+                            )
                     else:
-                        log.warning("Gate item is not a dict", gate_type=type(gate_data).__name__)
+                        log.warning(
+                            "Gate item is not a dict",
+                            gate_type=type(gate_data).__name__,
+                        )
 
         # Extract tokens from extra with error handling
         tokens: TokenUsage | None = None
@@ -373,13 +384,19 @@ class PipelineRunner:
             if token_data is None:
                 log.debug("Tokens field is None")
             elif not isinstance(token_data, dict):
-                log.warning("Tokens field is not a dict", tokens_type=type(token_data).__name__)
+                log.warning(
+                    "Tokens field is not a dict", tokens_type=type(token_data).__name__
+                )
             else:
                 try:
                     tokens = TokenUsage(**token_data)
                     log.debug("Parsed token usage", tokens_total=tokens.total)
                 except Exception as e:
-                    log.error("Failed to parse token usage", token_data=token_data, error=str(e))
+                    log.error(
+                        "Failed to parse token usage",
+                        token_data=token_data,
+                        error=str(e),
+                    )
 
         log.debug(
             "Metrics conversion complete",

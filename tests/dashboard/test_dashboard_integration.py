@@ -301,9 +301,7 @@ class TestHTMXPartialSwapTimerAttributes:
         assert 'data-run-status="running"' in html
         assert 'data-timer-for="active-run-002"' in html
 
-    def test_run_header_partial_displays_start_time(
-        self, client: TestClient
-    ) -> None:
+    def test_run_header_partial_displays_start_time(self, client: TestClient) -> None:
         """Test that run header partial displays start time in short format."""
         response = client.get("/partials/run-header/active-run-002")
         assert response.status_code == 200
@@ -329,9 +327,7 @@ class TestHTMXPartialSwapTimerAttributes:
 class TestTimerDataAttributeFormats:
     """Tests for timer data attribute format consistency."""
 
-    def test_data_started_at_uses_iso8601_format(
-        self, client: TestClient
-    ) -> None:
+    def test_data_started_at_uses_iso8601_format(self, client: TestClient) -> None:
         """Test that data-started-at uses ISO 8601 format with timezone."""
         response = client.get("/partials/active-runs")
         assert response.status_code == 200
@@ -341,9 +337,7 @@ class TestTimerDataAttributeFormats:
         assert "T" in html  # Date/time separator
         assert "+00:00" in html  # UTC timezone indicator
 
-    def test_data_run_status_matches_status_enum(
-        self, client: TestClient
-    ) -> None:
+    def test_data_run_status_matches_status_enum(self, client: TestClient) -> None:
         """Test that data-run-status values match RunStatus enum values."""
         response = client.get("/partials/recent-runs")
         assert response.status_code == 200
@@ -359,9 +353,7 @@ class TestTimerDataAttributeFormats:
 
         assert 'data-run-status="running"' in html
 
-    def test_data_timer_for_matches_run_id(
-        self, client: TestClient
-    ) -> None:
+    def test_data_timer_for_matches_run_id(self, client: TestClient) -> None:
         """Test that data-timer-for attribute matches run ID."""
         response = client.get("/partials/active-runs")
         assert response.status_code == 200

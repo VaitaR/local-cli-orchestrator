@@ -150,7 +150,9 @@ class TestCustomPipelineMetrics:
         assert "load_to_db" in stage_names
 
         # Verify metrics data
-        extract_stage = next(s for s in context["stages"] if s["name"] == "extract_data")
+        extract_stage = next(
+            s for s in context["stages"] if s["name"] == "extract_data"
+        )
         assert extract_stage["duration"] == 3.0
         assert extract_stage["status"] == "success"
         assert extract_stage["tokens"] == 700
@@ -225,8 +227,12 @@ class TestCustomPipelineMetrics:
             json.dumps(
                 {
                     "current_stage": "done",
-                    "created_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC).isoformat(),
-                    "updated_at": datetime(2024, 1, 1, 12, 0, 12, tzinfo=UTC).isoformat(),
+                    "created_at": datetime(
+                        2024, 1, 1, 12, 0, 0, tzinfo=UTC
+                    ).isoformat(),
+                    "updated_at": datetime(
+                        2024, 1, 1, 12, 0, 12, tzinfo=UTC
+                    ).isoformat(),
                     "stage_statuses": {
                         "etl_extract": {"status": "success"},
                         "etl_transform": {"status": "success"},
@@ -241,7 +247,9 @@ class TestCustomPipelineMetrics:
         meta_json.write_text(
             json.dumps(
                 {
-                    "created_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC).isoformat(),
+                    "created_at": datetime(
+                        2024, 1, 1, 12, 0, 0, tzinfo=UTC
+                    ).isoformat(),
                     "repo_path": "/tmp/test",
                     "engine": "claude-3-opus",
                 }

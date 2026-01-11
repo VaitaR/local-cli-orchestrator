@@ -81,7 +81,9 @@ class GateNodeExecutor:
                         # Retry gate after fix
                         retry_result = gate.run(
                             cwd=exec_ctx.workspace.worktree_path,
-                            log_path=exec_ctx.paths.log_path(f"gate_{gate.name}_{node.id}_retry"),
+                            log_path=exec_ctx.paths.log_path(
+                                f"gate_{gate.name}_{node.id}_retry"
+                            ),
                         )
                         if retry_result.ok:
                             log.info("Gate passed after auto-fix", gate=gate.name)

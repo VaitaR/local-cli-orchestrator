@@ -38,7 +38,12 @@ def estimate_tokens(text: str, model: str | None = None) -> int:
         model_lower = model.lower()
         if "gpt-4" in model_lower or "gpt-3.5" in model_lower or "gpt-5" in model_lower:
             encoding_name = "cl100k_base"
-        elif "gemini" in model_lower or "claude" in model_lower or "sonnet" in model_lower or "opus" in model_lower:
+        elif (
+            "gemini" in model_lower
+            or "claude" in model_lower
+            or "sonnet" in model_lower
+            or "opus" in model_lower
+        ):
             # Gemini and Claude use similar tokenization to GPT-4
             encoding_name = "cl100k_base"
         elif "grok" in model_lower or "cursor" in model_lower:

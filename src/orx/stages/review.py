@@ -59,7 +59,9 @@ class ReviewStage(TextOutputStage):
         if agents_path.exists():
             try:
                 content = agents_path.read_text()
-                section = extract_section(content, "Definition of Done", source="AGENTS.md")
+                section = extract_section(
+                    content, "Definition of Done", source="AGENTS.md"
+                )
                 if section:
                     definition_of_done = section.content
             except Exception:

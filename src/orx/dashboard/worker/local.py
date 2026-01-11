@@ -57,7 +57,9 @@ class LocalWorker:
         self.config = config
         self._queue: Queue[RunJob] = Queue()
         self._active_jobs: dict[str, RunJob] = {}
-        self._pending_run_dirs: dict[str, str] = {}  # temp_run_id -> real_run_id mapping
+        self._pending_run_dirs: dict[
+            str, str
+        ] = {}  # temp_run_id -> real_run_id mapping
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
@@ -258,13 +260,13 @@ class LocalWorker:
 
     def get_worker_stats(self) -> dict[str, Any]:
         """Get worker statistics.
-        
+
         Returns:
             Dictionary with worker stats including active jobs count, queue size, etc.
         """
         with self._lock:
             active_jobs = list(self._active_jobs.keys())
-            
+
         return {
             "active_count": len(active_jobs),
             "queue_size": self._queue.qsize(),
@@ -413,20 +415,22 @@ class LocalWorker:
             if entry.is_dir() and not entry.name.startswith(".")
         }
 
-    def _wait_for_run_id(self, runs_dir: Path, existing: set[str], temp_id: str) -> str | None:
+    def _wait_for_run_id(
+        self, runs_dir: Path, existing: set[str], temp_id: str
+    ) -> str | None:
         """Wait briefly for a new run directory to appear.
-        
+
         Args:
             runs_dir: Directory containing run folders.
             existing: Set of run_ids that existed before this job started.
             temp_id: Temporary run_id generated for this job.
-            
+
         Returns:
             Real run_id if found, None otherwise.
         """
         deadline = time.time() + self.config.run_id_timeout_seconds
         found_dirs = []
-        
+
         while time.time() < deadline:
             if runs_dir.exists():
                 for entry in runs_dir.iterdir():
@@ -442,7 +446,7 @@ class LocalWorker:
                         # If already claimed, keep looking
                         found_dirs.append(entry.name)
             time.sleep(self.config.run_id_poll_interval)
-        
+
         # Timeout - log what we found
         if found_dirs:
             self._log.warning(
@@ -450,7 +454,7 @@ class LocalWorker:
                 temp_id=temp_id,
                 found=found_dirs,
             )
-        
+
         return None
 
     def _cleanup_completed(self) -> None:

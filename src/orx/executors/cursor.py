@@ -269,7 +269,9 @@ class CursorExecutor(BaseExecutor):
         # Fallback: return raw content
         return content, {}
 
-    def _check_result_errors(self, _result: CommandResult | ExecResult, extra: dict[str, Any]) -> None:
+    def _check_result_errors(
+        self, _result: CommandResult | ExecResult, extra: dict[str, Any]
+    ) -> None:
         """Check for Cursor-specific errors in the result.
 
         Args:

@@ -47,7 +47,9 @@ class CustomNodeExecutor:
             handler = self._get_builtin_handler(node.id)
             if handler:
                 return handler(node, context, exec_ctx)
-            return NodeResult(success=False, error=f"No callable_path for custom node: {node.id}")
+            return NodeResult(
+                success=False, error=f"No callable_path for custom node: {node.id}"
+            )
 
         try:
             # Import and call the function
@@ -92,7 +94,9 @@ class CustomNodeExecutor:
 
     def _get_builtin_handler(
         self, node_id: str
-    ) -> Callable[[NodeDefinition, dict[str, Any], ExecutionContext], NodeResult] | None:
+    ) -> (
+        Callable[[NodeDefinition, dict[str, Any], ExecutionContext], NodeResult] | None
+    ):
         """Get a built-in handler for known node IDs.
 
         Args:
@@ -133,7 +137,9 @@ def ship_node(
         # Check if there are changes to commit
         if exec_ctx.workspace.diff_empty():
             log.info("No changes to ship")
-            return NodeResult(success=True, outputs={"pr_body": "No changes to commit."})
+            return NodeResult(
+                success=True, outputs={"pr_body": "No changes to commit."}
+            )
 
         # Get review for PR body
         review = context.get("review", "")
@@ -182,25 +188,29 @@ def _build_pr_body(review: str, exec_ctx: ExecutionContext) -> str:
     ]
 
     if review:
-        lines.extend([
-            "## Review",
-            "",
-            review,
-            "",
-        ])
+        lines.extend(
+            [
+                "## Review",
+                "",
+                review,
+                "",
+            ]
+        )
 
     # Add diff stats if available
     if exec_ctx.paths.patch_diff.exists():
         diff = exec_ctx.paths.patch_diff.read_text()
         added = diff.count("\n+") - diff.count("\n+++")
         removed = diff.count("\n-") - diff.count("\n---")
-        lines.extend([
-            "## Changes",
-            "",
-            f"- Lines added: {added}",
-            f"- Lines removed: {removed}",
-            "",
-        ])
+        lines.extend(
+            [
+                "## Changes",
+                "",
+                f"- Lines added: {added}",
+                f"- Lines removed: {removed}",
+                "",
+            ]
+        )
 
     return "\n".join(lines)
 

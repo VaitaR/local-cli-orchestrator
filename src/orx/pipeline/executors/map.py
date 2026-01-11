@@ -66,12 +66,16 @@ class MapNodeExecutor:
 
         # Get concurrency
         concurrency = min(node.config.concurrency, len(backlog.items))
-        log.info("Starting map execution", items=len(backlog.items), concurrency=concurrency)
+        log.info(
+            "Starting map execution", items=len(backlog.items), concurrency=concurrency
+        )
 
         # Get item pipeline
         item_pipeline = node.config.item_pipeline
         if not item_pipeline:
-            return NodeResult(success=False, error="No item_pipeline defined for map node")
+            return NodeResult(
+                success=False, error="No item_pipeline defined for map node"
+            )
 
         # Get max fix attempts from config
         max_attempts = exec_ctx.config.run.max_fix_attempts
@@ -193,7 +197,11 @@ class MapNodeExecutor:
                     results.append(result)
                 except Exception as e:
                     logger.error("Item execution failed", item_id=item_id, error=str(e))
-                    results.append(ItemResult(item_id=item_id, success=False, attempts=0, error=str(e)))
+                    results.append(
+                        ItemResult(
+                            item_id=item_id, success=False, attempts=0, error=str(e)
+                        )
+                    )
 
         return results
 
@@ -240,7 +248,9 @@ class MapNodeExecutor:
             error = None
 
             for node in item_pipeline:
-                result = self._execute_item_node(node, item_context, exec_ctx, item, attempt)
+                result = self._execute_item_node(
+                    node, item_context, exec_ctx, item, attempt
+                )
 
                 if not result.success:
                     success = False
@@ -259,7 +269,9 @@ class MapNodeExecutor:
 
         # All attempts failed
         item.mark_failed(f"Failed after {max_attempts} attempts")
-        return ItemResult(item_id=item.id, success=False, attempts=max_attempts, error=error)
+        return ItemResult(
+            item_id=item.id, success=False, attempts=max_attempts, error=error
+        )
 
     def _execute_item_node(
         self,
@@ -295,7 +307,10 @@ class MapNodeExecutor:
             return self._gate_executor.execute(node, context, exec_ctx)
 
         else:
-            return NodeResult(success=False, error=f"Unsupported node type in item pipeline: {node.type}")
+            return NodeResult(
+                success=False,
+                error=f"Unsupported node type in item pipeline: {node.type}",
+            )
 
     def _build_report(self, results: list[ItemResult], backlog: Backlog) -> str:
         """Build implementation report.

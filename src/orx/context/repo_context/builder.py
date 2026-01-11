@@ -199,7 +199,9 @@ class RepoContextBuilder:
             if b.priority <= ContextPriority.LAYOUT or "Profile" in b.title
         ]
 
-    def _filter_implement_blocks(self, blocks: list[ContextBlock]) -> list[ContextBlock]:
+    def _filter_implement_blocks(
+        self, blocks: list[ContextBlock]
+    ) -> list[ContextBlock]:
         """Filter blocks for implement/fix stages.
 
         Includes tooling config AND docs (AGENTS.md, ARCHITECTURE.md).

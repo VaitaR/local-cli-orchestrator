@@ -65,7 +65,9 @@ def metrics_writer(temp_paths):
 
 
 @pytest.fixture
-def pipeline_runner(mock_config, temp_paths, mock_workspace, mock_executor, mock_gates, metrics_writer):
+def pipeline_runner(
+    mock_config, temp_paths, mock_workspace, mock_executor, mock_gates, metrics_writer
+):
     """Create PipelineRunner with metrics writer."""
     from orx.prompts.renderer import PromptRenderer
 
@@ -266,7 +268,9 @@ class TestMetricsWriting:
     """Tests for metrics writing integration."""
 
     @patch("orx.pipeline.runner.PipelineRunner._execute_node")
-    def test_metrics_writer_receives_data(self, mock_execute, pipeline_runner, temp_paths):
+    def test_metrics_writer_receives_data(
+        self, mock_execute, pipeline_runner, temp_paths
+    ):
         """Test that metrics writer receives stage metrics after node execution."""
         from orx.pipeline.definition import PipelineDefinition
         from orx.pipeline.executors.base import NodeResult
@@ -294,7 +298,9 @@ class TestMetricsWriting:
         assert stage_metrics.status == StageStatus.SUCCESS
 
     @patch("orx.pipeline.runner.PipelineRunner._execute_node")
-    def test_metrics_writer_handles_failure(self, mock_execute, pipeline_runner, temp_paths):
+    def test_metrics_writer_handles_failure(
+        self, mock_execute, pipeline_runner, temp_paths
+    ):
         """Test that failed node metrics are written correctly."""
         from orx.pipeline.definition import PipelineDefinition
         from orx.pipeline.executors.base import NodeResult
@@ -323,7 +329,15 @@ class TestMetricsWriting:
         assert stage_metrics.failure_message == "Simulated failure"
 
     @patch("orx.pipeline.runner.PipelineRunner._execute_node")
-    def test_metrics_writer_without_writer_doesnt_crash(self, mock_execute, mock_config, temp_paths, mock_workspace, mock_executor, mock_gates):
+    def test_metrics_writer_without_writer_doesnt_crash(
+        self,
+        mock_execute,
+        mock_config,
+        temp_paths,
+        mock_workspace,
+        mock_executor,
+        mock_gates,
+    ):
         """Test that pipeline runs without metrics writer."""
         from orx.pipeline.definition import PipelineDefinition
         from orx.pipeline.executors.base import NodeResult
@@ -355,7 +369,9 @@ class TestMetricsWriting:
         assert result.success is True
 
     @patch("orx.pipeline.runner.PipelineRunner._execute_node")
-    def test_metrics_writer_error_doesnt_crash_pipeline(self, mock_execute, pipeline_runner):
+    def test_metrics_writer_error_doesnt_crash_pipeline(
+        self, mock_execute, pipeline_runner
+    ):
         """Test that metrics write errors don't crash the pipeline."""
         from orx.pipeline.definition import PipelineDefinition
         from orx.pipeline.executors.base import NodeResult
@@ -615,7 +631,9 @@ class TestFailedNodesMetrics:
     """Tests for metrics being written for failed nodes."""
 
     @patch("orx.pipeline.runner.PipelineRunner._execute_node")
-    def test_metrics_written_for_failed_node(self, mock_execute, pipeline_runner, temp_paths):
+    def test_metrics_written_for_failed_node(
+        self, mock_execute, pipeline_runner, temp_paths
+    ):
         """Test that metrics are written even when a node fails."""
         from orx.pipeline.definition import PipelineDefinition
         from orx.pipeline.executors.base import NodeResult
@@ -645,7 +663,9 @@ class TestFailedNodesMetrics:
         assert stage_metrics.failure_message == "Simulated failure"
 
     @patch("orx.pipeline.runner.PipelineRunner._execute_node")
-    def test_metrics_written_for_failed_node_with_extra_data(self, mock_execute, pipeline_runner, temp_paths):
+    def test_metrics_written_for_failed_node_with_extra_data(
+        self, mock_execute, pipeline_runner, temp_paths
+    ):
         """Test that metrics including extra data are written for failed nodes."""
         from orx.pipeline.definition import PipelineDefinition
         from orx.pipeline.executors.base import NodeResult
@@ -698,7 +718,9 @@ class TestFailedNodesMetrics:
         assert stage_metrics.gates[0].passed is False
 
     @patch("orx.pipeline.runner.PipelineRunner._execute_node")
-    def test_metrics_written_for_multiple_failures(self, mock_execute, pipeline_runner, temp_paths):
+    def test_metrics_written_for_multiple_failures(
+        self, mock_execute, pipeline_runner, temp_paths
+    ):
         """Test that metrics are written for multiple node failures."""
         from orx.pipeline.definition import PipelineDefinition
         from orx.pipeline.executors.base import NodeResult
@@ -712,7 +734,9 @@ class TestFailedNodesMetrics:
         # First succeeds, second fails
         execute_results = [
             NodeResult(success=True, outputs={"plan": "test"}, metrics={}),
-            NodeResult(success=False, error="Second node failed", outputs={}, metrics={}),
+            NodeResult(
+                success=False, error="Second node failed", outputs={}, metrics={}
+            ),
         ]
         mock_execute.side_effect = execute_results
 

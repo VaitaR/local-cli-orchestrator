@@ -260,9 +260,7 @@ class TestContextBuilder:
 
         builder = ContextBuilder(store, temp_paths.run_dir)
 
-        node = NodeDefinition(
-            id="test", type=NodeType.LLM_TEXT, inputs=["task"]
-        )
+        node = NodeDefinition(id="test", type=NodeType.LLM_TEXT, inputs=["task"])
         ctx = builder.build_for_node(node)
         assert ctx["task"] == "Test task"
 
@@ -273,9 +271,7 @@ class TestContextBuilder:
         store = ArtifactStore(temp_paths)
         builder = ContextBuilder(store, temp_paths.run_dir)
 
-        node = NodeDefinition(
-            id="test", type=NodeType.LLM_TEXT, inputs=["nonexistent"]
-        )
+        node = NodeDefinition(id="test", type=NodeType.LLM_TEXT, inputs=["nonexistent"])
         # Missing context should raise MissingContextError
         with pytest.raises(MissingContextError):
             builder.build_for_node(node)
@@ -365,6 +361,7 @@ class TestPipelineRegistry:
         registry.delete("to_delete")
         # After delete, get should raise PipelineNotFoundError
         from orx.pipeline.registry import PipelineNotFoundError
+
         with pytest.raises(PipelineNotFoundError):
             registry.get("to_delete")
 

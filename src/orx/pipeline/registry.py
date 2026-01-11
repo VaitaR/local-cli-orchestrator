@@ -175,7 +175,9 @@ class PipelineRegistry:
                 self._pipelines[pipeline.id] = pipeline
                 logger.debug("Loaded user pipeline", id=pipeline.id)
             except Exception as e:
-                logger.warning("Failed to load user pipeline", path=str(path), error=str(e))
+                logger.warning(
+                    "Failed to load user pipeline", path=str(path), error=str(e)
+                )
 
     def _try_load_user_pipeline(self, pipeline_id: str) -> None:
         """Try to load a specific user pipeline from disk.
@@ -210,7 +212,12 @@ class PipelineRegistry:
             name="Standard Full Pipeline",
             description="Plan → Spec → Decompose → Implement → Review → Ship",
             builtin=True,
-            default_context=["repo_map", "tooling_snapshot", "agents_context", "architecture"],
+            default_context=[
+                "repo_map",
+                "tooling_snapshot",
+                "agents_context",
+                "architecture",
+            ],
             nodes=[
                 NodeDefinition(
                     id="plan",
@@ -249,7 +256,13 @@ class PipelineRegistry:
                                 id="implement_item",
                                 type=NodeType.LLM_APPLY,
                                 template="implement.md",
-                                inputs=["current_item", "spec", "file_snippets", "agents_context", "verify_commands"],
+                                inputs=[
+                                    "current_item",
+                                    "spec",
+                                    "file_snippets",
+                                    "agents_context",
+                                    "verify_commands",
+                                ],
                                 outputs=["patch_diff"],
                                 description="Implement single work item",
                             ),
@@ -278,7 +291,9 @@ class PipelineRegistry:
                     inputs=["review", "patch_diff"],
                     outputs=["pr_body"],
                     description="Commit and create PR",
-                    config=NodeConfig(callable_path="orx.pipeline.executors.custom:ship_node"),
+                    config=NodeConfig(
+                        callable_path="orx.pipeline.executors.custom:ship_node"
+                    ),
                 ),
             ],
         )

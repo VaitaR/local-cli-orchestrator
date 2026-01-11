@@ -169,7 +169,9 @@ async def restart_run(request: Request, run_id: str):
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.error("Failed to restart run", run_id=run_id, error=str(e))
-        raise HTTPException(status_code=500, detail=f"Failed to restart run: {e}") from e
+        raise HTTPException(
+            status_code=500, detail=f"Failed to restart run: {e}"
+        ) from e
 
 
 @router.get("/runs/{run_id}/status")
@@ -204,7 +206,7 @@ async def health():
 @router.get("/worker/stats")
 async def worker_stats(request: Request):
     """Get worker statistics.
-    
+
     Returns worker status including active jobs, queue size, and concurrency limits.
     """
     worker = request.app.state.worker
@@ -338,30 +340,34 @@ async def list_pipelines():
 
     pipelines = []
     for p in registry.pipelines:
-        pipelines.append({
-            "id": p.id,
-            "name": p.name,
-            "description": p.description,
-            "builtin": p.builtin,
-            "node_count": len(p.nodes),
-            "default_context": p.default_context,
-            "nodes": [
-                {
-                    "id": n.id,
-                    "type": n.type.value,
-                    "template": n.template,
-                    "inputs": n.inputs,
-                    "outputs": n.outputs,
-                    "description": n.description,
-                    "config": {
-                        "gates": n.config.gates if n.config else [],
-                        "concurrency": n.config.concurrency if n.config else 1,
-                        "timeout_seconds": n.config.timeout_seconds if n.config else 600,
-                    },
-                }
-                for n in p.nodes
-            ],
-        })
+        pipelines.append(
+            {
+                "id": p.id,
+                "name": p.name,
+                "description": p.description,
+                "builtin": p.builtin,
+                "node_count": len(p.nodes),
+                "default_context": p.default_context,
+                "nodes": [
+                    {
+                        "id": n.id,
+                        "type": n.type.value,
+                        "template": n.template,
+                        "inputs": n.inputs,
+                        "outputs": n.outputs,
+                        "description": n.description,
+                        "config": {
+                            "gates": n.config.gates if n.config else [],
+                            "concurrency": n.config.concurrency if n.config else 1,
+                            "timeout_seconds": n.config.timeout_seconds
+                            if n.config
+                            else 600,
+                        },
+                    }
+                    for n in p.nodes
+                ],
+            }
+        )
 
     return {"pipelines": pipelines}
 
@@ -380,7 +386,9 @@ async def get_pipeline(pipeline_id: str):
     try:
         pipeline = registry.get(pipeline_id)
     except PipelineNotFoundError:
-        raise HTTPException(status_code=404, detail=f"Pipeline not found: {pipeline_id}") from None
+        raise HTTPException(
+            status_code=404, detail=f"Pipeline not found: {pipeline_id}"
+        ) from None
 
     return pipeline.model_dump(mode="json")
 
@@ -399,13 +407,17 @@ async def create_pipeline(payload: PipelineCreateRequest):
 
     # Check if exists
     if registry.exists(payload.name):
-        raise HTTPException(status_code=409, detail=f"Pipeline already exists: {payload.name}")
+        raise HTTPException(
+            status_code=409, detail=f"Pipeline already exists: {payload.name}"
+        )
 
     # Get base pipeline
     try:
         base_pipeline = registry.get(payload.base_on)
     except PipelineNotFoundError:
-        raise HTTPException(status_code=404, detail=f"Base pipeline not found: {payload.base_on}") from None
+        raise HTTPException(
+            status_code=404, detail=f"Base pipeline not found: {payload.base_on}"
+        ) from None
 
     # Create new pipeline
     new_pipeline = PipelineDefinition(
@@ -440,7 +452,9 @@ async def update_pipeline(pipeline_id: str, payload: PipelineUpdateRequest):
 
     # Check if exists
     if not registry.exists(pipeline_id):
-        raise HTTPException(status_code=404, detail=f"Pipeline not found: {pipeline_id}")
+        raise HTTPException(
+            status_code=404, detail=f"Pipeline not found: {pipeline_id}"
+        )
 
     # Validate and update
     try:
@@ -474,7 +488,9 @@ async def delete_pipeline(pipeline_id: str):
 
     # Check if exists
     if not registry.exists(pipeline_id):
-        raise HTTPException(status_code=404, detail=f"Pipeline not found: {pipeline_id}")
+        raise HTTPException(
+            status_code=404, detail=f"Pipeline not found: {pipeline_id}"
+        )
 
     try:
         registry.delete(pipeline_id)
@@ -679,9 +695,11 @@ async def list_templates():
 
     if templates_dir.exists():
         for f in sorted(templates_dir.glob("*.md")):
-            templates.append({
-                "name": f.name,
-                "id": f.stem,
-            })
+            templates.append(
+                {
+                    "name": f.name,
+                    "id": f.stem,
+                }
+            )
 
     return {"templates": templates}

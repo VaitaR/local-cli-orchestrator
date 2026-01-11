@@ -104,7 +104,9 @@ class ContextBuilder:
                         self._store.set(key, value, source_node="auto_extract")
                         logger.debug("Auto-extracted context", key=key)
                 except Exception as e:
-                    logger.warning("Failed to auto-extract context", key=key, error=str(e))
+                    logger.warning(
+                        "Failed to auto-extract context", key=key, error=str(e)
+                    )
 
     def _resolve_context(
         self,

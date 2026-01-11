@@ -204,6 +204,7 @@ def run(
 
     except Exception as e:
         import traceback
+
         traceback_str = traceback.format_exc()
         log.error("Run failed", error=str(e), traceback=traceback_str)
         typer.echo(f"Error: {e}", err=True)
@@ -862,13 +863,15 @@ def pipelines_list(
     if json_output:
         output = []
         for p in pipelines:
-            output.append({
-                "id": p.id,
-                "name": p.name,
-                "description": p.description,
-                "builtin": p.builtin,
-                "node_count": len(p.nodes),
-            })
+            output.append(
+                {
+                    "id": p.id,
+                    "name": p.name,
+                    "description": p.description,
+                    "builtin": p.builtin,
+                    "node_count": len(p.nodes),
+                }
+            )
         typer.echo(json.dumps(output, indent=2))
     else:
         typer.echo("Available pipelines:")
@@ -1105,7 +1108,10 @@ def pipelines_import(
     # Check for existing
     existing = registry.exists(pipeline.id)
     if existing and not force:
-        typer.echo(f"Pipeline already exists: {pipeline.id}. Use --force to overwrite.", err=True)
+        typer.echo(
+            f"Pipeline already exists: {pipeline.id}. Use --force to overwrite.",
+            err=True,
+        )
         raise typer.Exit(1)
 
     registry.add(pipeline)

@@ -78,16 +78,32 @@ def _is_binary_file(content: bytes, path: str) -> bool:
         True if file appears to be binary.
     """
     # Check for binary content indicators
-    if b'\x00' in content[:8192]:
+    if b"\x00" in content[:8192]:
         return True
 
     # Check file extension
     ext = Path(path).suffix.lower()
     binary_extensions = {
-        ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp",
-        ".pdf", ".zip", ".tar", ".gz", ".rar", ".7z",
-        ".exe", ".dll", ".so", ".dylib", ".bin",
-        ".pyc", ".pyo",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".bmp",
+        ".ico",
+        ".webp",
+        ".pdf",
+        ".zip",
+        ".tar",
+        ".gz",
+        ".rar",
+        ".7z",
+        ".exe",
+        ".dll",
+        ".so",
+        ".dylib",
+        ".bin",
+        ".pyc",
+        ".pyo",
     }
 
     return ext in binary_extensions

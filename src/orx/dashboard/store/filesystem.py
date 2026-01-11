@@ -197,7 +197,11 @@ class FileSystemRunStore:
         # Map to RunStatus
         if current_stage == "done" or events_final_status == "success":
             status = RunStatus.SUCCESS
-        elif current_stage == "failed" or fail_category or events_final_status == "failure":
+        elif (
+            current_stage == "failed"
+            or fail_category
+            or events_final_status == "failure"
+        ):
             status = RunStatus.FAIL
             if not fail_category and events_error:
                 fail_category = events_error

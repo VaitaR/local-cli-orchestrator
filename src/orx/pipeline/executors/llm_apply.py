@@ -79,7 +79,9 @@ class LLMApplyNodeExecutor:
 
             if result.failed:
                 log.error("LLM apply failed", error=result.error_message)
-                return NodeResult(success=False, error=f"LLM apply failed: {result.error_message}")
+                return NodeResult(
+                    success=False, error=f"LLM apply failed: {result.error_message}"
+                )
 
             # Capture diff
             exec_ctx.workspace.diff_to(exec_ctx.paths.patch_diff)
@@ -195,7 +197,9 @@ class LLMApplyNodeExecutor:
             template_ctx["file_snippets"] = snippets
 
         # Pass through context items (with artifact store fallback)
-        tooling = get_context_value("tooling_snapshot", get_context_value("repo_context"))
+        tooling = get_context_value(
+            "tooling_snapshot", get_context_value("repo_context")
+        )
         if tooling:
             template_ctx["repo_context"] = tooling
 

@@ -68,7 +68,9 @@ class LLMTextNodeExecutor:
 
             if result.failed:
                 log.error("LLM execution failed", error=result.error_message)
-                return NodeResult(success=False, error=f"LLM failed: {result.error_message}")
+                return NodeResult(
+                    success=False, error=f"LLM failed: {result.error_message}"
+                )
 
             # Read output
             if not out_path.exists():
@@ -131,7 +133,9 @@ class LLMTextNodeExecutor:
 
         return worktree_prompt
 
-    def _build_template_context(self, context: dict[str, Any], exec_ctx: ExecutionContext) -> dict[str, Any]:
+    def _build_template_context(
+        self, context: dict[str, Any], exec_ctx: ExecutionContext
+    ) -> dict[str, Any]:
         """Build template context from input context.
 
         Maps artifact keys to template variable names and enriches
