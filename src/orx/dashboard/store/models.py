@@ -143,6 +143,10 @@ class StartRunRequest(BaseModel):
     task: str = Field(..., min_length=1, description="Task description or @file path")
     repo_path: str | None = Field(None, description="Path to repository")
     base_branch: str | None = Field(None, description="Base branch name")
+    pipeline: str | None = Field(None, description="Pipeline to use (standard, fast_fix, etc.)")
+    pipeline_override: dict[str, Any] | None = Field(
+        None, description="Custom pipeline definition (nodes) for this run only"
+    )
     config_overrides: dict[str, Any] = Field(
         default_factory=dict, description="Config overrides"
     )

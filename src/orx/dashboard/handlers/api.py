@@ -7,12 +7,26 @@ from typing import Any
 import structlog
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 from orx.dashboard.store.models import StartRunRequest, StartRunResponse
 
 router = APIRouter(tags=["api"])
 
 logger = structlog.get_logger()
+
+
+class PipelineCreateRequest(BaseModel):
+    """Request to create a new pipeline."""
+
+    name: str
+    base_on: str = "standard"
+
+
+class PipelineUpdateRequest(BaseModel):
+    """Request to update a pipeline."""
+
+    pipeline_data: dict[str, Any]
 
 
 @router.post("/runs/start", response_model=StartRunResponse)
@@ -29,6 +43,8 @@ async def start_run(request: Request, payload: StartRunRequest):
             task=payload.task,
             repo_path=payload.repo_path,
             base_branch=payload.base_branch,
+            pipeline=payload.pipeline,
+            pipeline_override=payload.pipeline_override,
             config_overrides=payload.config_overrides or {},
         )
         return StartRunResponse(
@@ -105,6 +121,55 @@ async def cancel_run(request: Request, run_id: str):
         },
         status_code=500,
     )
+
+
+@router.post("/runs/{run_id}/restart")
+async def restart_run(request: Request, run_id: str):
+    """Restart a failed or completed orx run.
+
+    Returns:
+        JSON with restart status and new run_id if applicable.
+    """
+    store = request.app.state.store
+    worker = request.app.state.worker
+
+    # Get the original run
+    original_run = store.get_run(run_id)
+    if original_run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    if original_run.is_active:
+        return JSONResponse(
+            {
+                "status": "already_running",
+                "run_id": run_id,
+                "message": "Run is still active, cannot restart",
+            },
+            status_code=409,
+        )
+
+    try:
+        # Start a new run with the same configuration
+        new_run_id = worker.start_run(
+            task=original_run.task,
+            repo_path=original_run.repo_path,
+            base_branch=original_run.base_branch,
+            pipeline=original_run.pipeline,
+            config_overrides=original_run.config_overrides or {},
+        )
+        return JSONResponse(
+            {
+                "status": "restarted",
+                "original_run_id": run_id,
+                "new_run_id": new_run_id,
+                "message": "Run restarted successfully",
+            }
+        )
+    except (ValueError, RuntimeError) as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        logger.error("Failed to restart run", run_id=run_id, error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to restart run: {e}") from e
 
 
 @router.get("/runs/{run_id}/status")
@@ -243,3 +308,370 @@ async def get_available_engines(request: Request):
         "reasoning_levels": reasoning_levels,
         "default_engine": default_engine,
     }
+
+
+# ============================================================================
+# Pipeline Management Endpoints
+# ============================================================================
+
+
+@router.get("/pipelines")
+async def list_pipelines():
+    """List all available pipelines.
+
+    Returns:
+        JSON with pipeline list.
+    """
+    from orx.pipeline.registry import PipelineRegistry
+
+    registry = PipelineRegistry.load()
+
+    pipelines = []
+    for p in registry.pipelines:
+        pipelines.append({
+            "id": p.id,
+            "name": p.name,
+            "description": p.description,
+            "builtin": p.builtin,
+            "node_count": len(p.nodes),
+            "default_context": p.default_context,
+            "nodes": [
+                {
+                    "id": n.id,
+                    "type": n.type.value,
+                    "template": n.template,
+                    "inputs": n.inputs,
+                    "outputs": n.outputs,
+                    "description": n.description,
+                    "config": {
+                        "gates": n.config.gates if n.config else [],
+                        "concurrency": n.config.concurrency if n.config else 1,
+                        "timeout_seconds": n.config.timeout_seconds if n.config else 600,
+                    },
+                }
+                for n in p.nodes
+            ],
+        })
+
+    return {"pipelines": pipelines}
+
+
+@router.get("/pipelines/{pipeline_id}")
+async def get_pipeline(pipeline_id: str):
+    """Get a specific pipeline.
+
+    Returns:
+        JSON with pipeline details.
+    """
+    from orx.pipeline.registry import PipelineNotFoundError, PipelineRegistry
+
+    registry = PipelineRegistry.load()
+
+    try:
+        pipeline = registry.get(pipeline_id)
+    except PipelineNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Pipeline not found: {pipeline_id}") from None
+
+    return pipeline.model_dump(mode="json")
+
+
+@router.post("/pipelines")
+async def create_pipeline(payload: PipelineCreateRequest):
+    """Create a new custom pipeline.
+
+    Returns:
+        JSON with created pipeline.
+    """
+    from orx.pipeline.definition import PipelineDefinition
+    from orx.pipeline.registry import PipelineNotFoundError, PipelineRegistry
+
+    registry = PipelineRegistry.load()
+
+    # Check if exists
+    if registry.exists(payload.name):
+        raise HTTPException(status_code=409, detail=f"Pipeline already exists: {payload.name}")
+
+    # Get base pipeline
+    try:
+        base_pipeline = registry.get(payload.base_on)
+    except PipelineNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Base pipeline not found: {payload.base_on}") from None
+
+    # Create new pipeline
+    new_pipeline = PipelineDefinition(
+        id=payload.name,
+        name=payload.name.replace("_", " ").title(),
+        description=f"Custom pipeline based on {payload.base_on}",
+        nodes=base_pipeline.nodes.copy(),
+    )
+
+    registry.add(new_pipeline)
+    registry.save()
+
+    return {"status": "created", "pipeline": new_pipeline.model_dump(mode="json")}
+
+
+@router.put("/pipelines/{pipeline_id}")
+async def update_pipeline(pipeline_id: str, payload: PipelineUpdateRequest):
+    """Update a pipeline.
+
+    Returns:
+        JSON with updated pipeline.
+    """
+    from orx.pipeline.constants import BUILTIN_PIPELINE_IDS
+    from orx.pipeline.definition import PipelineDefinition
+    from orx.pipeline.registry import PipelineRegistry
+
+    registry = PipelineRegistry.load()
+
+    # Check if builtin
+    if pipeline_id in BUILTIN_PIPELINE_IDS:
+        raise HTTPException(status_code=403, detail="Cannot modify builtin pipeline")
+
+    # Check if exists
+    if not registry.exists(pipeline_id):
+        raise HTTPException(status_code=404, detail=f"Pipeline not found: {pipeline_id}")
+
+    # Validate and update
+    try:
+        updated = PipelineDefinition.model_validate(payload.pipeline_data)
+        if updated.id != pipeline_id:
+            raise HTTPException(status_code=400, detail="Pipeline ID cannot be changed")
+
+        registry.add(updated)
+        registry.save()
+
+        return {"status": "updated", "pipeline": updated.model_dump(mode="json")}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.delete("/pipelines/{pipeline_id}")
+async def delete_pipeline(pipeline_id: str):
+    """Delete a custom pipeline.
+
+    Returns:
+        JSON confirmation.
+    """
+    from orx.pipeline.constants import BUILTIN_PIPELINE_IDS
+    from orx.pipeline.registry import PipelineNotFoundError, PipelineRegistry
+
+    registry = PipelineRegistry.load()
+
+    # Check if builtin
+    if pipeline_id in BUILTIN_PIPELINE_IDS:
+        raise HTTPException(status_code=403, detail="Cannot delete builtin pipeline")
+
+    # Check if exists
+    if not registry.exists(pipeline_id):
+        raise HTTPException(status_code=404, detail=f"Pipeline not found: {pipeline_id}")
+
+    try:
+        registry.delete(pipeline_id)
+        registry.save()
+    except (ValueError, PipelineNotFoundError) as e:
+        raise HTTPException(status_code=400, detail=str(e)) from None
+
+    return {"status": "deleted", "pipeline_id": pipeline_id}
+
+
+@router.get("/context-blocks")
+async def list_context_blocks():
+    """List available context blocks.
+
+    Returns:
+        JSON with context block definitions.
+    """
+    from orx.pipeline.constants import AUTO_EXTRACT_CONTEXTS
+
+    blocks = [
+        {
+            "id": "task",
+            "description": "Task description (user input)",
+            "auto_extract": False,
+            "required": True,
+        },
+        {
+            "id": "plan",
+            "description": "High-level plan document",
+            "auto_extract": False,
+            "required": False,
+        },
+        {
+            "id": "spec",
+            "description": "Technical specification",
+            "auto_extract": False,
+            "required": False,
+        },
+        {
+            "id": "backlog",
+            "description": "Work items backlog",
+            "auto_extract": False,
+            "required": False,
+        },
+        {
+            "id": "repo_map",
+            "description": "File/directory structure snapshot",
+            "auto_extract": "repo_map" in AUTO_EXTRACT_CONTEXTS,
+            "required": False,
+        },
+        {
+            "id": "tooling_snapshot",
+            "description": "Stack and tooling config snapshot",
+            "auto_extract": "tooling_snapshot" in AUTO_EXTRACT_CONTEXTS,
+            "required": False,
+        },
+        {
+            "id": "verify_commands",
+            "description": "Gate command descriptions",
+            "auto_extract": "verify_commands" in AUTO_EXTRACT_CONTEXTS,
+            "required": False,
+        },
+        {
+            "id": "agents_context",
+            "description": "AGENTS.md content",
+            "auto_extract": "agents_context" in AUTO_EXTRACT_CONTEXTS,
+            "required": False,
+        },
+        {
+            "id": "architecture",
+            "description": "ARCHITECTURE.md overview",
+            "auto_extract": "architecture" in AUTO_EXTRACT_CONTEXTS,
+            "required": False,
+        },
+        {
+            "id": "error_logs",
+            "description": "Previous error logs",
+            "auto_extract": False,
+            "required": False,
+        },
+        {
+            "id": "patch_diff",
+            "description": "Current patch diff",
+            "auto_extract": False,
+            "required": False,
+        },
+        {
+            "id": "current_item",
+            "description": "Current work item (for map nodes)",
+            "auto_extract": False,
+            "required": False,
+        },
+        {
+            "id": "file_snippets",
+            "description": "Relevant file snippets",
+            "auto_extract": False,
+            "required": False,
+        },
+    ]
+
+    return {"blocks": blocks}
+
+
+@router.get("/node-types")
+async def list_node_types():
+    """List available node types for pipeline editor.
+
+    Returns:
+        JSON with node type definitions.
+    """
+    node_types = [
+        {
+            "value": "llm_text",
+            "label": "LLM Text Generation",
+            "icon": "📝",
+            "description": "Generate text output via LLM (plan, spec, review)",
+            "requires_template": True,
+            "has_model_config": True,
+        },
+        {
+            "value": "llm_apply",
+            "label": "LLM Apply (Filesystem)",
+            "icon": "⚙️",
+            "description": "Apply filesystem changes via LLM",
+            "requires_template": True,
+            "has_model_config": True,
+        },
+        {
+            "value": "map",
+            "label": "Map (Parallel)",
+            "icon": "🔀",
+            "description": "Process work items in parallel",
+            "requires_template": False,
+            "has_model_config": False,
+            "has_concurrency": True,
+        },
+        {
+            "value": "gate",
+            "label": "Gate (Verification)",
+            "icon": "✓",
+            "description": "Run quality gates (ruff, pytest, etc.)",
+            "requires_template": False,
+            "has_model_config": False,
+            "has_gates": True,
+        },
+        {
+            "value": "custom",
+            "label": "Custom Function",
+            "icon": "🔧",
+            "description": "Execute custom Python function",
+            "requires_template": False,
+            "has_model_config": False,
+            "has_callable_path": True,
+        },
+    ]
+
+    return {"node_types": node_types}
+
+
+@router.get("/available-gates")
+async def list_available_gates():
+    """List available gate types for pipeline editor.
+
+    Returns:
+        JSON with gate definitions.
+    """
+    gates = [
+        {
+            "id": "ruff",
+            "label": "Ruff (Linting)",
+            "description": "Python linter and formatter",
+            "default_enabled": True,
+        },
+        {
+            "id": "pytest",
+            "label": "Pytest (Testing)",
+            "description": "Python test runner",
+            "default_enabled": True,
+        },
+        {
+            "id": "mypy",
+            "label": "Mypy (Type Checking)",
+            "description": "Static type checker for Python",
+            "default_enabled": False,
+        },
+    ]
+
+    return {"gates": gates}
+
+
+@router.get("/templates")
+async def list_templates():
+    """List available prompt templates.
+
+    Returns:
+        JSON with template names.
+    """
+    from pathlib import Path
+
+    templates_dir = Path(__file__).parent.parent.parent / "prompts" / "templates"
+    templates = []
+
+    if templates_dir.exists():
+        for f in sorted(templates_dir.glob("*.md")):
+            templates.append({
+                "name": f.name,
+                "id": f.stem,
+            })
+
+    return {"templates": templates}

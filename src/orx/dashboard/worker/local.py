@@ -31,6 +31,8 @@ class RunJob:
     task: str
     repo_path: str | None = None
     base_branch: str | None = None
+    pipeline: str | None = None
+    pipeline_override: dict | None = None
     config_overrides: dict = field(default_factory=dict)
     process: subprocess.Popen | None = None
     started_at: float | None = None
@@ -92,6 +94,8 @@ class LocalWorker:
         *,
         repo_path: str | None = None,
         base_branch: str | None = None,
+        pipeline: str | None = None,
+        pipeline_override: dict | None = None,
         config_overrides: dict | None = None,
     ) -> str:
         """Queue a new run.
@@ -100,6 +104,8 @@ class LocalWorker:
             task: Task description or @file path.
             repo_path: Path to repository.
             base_branch: Base branch name.
+            pipeline: Pipeline to use (standard, fast_fix, etc.).
+            pipeline_override: Custom pipeline definition for this run only.
             config_overrides: Optional config overrides.
 
         Returns:
@@ -130,6 +136,8 @@ class LocalWorker:
             task=task,
             repo_path=str(resolved_repo),
             base_branch=base_branch,
+            pipeline=pipeline,
+            pipeline_override=pipeline_override,
             config_overrides=config_overrides or {},
         )
 
@@ -287,6 +295,14 @@ class LocalWorker:
         # Add options
         if job.base_branch:
             cmd.extend(["--base-branch", job.base_branch])
+
+        if job.pipeline:
+            cmd.extend(["--pipeline", job.pipeline])
+        elif job.pipeline_override:
+            # Create temp pipeline file for custom inline pipeline
+            temp_pipeline_path = self._create_temp_pipeline(job.pipeline_override)
+            if temp_pipeline_path:
+                cmd.extend(["--pipeline", str(temp_pipeline_path)])
 
         base_dir = self._resolve_repo_path(job.repo_path)
 
@@ -468,4 +484,43 @@ class LocalWorker:
             return Path(path)
         except Exception as e:
             self._log.error("Failed to create temp config", error=str(e))
+            return None
+
+    def _create_temp_pipeline(self, pipeline_override: dict[str, Any]) -> Path | None:
+        """Create a temporary pipeline file from override dict.
+
+        Args:
+            pipeline_override: Pipeline definition with 'nodes' key.
+
+        Returns:
+            Path to temp pipeline file, or None on error.
+        """
+        if not pipeline_override:
+            return None
+
+        nodes = pipeline_override.get("nodes", [])
+        if not nodes:
+            return None
+
+        import yaml
+
+        pipeline_data = {
+            "id": "__dashboard_custom__",
+            "name": "Dashboard Custom Pipeline",
+            "description": "Custom pipeline created from dashboard",
+            "nodes": nodes,
+        }
+
+        fd, path = tempfile.mkstemp(suffix=".yaml", prefix="orx_pipeline_")
+        try:
+            with os.fdopen(fd, "w") as f:
+                yaml.safe_dump(pipeline_data, f, default_flow_style=False)
+            self._log.debug(
+                "Created temp pipeline",
+                path=path,
+                node_count=len(nodes),
+            )
+            return Path(path)
+        except Exception as e:
+            self._log.error("Failed to create temp pipeline", error=str(e))
             return None

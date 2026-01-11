@@ -591,11 +591,13 @@ class Runner:
             # Non-fatal: log warning and continue
             log.warning("Failed to build repo context pack", error=str(e))
 
-    def run(self, task: str | Path) -> bool:
+    def run(self, task: str | Path, pipeline_id: str | None = None) -> bool:
         """Run the full orchestration.
 
         Args:
             task: Task description or path to task file.
+            pipeline_id: Optional pipeline ID. If None, uses legacy FSM.
+                        Use "standard", "fast_fix", "plan_only" for builtin pipelines.
 
         Returns:
             True if run completed successfully.
@@ -604,6 +606,13 @@ class Runner:
         log.info("Starting run")
         if self.events:
             self.events.log("run_start", run_id=self.paths.run_id)
+
+        # Handle task content
+        task_content = task.read_text() if isinstance(task, Path) else task
+
+        # If pipeline specified, use pipeline runner
+        if pipeline_id:
+            return self._run_with_pipeline(task_content, pipeline_id)
 
         state_initialized = False
 
@@ -614,8 +623,7 @@ class Runner:
                 state_initialized = True
                 self.state.set_pid(os.getpid())
 
-                # Write task
-                task_content = task.read_text() if isinstance(task, Path) else task
+                # Write task (task_content already resolved above)
                 self.pack.write_task(task_content)
 
                 # Set task fingerprint for metrics
@@ -662,6 +670,100 @@ class Runner:
                 self.state.mark_stage_failed(msg)
                 self.state.set_pid(None)
                 self._save_meta(success=False)
+            raise
+
+    def _run_with_pipeline(self, task: str, pipeline_id: str) -> bool:
+        """Run using the pipeline engine.
+
+        Args:
+            task: Task description.
+            pipeline_id: Pipeline ID to use.
+
+        Returns:
+            True if pipeline completed successfully.
+        """
+        from orx.pipeline import PipelineRegistry, PipelineRunner
+
+        log = logger.bind(run_id=self.paths.run_id, pipeline=pipeline_id)
+        log.info("Running with pipeline engine")
+
+        try:
+            with _termination_signals():
+                # Initialize state
+                self.state.initialize()
+                self.state.set_pid(os.getpid())
+
+                # Create workspace
+                base_branch = self.config.git.base_branch
+                self.workspace.create(base_branch)
+                self.state.set_baseline_sha(self.workspace.baseline_sha())
+                self.meta.branch_name = f"orx/{self.paths.run_id}"
+
+                # Load pipeline
+                registry = PipelineRegistry.load()
+                pipeline = registry.get(pipeline_id)
+
+                if not pipeline:
+                    log.error("Pipeline not found", pipeline_id=pipeline_id)
+                    self.state.mark_stage_failed(f"Pipeline not found: {pipeline_id}")
+                    return False
+
+                # Create pipeline runner
+                pipeline_runner = PipelineRunner(
+                    config=self.config,
+                    paths=self.paths,
+                    workspace=self.workspace,
+                    executor=self.executor,
+                    gates=self.gates,
+                    renderer=self.renderer,
+                    state=self.state,
+                    router=self.model_router,
+                )
+
+                # Run pipeline
+                result = pipeline_runner.run(pipeline, task)
+
+                self.state.set_pid(None)
+
+                if result.success:
+                    self._save_meta(success=True)
+                    if self.events:
+                        self.events.log(
+                            "run_end",
+                            run_id=self.paths.run_id,
+                            status="success",
+                        )
+                    log.info(
+                        "Pipeline completed successfully",
+                        completed_nodes=result.completed_nodes,
+                        duration_ms=result.total_duration_ms,
+                    )
+                else:
+                    self._save_meta(success=False)
+                    if self.events:
+                        self.events.log(
+                            "run_end",
+                            run_id=self.paths.run_id,
+                            status="failure",
+                            error=result.error,
+                        )
+                    log.error("Pipeline failed", error=result.error)
+
+                return result.success
+
+        except BaseException as e:
+            msg = "Cancelled" if isinstance(e, KeyboardInterrupt) else str(e)
+            log.error("Pipeline run failed", error=msg)
+            if self.events:
+                self.events.log(
+                    "run_end",
+                    run_id=self.paths.run_id,
+                    status="failure",
+                    error=msg,
+                )
+            self.state.mark_stage_failed(msg)
+            self.state.set_pid(None)
+            self._save_meta(success=False)
             raise
 
     def resume(self) -> bool:

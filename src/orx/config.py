@@ -298,6 +298,26 @@ class EngineConfig(BaseModel):
             reasoning_effort=self.reasoning_effort,
         )
 
+    def __hash__(self) -> int:
+        """Make EngineConfig hashable for use in sets/dicts.
+
+        Converts unhashable types (lists, dicts) to tuples.
+        """
+        return hash(
+            (
+                self.type,
+                self.binary,
+                self.model,
+                self.profile,
+                self.reasoning_effort,
+                self.output_format,
+                self.timeout,
+                self.enabled,
+                tuple(self.extra_args),
+                tuple(sorted(self.stage_timeouts.items())),
+            )
+        )
+
 
 class GateConfig(BaseModel):
     """Configuration for a quality gate.
