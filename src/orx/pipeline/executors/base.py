@@ -25,12 +25,14 @@ class NodeResult:
         outputs: Dictionary of output artifacts.
         error: Error message if failed.
         metrics: Execution metrics (duration, tokens, etc.).
+        metadata: Additional metadata (e.g., review verdict).
     """
 
     success: bool
     outputs: dict[str, Any] = field(default_factory=dict)
     error: str | None = None
     metrics: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def __bool__(self) -> bool:
         """Return success status."""

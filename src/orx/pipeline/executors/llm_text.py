@@ -80,6 +80,8 @@ class LLMTextNodeExecutor:
 
             # Build outputs
             outputs: dict[str, Any] = {}
+            metadata: dict[str, Any] = {}
+            
             if node.outputs:
                 output_key = node.outputs[0]
 
@@ -89,11 +91,20 @@ class LLMTextNodeExecutor:
 
                     backlog = Backlog.from_yaml(content)
                     outputs[output_key] = backlog
+                # Handle review specially - extract verdict
+                elif output_key == "review":
+                    outputs[output_key] = content
+                    # Parse verdict from review content
+                    if "CHANGES_REQUESTED" in content:
+                        metadata["verdict"] = "changes_requested"
+                        metadata["feedback"] = content
+                    else:
+                        metadata["verdict"] = "approved"
                 else:
                     outputs[output_key] = content
 
-            log.info("LLM text node completed", output_keys=list(outputs.keys()))
-            return NodeResult(success=True, outputs=outputs)
+            log.info("LLM text node completed", output_keys=list(outputs.keys()), metadata_keys=list(metadata.keys()))
+            return NodeResult(success=True, outputs=outputs, metadata=metadata)
 
         except Exception as e:
             log.error("Node execution failed", error=str(e))

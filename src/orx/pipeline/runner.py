@@ -59,6 +59,7 @@ class PipelineResult:
     error: str | None = None
     node_metrics: list[NodeMetrics] = field(default_factory=list)
     total_duration_ms: int = 0
+    review_changes_requested: bool = False  # True if review asked for changes
 
     def __bool__(self) -> bool:
         """Return success status."""
@@ -230,6 +231,16 @@ class PipelineRunner:
                     stage_name = self._map_node_to_stage(node.id)
                     if stage_name:
                         self.state.mark_stage_completed(stage_name)
+
+                # Handle review loop: if review requests changes, skip ship and rewind to implement
+                if node.id == "review" and node_result.metadata.get("verdict") == "changes_requested":
+                    node_log.info("Review requested changes - skipping ship stage")
+                    # Don't execute ship node
+                    # In fast_fix pipeline, this means we stop here (no loop implemented yet)
+                    # TODO: implement proper review loop with backlog item creation
+                    result.success = True
+                    result.review_changes_requested = True
+                    break
 
                 node_log.info("Node completed", duration_ms=node_duration_ms)
 

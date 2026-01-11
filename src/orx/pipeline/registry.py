@@ -303,7 +303,7 @@ class PipelineRegistry:
         return PipelineDefinition(
             id="fast_fix",
             name="Fast Fix",
-            description="Directly implement without planning stages",
+            description="Directly implement → verify → review → ship",
             builtin=True,
             default_context=["repo_map", "tooling_snapshot", "agents_context"],
             nodes=[
@@ -322,6 +322,24 @@ class PipelineRegistry:
                     outputs=[],
                     description="Verify changes pass gates",
                     config=NodeConfig(gates=["ruff", "pytest"]),
+                ),
+                NodeDefinition(
+                    id="review",
+                    type=NodeType.LLM_TEXT,
+                    template="review.md",
+                    inputs=["task", "patch_diff"],
+                    outputs=["review"],
+                    description="Generate code review",
+                ),
+                NodeDefinition(
+                    id="ship",
+                    type=NodeType.CUSTOM,
+                    inputs=["review", "patch_diff"],
+                    outputs=["pr_body"],
+                    description="Commit and create PR",
+                    config=NodeConfig(
+                        callable_path="orx.pipeline.executors.custom:ship_node"
+                    ),
                 ),
             ],
         )
