@@ -201,6 +201,16 @@ async def health():
     return {"status": "ok"}
 
 
+@router.get("/worker/stats")
+async def worker_stats(request: Request):
+    """Get worker statistics.
+    
+    Returns worker status including active jobs, queue size, and concurrency limits.
+    """
+    worker = request.app.state.worker
+    return worker.get_worker_stats()
+
+
 @router.get("/config/engines")
 async def get_available_engines(request: Request):
     """Get available engine types, stages, and model configurations.

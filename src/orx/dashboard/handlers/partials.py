@@ -201,12 +201,17 @@ async def active_runs(request: Request):
     """Render active runs table (polled every 3s)."""
     templates = request.app.state.templates
     store = request.app.state.store
+    config = request.app.state.config
 
     runs = store.list_runs(active_only=True)
 
     return templates.TemplateResponse(
         "partials/active_runs.html",
-        {"request": request, "runs": runs},
+        {
+            "request": request,
+            "runs": runs,
+            "max_concurrency": config.max_concurrency,
+        },
     )
 
 

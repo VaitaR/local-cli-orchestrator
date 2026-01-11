@@ -1,4 +1,9 @@
 {% if runs %}
+<div class="worker-status" style="margin-bottom: 1rem; padding: 0.5rem; background: #f0f0f0; border-radius: 4px; font-size: 0.9rem;">
+    <strong>📊 Worker:</strong> 
+    <span id="worker-active">{{ runs|length }}</span>/{{ max_concurrency|default(3) }} active
+    <span id="worker-queue" style="margin-left: 1rem;"></span>
+</div>
 <table class="table">
     <thead>
         <tr>
@@ -37,7 +42,8 @@
                 <button class="btn btn-sm btn-danger"
                         hx-post="/api/runs/{{ run.run_id }}/cancel"
                         hx-confirm="Cancel this run?"
-                        hx-swap="none">
+                        hx-swap="none"
+                        hx-on::after-request="htmx.ajax('GET', '/partials/active-runs', {target: '#active-runs', swap: 'innerHTML'})">
                     🛑 Cancel
                 </button>
                 {% else %}
@@ -50,13 +56,41 @@
 </table>
 <script>
     document.getElementById('active-count').textContent = '{{ runs|length }}';
+    // Poll worker stats
+    fetch('/api/worker/stats')
+        .then(r => r.json())
+        .then(data => {
+            const queueEl = document.getElementById('worker-queue');
+            if (queueEl && data.queue_size > 0) {
+                queueEl.textContent = `⏳ ${data.queue_size} queued`;
+            }
+        })
+        .catch(() => {});
 </script>
 {% else %}
 <div class="empty-state">
     <p>✨ No active runs</p>
     <small>Click "New Run" to start one</small>
+    <div style="margin-top: 1rem; font-size: 0.85rem; color: #666;">
+        <span id="worker-status-idle"></span>
+    </div>
 </div>
 <script>
     document.getElementById('active-count').textContent = '0';
+    // Poll worker stats even when idle
+    fetch('/api/worker/stats')
+        .then(r => r.json())
+        .then(data => {
+            const statusEl = document.getElementById('worker-status-idle');
+            if (statusEl) {
+                if (data.queue_size > 0) {
+                    statusEl.innerHTML = `⏳ <strong>${data.queue_size}</strong> run(s) queued`;
+                } else {
+                    statusEl.textContent = `Worker ready (max ${data.max_concurrency} concurrent)`;
+                }
+            }
+        })
+        .catch(() => {});
 </script>
 {% endif %}
+

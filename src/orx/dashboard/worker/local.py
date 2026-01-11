@@ -57,6 +57,7 @@ class LocalWorker:
         self.config = config
         self._queue: Queue[RunJob] = Queue()
         self._active_jobs: dict[str, RunJob] = {}
+        self._pending_run_dirs: dict[str, str] = {}  # temp_run_id -> real_run_id mapping
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
@@ -255,6 +256,22 @@ class LocalWorker:
                 return job.process.pid
             return None
 
+    def get_worker_stats(self) -> dict[str, Any]:
+        """Get worker statistics.
+        
+        Returns:
+            Dictionary with worker stats including active jobs count, queue size, etc.
+        """
+        with self._lock:
+            active_jobs = list(self._active_jobs.keys())
+            
+        return {
+            "active_count": len(active_jobs),
+            "queue_size": self._queue.qsize(),
+            "max_concurrency": self.config.max_concurrency,
+            "active_jobs": active_jobs,
+        }
+
     def _run_loop(self) -> None:
         """Background worker loop."""
         while not self._stop_event.is_set():
@@ -357,12 +374,15 @@ class LocalWorker:
             actual_run_id = self._wait_for_run_id(
                 runs_dir,
                 existing_run_ids,
+                job.run_id,  # Pass temp run_id for tracking
             )
             if actual_run_id and actual_run_id != job.run_id:
                 with self._lock:
                     self._active_jobs.pop(job.run_id, None)
                     job.run_id = actual_run_id
                     self._active_jobs[job.run_id] = job
+                    # Clean up mapping
+                    self._pending_run_dirs.pop(job.run_id, None)
                 self._log.info("Resolved run id", run_id=job.run_id)
 
         except Exception as e:
@@ -393,17 +413,44 @@ class LocalWorker:
             if entry.is_dir() and not entry.name.startswith(".")
         }
 
-    def _wait_for_run_id(self, runs_dir: Path, existing: set[str]) -> str | None:
-        """Wait briefly for a new run directory to appear."""
+    def _wait_for_run_id(self, runs_dir: Path, existing: set[str], temp_id: str) -> str | None:
+        """Wait briefly for a new run directory to appear.
+        
+        Args:
+            runs_dir: Directory containing run folders.
+            existing: Set of run_ids that existed before this job started.
+            temp_id: Temporary run_id generated for this job.
+            
+        Returns:
+            Real run_id if found, None otherwise.
+        """
         deadline = time.time() + self.config.run_id_timeout_seconds
+        found_dirs = []
+        
         while time.time() < deadline:
             if runs_dir.exists():
                 for entry in runs_dir.iterdir():
                     if not entry.is_dir() or entry.name.startswith("."):
                         continue
                     if entry.name not in existing:
-                        return entry.name
+                        # Check if this run_id is already claimed by another job
+                        with self._lock:
+                            if entry.name not in self._pending_run_dirs.values():
+                                # Mark this run_id as belonging to this temp_id
+                                self._pending_run_dirs[temp_id] = entry.name
+                                return entry.name
+                        # If already claimed, keep looking
+                        found_dirs.append(entry.name)
             time.sleep(self.config.run_id_poll_interval)
+        
+        # Timeout - log what we found
+        if found_dirs:
+            self._log.warning(
+                "Run ID timeout - found dirs but all claimed",
+                temp_id=temp_id,
+                found=found_dirs,
+            )
+        
         return None
 
     def _cleanup_completed(self) -> None:
