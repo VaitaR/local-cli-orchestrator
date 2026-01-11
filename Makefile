@@ -14,7 +14,7 @@ help:
 	@echo "  make clean            Remove build artifacts"
 
 install:
-	python -m pip install -e ".[dev]"
+	python -m pip install -e ".[dev,dashboard]"
 
 run:
 	python -m orx.dashboard

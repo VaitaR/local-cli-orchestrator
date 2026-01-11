@@ -1,0 +1,395 @@
+"""Pipeline runner - main execution engine."""
+
+from __future__ import annotations
+
+import time
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
+
+import structlog
+
+from orx.executors.base import Executor
+from orx.executors.router import ModelRouter
+from orx.gates.base import Gate
+from orx.paths import RunPaths
+from orx.pipeline.artifacts import ArtifactStore
+from orx.pipeline.constants import DEFAULT_NODE_TIMEOUT
+from orx.pipeline.context_builder import ContextBuilder
+from orx.pipeline.definition import NodeDefinition, NodeType, PipelineDefinition
+from orx.pipeline.executors.base import ExecutionContext, NodeResult
+from orx.pipeline.executors.custom import CustomNodeExecutor
+from orx.pipeline.executors.gate import GateNodeExecutor
+from orx.pipeline.executors.llm_apply import LLMApplyNodeExecutor
+from orx.pipeline.executors.llm_text import LLMTextNodeExecutor
+from orx.pipeline.executors.map import MapNodeExecutor
+from orx.pipeline.registry import PipelineRegistry
+from orx.prompts.renderer import PromptRenderer
+from orx.state import RunState, Stage
+from orx.workspace.git_worktree import WorkspaceGitWorktree
+
+if TYPE_CHECKING:
+    from orx.config import OrxConfig
+
+logger = structlog.get_logger()
+
+
+@dataclass
+class NodeMetrics:
+    """Metrics for a single node execution."""
+
+    node_id: str
+    node_type: str
+    duration_ms: int
+    success: bool
+    error: str | None = None
+    outputs: list[str] = field(default_factory=list)
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class PipelineResult:
+    """Result of pipeline execution."""
+
+    success: bool
+    completed_nodes: list[str] = field(default_factory=list)
+    failed_node: str | None = None
+    error: str | None = None
+    node_metrics: list[NodeMetrics] = field(default_factory=list)
+    total_duration_ms: int = 0
+
+    def __bool__(self) -> bool:
+        """Return success status."""
+        return self.success
+
+
+class PipelineRunner:
+    """Main pipeline execution engine.
+
+    Executes a pipeline definition by running each node in sequence,
+    managing context flow between nodes.
+    """
+
+    def __init__(
+        self,
+        config: OrxConfig,
+        paths: RunPaths,
+        workspace: WorkspaceGitWorktree,
+        executor: Executor,
+        gates: list[Gate],
+        renderer: PromptRenderer,
+        state: RunState | None = None,
+        router: ModelRouter | None = None,
+    ):
+        """Initialize pipeline runner.
+
+        Args:
+            config: ORX configuration.
+            paths: Run paths.
+            workspace: Git worktree.
+            executor: Default LLM executor.
+            gates: Quality gates.
+            renderer: Prompt renderer.
+            state: Run state for persistence.
+            router: Model router for stage-specific models.
+        """
+        self.config = config
+        self.paths = paths
+        self.workspace = workspace
+        self.executor = executor
+        self.gates = gates
+        self.renderer = renderer
+        self.state = state
+        self.router = router
+
+        # Initialize artifact store
+        self.store = ArtifactStore(paths)
+
+        # Initialize context builder
+        self.context_builder = ContextBuilder(self.store, workspace.worktree_path)
+
+        # Node executors
+        self._executors = {
+            NodeType.LLM_TEXT: LLMTextNodeExecutor(),
+            NodeType.LLM_APPLY: LLMApplyNodeExecutor(),
+            NodeType.MAP: MapNodeExecutor(),
+            NodeType.GATE: GateNodeExecutor(),
+            NodeType.CUSTOM: CustomNodeExecutor(),
+        }
+
+    def run(
+        self,
+        pipeline: PipelineDefinition,
+        task: str,
+        resume_from: str | None = None,
+    ) -> PipelineResult:
+        """Run a pipeline.
+
+        Args:
+            pipeline: Pipeline definition to execute.
+            task: Task description.
+            resume_from: Node ID to resume from (for resumable runs).
+
+        Returns:
+            PipelineResult with execution status.
+        """
+        log = logger.bind(pipeline_id=pipeline.id, node_count=len(pipeline.nodes))
+        log.info("Starting pipeline execution")
+
+        start_time = time.perf_counter()
+
+        # Store task
+        self.store.set("task", task, source_node="input")
+
+        # Extract default context
+        self.context_builder.extract_default_context(pipeline.default_context)
+
+        # Get nodes to execute
+        nodes = pipeline.nodes
+        if resume_from:
+            # Find resume point
+            resume_idx = next(
+                (i for i, n in enumerate(nodes) if n.id == resume_from),
+                None,
+            )
+            if resume_idx is not None:
+                nodes = nodes[resume_idx:]
+                log.info("Resuming from node", node_id=resume_from)
+
+        # Execute nodes
+        result = PipelineResult(success=True)
+
+        for node in nodes:
+            node_log = log.bind(node_id=node.id, node_type=node.type.value)
+            node_log.info("Executing node")
+
+            node_start = time.perf_counter()
+
+            # Build context for this node
+            context = self.context_builder.build_for_node(node)
+
+            # Get executor for this node's stage
+            executor = self._get_executor_for_node(node)
+
+            # Build execution context
+            exec_ctx = ExecutionContext(
+                config=self.config,
+                paths=self.paths,
+                store=self.store,
+                workspace=self.workspace,
+                executor=executor,
+                gates=self.gates,
+                renderer=self.renderer,
+                timeout_seconds=node.config.timeout_seconds or DEFAULT_NODE_TIMEOUT,
+            )
+
+            # Execute node
+            try:
+                node_result = self._execute_node(node, context, exec_ctx)
+            except Exception as e:
+                node_log.error("Node execution error", error=str(e))
+                node_result = NodeResult(success=False, error=str(e))
+
+            node_duration_ms = int((time.perf_counter() - node_start) * 1000)
+
+            # Record metrics
+            metrics = NodeMetrics(
+                node_id=node.id,
+                node_type=node.type.value,
+                duration_ms=node_duration_ms,
+                success=node_result.success,
+                error=node_result.error,
+                outputs=list(node_result.outputs.keys()),
+                extra=node_result.metrics,
+            )
+            result.node_metrics.append(metrics)
+
+            if node_result.success:
+                result.completed_nodes.append(node.id)
+
+                # Store outputs
+                for key, value in node_result.outputs.items():
+                    self.store.set(key, value, source_node=node.id)
+
+                # Update state
+                if self.state:
+                    stage_name = self._map_node_to_stage(node.id)
+                    if stage_name:
+                        self.state.mark_stage_completed(stage_name)
+
+                node_log.info("Node completed", duration_ms=node_duration_ms)
+
+            else:
+                result.success = False
+                result.failed_node = node.id
+                result.error = node_result.error
+                node_log.error(
+                    "Node failed",
+                    error=node_result.error,
+                    duration_ms=node_duration_ms,
+                )
+                break
+
+        result.total_duration_ms = int((time.perf_counter() - start_time) * 1000)
+
+        log.info(
+            "Pipeline execution completed",
+            success=result.success,
+            completed=len(result.completed_nodes),
+            duration_ms=result.total_duration_ms,
+        )
+
+        return result
+
+    def _execute_node(
+        self,
+        node: NodeDefinition,
+        context: dict[str, Any],
+        exec_ctx: ExecutionContext,
+    ) -> NodeResult:
+        """Execute a single node.
+
+        Args:
+            node: Node definition.
+            context: Input context.
+            exec_ctx: Execution context.
+
+        Returns:
+            NodeResult.
+        """
+        executor = self._executors.get(node.type)
+        if not executor:
+            return NodeResult(success=False, error=f"No executor for node type: {node.type}")
+
+        return executor.execute(node, context, exec_ctx)
+
+    def _get_executor_for_node(self, node: NodeDefinition) -> Executor:
+        """Get the appropriate LLM executor for a node.
+
+        Uses model router if available and node has stage mapping.
+
+        Args:
+            node: Node definition.
+
+        Returns:
+            LLM executor.
+        """
+        if not self.router:
+            return self.executor
+
+        # Map node to stage name for routing
+        stage = self._map_node_to_stage(node.id)
+        if not stage:
+            return self.executor
+
+        executor, _selector = self.router.get_executor_for_stage(stage.value)
+        return executor
+
+    def _map_node_to_stage(self, node_id: str) -> Stage | None:
+        """Map node ID to stage name.
+
+        Args:
+            node_id: Node identifier.
+
+        Returns:
+            Stage or None.
+        """
+        mapping = {
+            "plan": Stage.PLAN,
+            "spec": Stage.SPEC,
+            "decompose": Stage.DECOMPOSE,
+            "implement": Stage.IMPLEMENT_ITEM,
+            "implement_direct": Stage.IMPLEMENT_ITEM,
+            "verify": Stage.VERIFY,
+            "review": Stage.REVIEW,
+            "ship": Stage.SHIP,
+            "knowledge_update": Stage.KNOWLEDGE_UPDATE,
+        }
+        return mapping.get(node_id)
+
+    @classmethod
+    def from_config(
+        cls,
+        config: OrxConfig,
+        paths: RunPaths,
+        workspace: WorkspaceGitWorktree,
+        gates: list[Gate],
+        state: RunState | None = None,
+    ) -> PipelineRunner:
+        """Create a pipeline runner from configuration.
+
+        Args:
+            config: ORX configuration.
+            paths: Run paths.
+            workspace: Git worktree.
+            gates: Quality gates.
+            state: Run state.
+
+        Returns:
+            Configured PipelineRunner.
+        """
+        from orx.executors.router import ModelRouter
+        from orx.prompts.renderer import PromptRenderer
+
+        # Create router and get default executor
+        router = ModelRouter.from_config(config, paths)
+        executor = router.get_primary_executor()
+
+        # Create renderer
+        renderer = PromptRenderer()
+
+        return cls(
+            config=config,
+            paths=paths,
+            workspace=workspace,
+            executor=executor,
+            gates=gates,
+            renderer=renderer,
+            state=state,
+            router=router,
+        )
+
+
+def run_pipeline(
+    pipeline_id: str,
+    task: str,
+    config: OrxConfig,
+    paths: RunPaths,
+    workspace: WorkspaceGitWorktree,
+    gates: list[Gate],
+    state: RunState | None = None,
+    registry: PipelineRegistry | None = None,
+) -> PipelineResult:
+    """Convenience function to run a pipeline by ID.
+
+    Args:
+        pipeline_id: Pipeline identifier.
+        task: Task description.
+        config: ORX configuration.
+        paths: Run paths.
+        workspace: Git worktree.
+        gates: Quality gates.
+        state: Run state.
+        registry: Pipeline registry.
+
+    Returns:
+        PipelineResult.
+
+    Raises:
+        ValueError: If pipeline not found.
+    """
+    if registry is None:
+        registry = PipelineRegistry.load(paths)
+
+    pipeline = registry.get(pipeline_id)
+    if not pipeline:
+        raise ValueError(f"Pipeline not found: {pipeline_id}")
+
+    runner = PipelineRunner.from_config(
+        config=config,
+        paths=paths,
+        workspace=workspace,
+        gates=gates,
+        state=state,
+    )
+
+    return runner.run(pipeline, task)

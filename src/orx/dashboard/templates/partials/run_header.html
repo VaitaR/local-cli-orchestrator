@@ -53,8 +53,8 @@
     </div>
     {% endif %}
     
-    {% if run.can_cancel %}
     <div class="run-actions">
+        {% if run.can_cancel %}
         <button class="btn btn-danger"
                 hx-post="/api/runs/{{ run.run_id }}/cancel"
                 hx-confirm="Cancel this run?"
@@ -62,6 +62,32 @@
                 hx-on::after-request="setTimeout(() => htmx.trigger('#run-header', 'htmx:load'), 500)">
             🛑 Cancel Run
         </button>
+        {% elif not run.is_active %}
+        <button class="btn btn-primary"
+                hx-post="/api/runs/{{ run.run_id }}/restart"
+                hx-confirm="Restart this run with the same configuration?"
+                hx-swap="none"
+                hx-on::after-request="handleRestartResponse(event)">
+            🔄 Restart Run
+        </button>
+        {% endif %}
     </div>
-    {% endif %}
 </div>
+
+<script>
+function handleRestartResponse(event) {
+    try {
+        const xhr = event.detail.xhr;
+        if (xhr.status === 200) {
+            const response = JSON.parse(xhr.response);
+            if (response.new_run_id) {
+                // Redirect to the new run
+                window.location.href = `/runs/${response.new_run_id}`;
+            }
+        }
+    } catch (e) {
+        console.error('Error handling restart response:', e);
+        setTimeout(() => htmx.trigger('#run-header', 'htmx:load'), 500);
+    }
+}
+</script>
