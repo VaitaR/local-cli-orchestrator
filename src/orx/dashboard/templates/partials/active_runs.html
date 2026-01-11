@@ -1,8 +1,10 @@
 {% if runs %}
-<div class="worker-status" style="margin-bottom: 1rem; padding: 0.5rem; background: var(--bg-elevated); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 4px; font-size: 0.9rem;">
-    <strong>📊 Worker:</strong> 
-    <span id="worker-active">{{ runs|length }}</span>/{{ max_concurrency|default(3) }} active
-    <span id="worker-queue" style="margin-left: 1rem;"></span>
+<div style="margin-bottom: var(--space-md);">
+    <div class="worker-status">
+        <strong>📊 Worker:</strong>
+        <span id="worker-active">{{ runs|length }}</span>/{{ max_concurrency|default(3) }} active
+        <span id="worker-queue" class="queue"></span>
+    </div>
 </div>
 <table class="table">
     <thead>
@@ -74,7 +76,7 @@
 <div class="empty-state">
     <p>✨ No active runs</p>
     <small>Click "New Run" to start one</small>
-    <div style="margin-top: 1rem; font-size: 0.85rem; color: #666;">
+    <div class="worker-status-idle">
         <span id="worker-status-idle"></span>
     </div>
 </div>
