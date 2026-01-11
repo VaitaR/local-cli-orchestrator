@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -17,6 +18,20 @@ from orx.dashboard.worker import LocalWorker
 PACKAGE_DIR = Path(__file__).parent
 TEMPLATES_DIR = PACKAGE_DIR / "templates"
 STATIC_DIR = PACKAGE_DIR / "static"
+
+
+def format_short_time(dt: datetime | None) -> str:
+    """Format datetime to short time string (e.g., '14:32' or '2:32 PM').
+
+    Args:
+        dt: Datetime object or None.
+
+    Returns:
+        Formatted time string or empty string if dt is None.
+    """
+    if dt is None:
+        return ""
+    return dt.strftime("%H:%M")
 
 
 def create_app(config: DashboardConfig | None = None) -> FastAPI:
@@ -44,6 +59,9 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
     store = FileSystemRunStore(config)
     worker = LocalWorker(config)
     templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+    # Register custom filters
+    templates.env.filters["format_short_time"] = format_short_time
 
     # Store in app state
     app.state.config = config
