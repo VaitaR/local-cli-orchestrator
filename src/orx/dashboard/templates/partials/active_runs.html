@@ -1,5 +1,5 @@
 {% if runs %}
-<div class="worker-status" style="margin-bottom: 1rem; padding: 0.5rem; background: #f0f0f0; border-radius: 4px; font-size: 0.9rem;">
+<div class="worker-status" style="margin-bottom: 1rem; padding: 0.5rem; background: var(--bg-elevated); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 4px; font-size: 0.9rem;">
     <strong>📊 Worker:</strong> 
     <span id="worker-active">{{ runs|length }}</span>/{{ max_concurrency|default(3) }} active
     <span id="worker-queue" style="margin-left: 1rem;"></span>
@@ -55,7 +55,10 @@
     </tbody>
 </table>
 <script>
-    document.getElementById('active-count').textContent = '{{ runs|length }}';
+    const activeEl = document.getElementById('worker-active');
+    if (activeEl) {
+        activeEl.textContent = '{{ runs|length }}';
+    }
     // Poll worker stats
     fetch('/api/worker/stats')
         .then(r => r.json())
@@ -76,7 +79,10 @@
     </div>
 </div>
 <script>
-    document.getElementById('active-count').textContent = '0';
+    const activeElIdle = document.getElementById('worker-active');
+    if (activeElIdle) {
+        activeElIdle.textContent = '0';
+    }
     // Poll worker stats even when idle
     fetch('/api/worker/stats')
         .then(r => r.json())
