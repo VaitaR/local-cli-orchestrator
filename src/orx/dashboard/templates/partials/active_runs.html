@@ -1,9 +1,17 @@
 {% if runs %}
+<div style="margin-bottom: var(--space-md);">
+    <div class="worker-status">
+        <strong>📊 Worker:</strong>
+        <span id="worker-active">{{ runs|length }}</span>/{{ max_concurrency|default(3) }} active
+        <span id="worker-queue" class="queue"></span>
+    </div>
+</div>
 <table class="table">
     <thead>
         <tr>
             <th>Run ID</th>
             <th>Stage</th>
+            <th>Started</th>
             <th>Elapsed</th>
             <th>Task</th>
             <th>Actions</th>
@@ -22,14 +30,24 @@
                     ⚡ {{ run.current_stage or 'starting' }}
                 </span>
             </td>
-            <td class="mono">{{ run.elapsed_human }}</td>
+            <td class="mono">
+                <span data-local-time data-iso="{{ run.started_at or '' }}">{{ run.started_at_short or '-' }}</span>
+            </td>
+            <td class="mono">
+                <span data-timer-for="{{ run.run_id }}"
+                      data-started-at="{{ run.started_at }}"
+                      data-run-status="{{ run.status.value }}">
+                    {{ run.elapsed_human }}
+                </span>
+            </td>
             <td class="task-preview" title="{{ run.task_preview or '' }}">{{ run.task_preview or '-' }}</td>
             <td>
                 {% if run.can_cancel %}
                 <button class="btn btn-sm btn-danger"
                         hx-post="/api/runs/{{ run.run_id }}/cancel"
                         hx-confirm="Cancel this run?"
-                        hx-swap="none">
+                        hx-swap="none"
+                        hx-on::after-request="htmx.ajax('GET', '/partials/active-runs', {target: '#active-runs', swap: 'innerHTML'})">
                     🛑 Cancel
                 </button>
                 {% else %}
@@ -41,14 +59,48 @@
     </tbody>
 </table>
 <script>
-    document.getElementById('active-count').textContent = '{{ runs|length }}';
+    const activeEl = document.getElementById('worker-active');
+    if (activeEl) {
+        activeEl.textContent = '{{ runs|length }}';
+    }
+    // Poll worker stats
+    fetch('/api/worker/stats')
+        .then(r => r.json())
+        .then(data => {
+            const queueEl = document.getElementById('worker-queue');
+            if (queueEl && data.queue_size > 0) {
+                queueEl.textContent = `⏳ ${data.queue_size} queued`;
+            }
+        })
+        .catch(() => {});
 </script>
 {% else %}
 <div class="empty-state">
     <p>✨ No active runs</p>
     <small>Click "New Run" to start one</small>
+    <div class="worker-status-idle">
+        <span id="worker-status-idle"></span>
+    </div>
 </div>
 <script>
-    document.getElementById('active-count').textContent = '0';
+    const activeElIdle = document.getElementById('worker-active');
+    if (activeElIdle) {
+        activeElIdle.textContent = '0';
+    }
+    // Poll worker stats even when idle
+    fetch('/api/worker/stats')
+        .then(r => r.json())
+        .then(data => {
+            const statusEl = document.getElementById('worker-status-idle');
+            if (statusEl) {
+                if (data.queue_size > 0) {
+                    statusEl.innerHTML = `⏳ <strong>${data.queue_size}</strong> run(s) queued`;
+                } else {
+                    statusEl.textContent = `Worker ready (max ${data.max_concurrency} concurrent)`;
+                }
+            }
+        })
+        .catch(() => {});
 </script>
 {% endif %}
+

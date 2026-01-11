@@ -102,9 +102,7 @@ class TestExtractSection:
             Nested content.
         """).strip()
 
-        section = extract_section(
-            content, "Parent Section", include_subsections=False
-        )
+        section = extract_section(content, "Parent Section", include_subsections=False)
 
         assert section is not None
         assert "Parent content" in section.content

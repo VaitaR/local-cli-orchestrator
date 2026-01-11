@@ -27,6 +27,47 @@
                placeholder="main">
     </div>
     
+    <!-- Pipeline Selection -->
+    <div class="form-group">
+        <label for="pipeline">🔀 Pipeline</label>
+        <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <select id="pipeline" style="flex: 1;">
+                <option value="">Loading...</option>
+            </select>
+            <button type="button" 
+                    id="pipeline-preview-btn"
+                    class="btn btn-sm btn-secondary"
+                    title="Preview Pipeline"
+                    style="padding: 0.4rem 0.6rem; font-size: 0.8rem;">
+                👁️
+            </button>
+            <button type="button" 
+                    id="pipeline-customize-btn"
+                    class="btn btn-sm btn-secondary"
+                    title="Customize Pipeline"
+                    style="padding: 0.4rem 0.6rem; font-size: 0.8rem;">
+                ✏️
+            </button>
+        </div>
+        <small>Workflow stages and order</small>
+    </div>
+
+    <!-- Pipeline Preview Panel (collapsed by default) -->
+    <div id="pipeline-preview-panel" style="display: none; margin-bottom: 1rem;">
+        <div style="background: var(--bg-secondary, #f5f5f5); border-radius: 8px; padding: 1rem; border: 1px solid var(--border-color, #e0e0e0);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                <strong id="pipeline-preview-title">Pipeline Preview</strong>
+                <button type="button" 
+                        onclick="document.getElementById('pipeline-preview-panel').style.display='none'"
+                        style="background: none; border: none; cursor: pointer; font-size: 1rem;">✕</button>
+            </div>
+            <p id="pipeline-preview-description" style="font-size: 0.85rem; color: var(--text-secondary, #666); margin-bottom: 0.75rem;"></p>
+            <div id="pipeline-preview-nodes" style="display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center;">
+                <!-- Nodes rendered here -->
+            </div>
+        </div>
+    </div>
+    
     <div class="form-group">
         <label for="engine">⚙️ Engine</label>
         <select id="engine">
@@ -95,10 +136,186 @@
     </div>
 </form>
 
+<!-- Pipeline Editor Modal -->
+<div id="pipeline-editor-modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 2000;">
+    <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: var(--bg-primary, white); border-radius: 12px; width: 90%; max-width: 700px; max-height: 85vh; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.3);">
+        <div style="padding: 1rem 1.5rem; border-bottom: 1px solid var(--border-color, #e0e0e0); display: flex; justify-content: space-between; align-items: center;">
+            <h3 style="margin: 0;">✏️ Customize Pipeline</h3>
+            <button type="button" onclick="closePipelineEditor()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--text-secondary, #666);">×</button>
+        </div>
+        
+        <div style="padding: 1.5rem; overflow-y: auto; max-height: calc(85vh - 140px);">
+            <div class="form-group">
+                <label for="custom-pipeline-name">Pipeline Name</label>
+                <input type="text" id="custom-pipeline-name" placeholder="my-custom-pipeline">
+                <small>Leave empty to use for this run only (not saved)</small>
+            </div>
+            
+            <div class="form-group">
+                <label for="custom-pipeline-description">Description</label>
+                <input type="text" id="custom-pipeline-description" placeholder="Description of this pipeline">
+            </div>
+            
+            <div class="form-group">
+                <label>Pipeline Nodes</label>
+                <div id="pipeline-nodes-editor" style="display: flex; flex-direction: column; gap: 0.75rem;">
+                    <!-- Nodes rendered here -->
+                </div>
+                <button type="button" id="add-node-btn" class="btn btn-sm btn-secondary" style="margin-top: 0.75rem;">
+                    + Add Node
+                </button>
+            </div>
+        </div>
+        
+        <div style="padding: 1rem 1.5rem; border-top: 1px solid var(--border-color, #e0e0e0); display: flex; justify-content: flex-end; gap: 0.5rem;">
+            <button type="button" class="btn btn-secondary" onclick="closePipelineEditor()">Cancel</button>
+            <button type="button" class="btn btn-primary" onclick="applyCustomPipeline()">Apply</button>
+            <button type="button" class="btn btn-primary" onclick="saveCustomPipeline()" id="save-pipeline-btn">Save as New</button>
+        </div>
+    </div>
+</div>
+
+<!-- Add Node Modal -->
+<div id="add-node-modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 2100;">
+    <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: var(--bg-primary, white); border-radius: 12px; width: 90%; max-width: 500px; max-height: 80vh; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.3);">
+        <div style="padding: 1rem 1.5rem; border-bottom: 1px solid var(--border-color, #e0e0e0); display: flex; justify-content: space-between; align-items: center;">
+            <h3 style="margin: 0;">Add Pipeline Node</h3>
+            <button type="button" onclick="closeAddNodeModal()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer;">×</button>
+        </div>
+        
+        <div style="padding: 1.5rem; overflow-y: auto; max-height: calc(80vh - 130px);">
+            <div class="form-group">
+                <label for="new-node-id">Node ID *</label>
+                <input type="text" id="new-node-id" placeholder="e.g., plan, verify, my_gate">
+            </div>
+            
+            <div class="form-group">
+                <label for="new-node-type">Node Type *</label>
+                <select id="new-node-type">
+                    <option value="">Select type...</option>
+                    <option value="llm_text">📝 LLM Text (plan, spec, review)</option>
+                    <option value="llm_apply">⚙️ LLM Apply (implement)</option>
+                    <option value="gate">✓ Gate (verify)</option>
+                    <option value="map">🔀 Map (parallel work items)</option>
+                    <option value="custom">🔧 Custom Function</option>
+                </select>
+            </div>
+            
+            <div class="form-group" id="new-node-template-group" style="display: none;">
+                <label for="new-node-template">Template</label>
+                <select id="new-node-template">
+                    <option value="">Select template...</option>
+                </select>
+            </div>
+            
+            <div class="form-group" id="new-node-gates-group" style="display: none;">
+                <label>Gates</label>
+                <div id="new-node-gates-checkboxes" style="display: flex; flex-direction: column; gap: 0.5rem;">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+        </div>
+        
+        <div style="padding: 1rem 1.5rem; border-top: 1px solid var(--border-color, #e0e0e0); display: flex; justify-content: flex-end; gap: 0.5rem;">
+            <button type="button" class="btn btn-secondary" onclick="closeAddNodeModal()">Cancel</button>
+            <button type="button" class="btn btn-primary" onclick="confirmAddNode()">Add Node</button>
+        </div>
+    </div>
+</div>
+
 <script>
 (function() {
     // Cache for engine config
     let engineConfig = null;
+    
+    // Cache for pipelines data
+    let pipelinesCache = null;
+    let nodeTypesCache = null;
+    let availableGatesCache = null;
+    let templatesCache = null;
+    
+    // Current custom pipeline being edited
+    let customPipelineNodes = [];
+    
+    // Load pipelines from API
+    async function loadPipelines() {
+        if (pipelinesCache) return pipelinesCache;
+        
+        try {
+            const cached = sessionStorage.getItem('orx_pipelines');
+            if (cached) {
+                pipelinesCache = JSON.parse(cached);
+                return pipelinesCache;
+            }
+        } catch (e) {
+            console.debug('Failed to read pipelines from sessionStorage', e);
+        }
+        
+        try {
+            const response = await fetch('/api/pipelines');
+            if (!response.ok) {
+                console.error('Failed to load pipelines');
+                return { pipelines: [] };
+            }
+            pipelinesCache = await response.json();
+            
+            try {
+                sessionStorage.setItem('orx_pipelines', JSON.stringify(pipelinesCache));
+            } catch (e) {
+                console.debug('Failed to cache pipelines', e);
+            }
+            
+            return pipelinesCache;
+        } catch (error) {
+            console.error('Error loading pipelines:', error);
+            return { pipelines: [] };
+        }
+    }
+    
+    // Load node types
+    async function loadNodeTypes() {
+        if (nodeTypesCache) return nodeTypesCache;
+        
+        try {
+            const response = await fetch('/api/node-types');
+            if (response.ok) {
+                nodeTypesCache = await response.json();
+            }
+        } catch (e) {
+            console.debug('Failed to load node types', e);
+        }
+        return nodeTypesCache || { node_types: [] };
+    }
+    
+    // Load available gates
+    async function loadAvailableGates() {
+        if (availableGatesCache) return availableGatesCache;
+        
+        try {
+            const response = await fetch('/api/available-gates');
+            if (response.ok) {
+                availableGatesCache = await response.json();
+            }
+        } catch (e) {
+            console.debug('Failed to load gates', e);
+        }
+        return availableGatesCache || { gates: [] };
+    }
+    
+    // Load templates
+    async function loadTemplates() {
+        if (templatesCache) return templatesCache;
+        
+        try {
+            const response = await fetch('/api/templates');
+            if (response.ok) {
+                templatesCache = await response.json();
+            }
+        } catch (e) {
+            console.debug('Failed to load templates', e);
+        }
+        return templatesCache || { templates: [] };
+    }
 
     function getBoolDataAttr(el, name) {
         return el?.dataset?.[name] === '1';
@@ -145,6 +362,407 @@
             return null;
         }
     }
+    
+    // ====== PIPELINE FUNCTIONS ======
+    
+    // Get icon for node type
+    function getNodeIcon(nodeType) {
+        const icons = {
+            'llm_text': '📝',
+            'llm_apply': '⚙️',
+            'gate': '✓',
+            'map': '🔀',
+            'custom': '🔧'
+        };
+        return icons[nodeType] || '📦';
+    }
+    
+    // Populate pipeline select
+    function populatePipelineSelect(pipelines) {
+        const select = document.getElementById('pipeline');
+        if (!select) return;
+        
+        select.innerHTML = '';
+        
+        const defaultOpt = document.createElement('option');
+        defaultOpt.value = '';
+        defaultOpt.textContent = 'standard (default)';
+        select.appendChild(defaultOpt);
+        
+        for (const pipeline of pipelines) {
+            if (pipeline.id === 'standard') continue; // Already default
+            
+            const opt = document.createElement('option');
+            opt.value = pipeline.id;
+            opt.textContent = pipeline.id;
+            if (pipeline.description) {
+                opt.textContent += ` - ${pipeline.description}`;
+            }
+            if (pipeline.is_builtin === false) {
+                opt.textContent += ' (custom)';
+            }
+            // Store full pipeline data
+            opt.dataset.pipeline = JSON.stringify(pipeline);
+            select.appendChild(opt);
+        }
+    }
+    
+    // Render pipeline preview
+    function renderPipelinePreview(pipeline) {
+        const panel = document.getElementById('pipeline-preview-panel');
+        const title = document.getElementById('pipeline-preview-title');
+        const description = document.getElementById('pipeline-preview-description');
+        const nodesContainer = document.getElementById('pipeline-preview-nodes');
+        
+        if (!panel || !pipeline) return;
+        
+        title.textContent = `Pipeline: ${pipeline.id}`;
+        description.textContent = pipeline.description || 'No description';
+        
+        nodesContainer.innerHTML = '';
+        
+        const nodes = pipeline.nodes || [];
+        nodes.forEach((node, index) => {
+            if (index > 0) {
+                const arrow = document.createElement('span');
+                arrow.textContent = '→';
+                arrow.style.cssText = 'color: var(--text-secondary, #888); font-size: 1.2rem;';
+                nodesContainer.appendChild(arrow);
+            }
+            
+            const nodeEl = document.createElement('div');
+            nodeEl.style.cssText = 'display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.25rem 0.5rem; background: var(--bg-primary, white); border: 1px solid var(--border-color, #ddd); border-radius: 4px; font-size: 0.8rem;';
+            nodeEl.innerHTML = `<span>${getNodeIcon(node.type)}</span><span>${node.id}</span>`;
+            nodeEl.title = `Type: ${node.type}${node.template ? `, Template: ${node.template}` : ''}`;
+            nodesContainer.appendChild(nodeEl);
+        });
+        
+        panel.style.display = 'block';
+    }
+    
+    // Get current pipeline data
+    function getCurrentPipeline() {
+        const select = document.getElementById('pipeline');
+        if (!select) return null;
+        
+        const selectedOpt = select.selectedOptions[0];
+        if (!selectedOpt || !selectedOpt.value) {
+            // Return standard pipeline from cache
+            if (pipelinesCache && pipelinesCache.pipelines) {
+                return pipelinesCache.pipelines.find(p => p.id === 'standard');
+            }
+            return null;
+        }
+        
+        // Try to get from data attribute
+        if (selectedOpt.dataset.pipeline) {
+            try {
+                return JSON.parse(selectedOpt.dataset.pipeline);
+            } catch (e) {
+                console.error('Failed to parse pipeline data', e);
+            }
+        }
+        
+        // Fallback: find in cache
+        if (pipelinesCache && pipelinesCache.pipelines) {
+            return pipelinesCache.pipelines.find(p => p.id === selectedOpt.value);
+        }
+        
+        return null;
+    }
+    
+    // ====== PIPELINE EDITOR FUNCTIONS ======
+    
+    // Open pipeline editor
+    function openPipelineEditor() {
+        const pipeline = getCurrentPipeline();
+        if (!pipeline) {
+            alert('No pipeline selected');
+            return;
+        }
+        
+        // Clone nodes for editing
+        customPipelineNodes = JSON.parse(JSON.stringify(pipeline.nodes || []));
+        
+        // Populate editor
+        document.getElementById('custom-pipeline-name').value = '';
+        document.getElementById('custom-pipeline-description').value = pipeline.description || '';
+        
+        renderPipelineNodesEditor();
+        
+        document.getElementById('pipeline-editor-modal').style.display = 'block';
+    }
+    
+    // Close pipeline editor
+    window.closePipelineEditor = function() {
+        document.getElementById('pipeline-editor-modal').style.display = 'none';
+        customPipelineNodes = [];
+    };
+    
+    // Render nodes in editor
+    function renderPipelineNodesEditor() {
+        const container = document.getElementById('pipeline-nodes-editor');
+        if (!container) return;
+        
+        container.innerHTML = '';
+        
+        customPipelineNodes.forEach((node, index) => {
+            const nodeEl = document.createElement('div');
+            nodeEl.className = 'pipeline-node-item';
+            nodeEl.style.cssText = 'display: flex; align-items: center; gap: 0.5rem; padding: 0.75rem; background: var(--bg-secondary, #f5f5f5); border-radius: 6px; border: 1px solid var(--border-color, #e0e0e0);';
+            
+            nodeEl.innerHTML = `
+                <span style="font-size: 1.2rem;">${getNodeIcon(node.type)}</span>
+                <div style="flex: 1; min-width: 0;">
+                    <div style="font-weight: 600; font-size: 0.9rem;">${node.id}</div>
+                    <div style="font-size: 0.75rem; color: var(--text-secondary, #666);">
+                        ${node.type}${node.template ? ` • ${node.template}` : ''}${node.gates ? ` • gates: ${node.gates.join(', ')}` : ''}
+                    </div>
+                </div>
+                <div style="display: flex; gap: 0.25rem;">
+                    <button type="button" class="btn btn-sm" onclick="moveNodeUp(${index})" ${index === 0 ? 'disabled' : ''} style="padding: 0.2rem 0.4rem;">↑</button>
+                    <button type="button" class="btn btn-sm" onclick="moveNodeDown(${index})" ${index === customPipelineNodes.length - 1 ? 'disabled' : ''} style="padding: 0.2rem 0.4rem;">↓</button>
+                    <button type="button" class="btn btn-sm btn-danger" onclick="removeNode(${index})" style="padding: 0.2rem 0.4rem;">✕</button>
+                </div>
+            `;
+            
+            container.appendChild(nodeEl);
+        });
+    }
+    
+    // Move node up
+    window.moveNodeUp = function(index) {
+        if (index <= 0) return;
+        const temp = customPipelineNodes[index];
+        customPipelineNodes[index] = customPipelineNodes[index - 1];
+        customPipelineNodes[index - 1] = temp;
+        renderPipelineNodesEditor();
+    };
+    
+    // Move node down
+    window.moveNodeDown = function(index) {
+        if (index >= customPipelineNodes.length - 1) return;
+        const temp = customPipelineNodes[index];
+        customPipelineNodes[index] = customPipelineNodes[index + 1];
+        customPipelineNodes[index + 1] = temp;
+        renderPipelineNodesEditor();
+    };
+    
+    // Remove node
+    window.removeNode = function(index) {
+        customPipelineNodes.splice(index, 1);
+        renderPipelineNodesEditor();
+    };
+    
+    // ====== ADD NODE MODAL ======
+    
+    // Open add node modal
+    async function openAddNodeModal() {
+        // Load templates for the select
+        const templatesData = await loadTemplates();
+        const templateSelect = document.getElementById('new-node-template');
+        templateSelect.innerHTML = '<option value="">Select template...</option>';
+        for (const tpl of templatesData.templates) {
+            const opt = document.createElement('option');
+            opt.value = tpl.id;
+            opt.textContent = tpl.name;
+            templateSelect.appendChild(opt);
+        }
+        
+        // Load gates for checkboxes
+        const gatesData = await loadAvailableGates();
+        const gatesContainer = document.getElementById('new-node-gates-checkboxes');
+        gatesContainer.innerHTML = '';
+        for (const gate of gatesData.gates) {
+            const label = document.createElement('label');
+            label.style.cssText = 'display: flex; align-items: center; gap: 0.5rem;';
+            label.innerHTML = `
+                <input type="checkbox" name="new-node-gate" value="${gate.id}" ${gate.default_enabled ? 'checked' : ''}>
+                <span>${gate.label}</span>
+                <small style="color: var(--text-secondary, #666);">${gate.description}</small>
+            `;
+            gatesContainer.appendChild(label);
+        }
+        
+        // Reset form
+        document.getElementById('new-node-id').value = '';
+        document.getElementById('new-node-type').value = '';
+        document.getElementById('new-node-template-group').style.display = 'none';
+        document.getElementById('new-node-gates-group').style.display = 'none';
+        
+        document.getElementById('add-node-modal').style.display = 'block';
+    }
+    
+    // Close add node modal
+    window.closeAddNodeModal = function() {
+        document.getElementById('add-node-modal').style.display = 'none';
+    };
+    
+    // Handle node type change
+    document.getElementById('new-node-type').addEventListener('change', function() {
+        const type = this.value;
+        const templateGroup = document.getElementById('new-node-template-group');
+        const gatesGroup = document.getElementById('new-node-gates-group');
+        
+        // Show template for LLM types
+        templateGroup.style.display = (type === 'llm_text' || type === 'llm_apply') ? 'block' : 'none';
+        
+        // Show gates for gate type
+        gatesGroup.style.display = (type === 'gate') ? 'block' : 'none';
+    });
+    
+    // Confirm add node
+    window.confirmAddNode = function() {
+        const nodeId = document.getElementById('new-node-id').value.trim();
+        const nodeType = document.getElementById('new-node-type').value;
+        
+        if (!nodeId) {
+            alert('Node ID is required');
+            return;
+        }
+        if (!nodeType) {
+            alert('Node type is required');
+            return;
+        }
+        
+        // Check for duplicate ID
+        if (customPipelineNodes.some(n => n.id === nodeId)) {
+            alert('A node with this ID already exists');
+            return;
+        }
+        
+        const node = {
+            id: nodeId,
+            type: nodeType
+        };
+        
+        // Add template if applicable
+        if (nodeType === 'llm_text' || nodeType === 'llm_apply') {
+            const template = document.getElementById('new-node-template').value;
+            if (template) {
+                node.template = template;
+            }
+        }
+        
+        // Add gates if applicable
+        if (nodeType === 'gate') {
+            const checkedGates = [...document.querySelectorAll('input[name="new-node-gate"]:checked')].map(cb => cb.value);
+            if (checkedGates.length > 0) {
+                node.gates = checkedGates;
+            }
+        }
+        
+        customPipelineNodes.push(node);
+        renderPipelineNodesEditor();
+        closeAddNodeModal();
+    };
+    
+    // ====== APPLY/SAVE PIPELINE ======
+    
+    // Apply custom pipeline (for this run only)
+    window.applyCustomPipeline = function() {
+        if (customPipelineNodes.length === 0) {
+            alert('Pipeline must have at least one node');
+            return;
+        }
+        
+        // Store custom nodes in form data attribute
+        const form = document.getElementById('start-run-form');
+        form.dataset.customPipeline = JSON.stringify({
+            nodes: customPipelineNodes
+        });
+        
+        // Update pipeline select to show custom
+        const select = document.getElementById('pipeline');
+        
+        // Check if custom option exists
+        let customOpt = select.querySelector('option[value="__custom__"]');
+        if (!customOpt) {
+            customOpt = document.createElement('option');
+            customOpt.value = '__custom__';
+            select.appendChild(customOpt);
+        }
+        
+        customOpt.textContent = `Custom (${customPipelineNodes.length} nodes)`;
+        customOpt.dataset.pipeline = JSON.stringify({
+            id: '__custom__',
+            description: 'Custom pipeline for this run',
+            nodes: customPipelineNodes
+        });
+        
+        select.value = '__custom__';
+        
+        // Show preview
+        renderPipelinePreview({
+            id: '__custom__',
+            description: 'Custom pipeline for this run',
+            nodes: customPipelineNodes
+        });
+        
+        closePipelineEditor();
+    };
+    
+    // Save custom pipeline to server
+    window.saveCustomPipeline = async function() {
+        const name = document.getElementById('custom-pipeline-name').value.trim();
+        const description = document.getElementById('custom-pipeline-description').value.trim();
+        
+        if (!name) {
+            alert('Pipeline name is required to save');
+            return;
+        }
+        
+        if (customPipelineNodes.length === 0) {
+            alert('Pipeline must have at least one node');
+            return;
+        }
+        
+        // Validate name format
+        if (!/^[a-z][a-z0-9_-]*$/.test(name)) {
+            alert('Pipeline name must start with lowercase letter and contain only lowercase letters, numbers, underscores, and hyphens');
+            return;
+        }
+        
+        const pipeline = {
+            id: name,
+            description: description || null,
+            nodes: customPipelineNodes
+        };
+        
+        try {
+            const response = await fetch('/api/pipelines', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(pipeline)
+            });
+            
+            if (!response.ok) {
+                const error = await response.json();
+                alert(`Failed to save pipeline: ${error.detail || 'Unknown error'}`);
+                return;
+            }
+            
+            // Clear cache to reload pipelines
+            sessionStorage.removeItem('orx_pipelines');
+            pipelinesCache = null;
+            
+            // Reload pipelines
+            const data = await loadPipelines();
+            populatePipelineSelect(data.pipelines);
+            
+            // Select new pipeline
+            document.getElementById('pipeline').value = name;
+            
+            closePipelineEditor();
+            
+            alert(`Pipeline "${name}" saved successfully!`);
+        } catch (error) {
+            console.error('Error saving pipeline:', error);
+            alert(`Error: ${error.message}`);
+        }
+    };
+    
+    // ====== END PIPELINE FUNCTIONS ======
     
     // Populate engine select dropdown
     function populateEngineSelect(selectId, engines, includeDefault = true, includeTest = false) {
@@ -498,6 +1116,40 @@
         
         const productionEngines = getProductionEngines(engines);
         populateEngineSelect('engine', productionEngines, true, false);
+        
+        // Load and populate pipelines
+        const pipelinesData = await loadPipelines();
+        populatePipelineSelect(pipelinesData.pipelines || []);
+        
+        // Pipeline select change handler
+        const pipelineSelect = document.getElementById('pipeline');
+        pipelineSelect.addEventListener('change', () => {
+            const pipeline = getCurrentPipeline();
+            if (pipeline) {
+                renderPipelinePreview(pipeline);
+            } else {
+                document.getElementById('pipeline-preview-panel').style.display = 'none';
+            }
+        });
+        
+        // Pipeline preview button
+        document.getElementById('pipeline-preview-btn').addEventListener('click', () => {
+            const panel = document.getElementById('pipeline-preview-panel');
+            if (panel.style.display === 'none' || !panel.style.display) {
+                const pipeline = getCurrentPipeline();
+                if (pipeline) {
+                    renderPipelinePreview(pipeline);
+                }
+            } else {
+                panel.style.display = 'none';
+            }
+        });
+        
+        // Pipeline customize button
+        document.getElementById('pipeline-customize-btn').addEventListener('click', openPipelineEditor);
+        
+        // Add node button
+        document.getElementById('add-node-btn').addEventListener('click', openAddNodeModal);
 
         const perStageDetails = document.getElementById('per-stage-config');
         if (stages.length > 0) {
@@ -680,6 +1332,24 @@
         const thinking_budget_raw = document.getElementById('thinking_budget').value;
         const thinking_budget = thinking_budget_raw ? parseInt(thinking_budget_raw) : null;
         
+        // Get selected pipeline
+        const pipelineSelect = document.getElementById('pipeline');
+        let pipeline = pipelineSelect.value || null;
+        let pipeline_override = null;
+        
+        // Check for custom pipeline
+        if (pipeline === '__custom__') {
+            const form = document.getElementById('start-run-form');
+            if (form.dataset.customPipeline) {
+                try {
+                    pipeline_override = JSON.parse(form.dataset.customPipeline);
+                    pipeline = null; // Don't pass ID, use override
+                } catch (e) {
+                    console.error('Failed to parse custom pipeline', e);
+                }
+            }
+        }
+        
         // Build config_overrides
         const config_overrides = {};
         
@@ -704,20 +1374,32 @@
             config_overrides.stages = stages_config;
         }
         
-        console.log('Submitting form with:', { task, repo_path, base_branch, engine, config_overrides });
+        console.log('Submitting form with:', { task, repo_path, base_branch, engine, pipeline, config_overrides });
         
         try {
+            const requestBody = {
+                task: task,
+                repo_path: repo_path,
+                base_branch: base_branch,
+                config_overrides: config_overrides
+            };
+            
+            // Add pipeline if selected (not default)
+            if (pipeline) {
+                requestBody.pipeline = pipeline;
+            }
+            
+            // Add pipeline override for custom pipelines
+            if (pipeline_override) {
+                requestBody.pipeline_override = pipeline_override;
+            }
+            
             const response = await fetch('/api/runs/start', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({
-                    task: task,
-                    repo_path: repo_path,
-                    base_branch: base_branch,
-                    config_overrides: config_overrides
-                })
+                body: JSON.stringify(requestBody)
             });
             
             if (!response.ok) {

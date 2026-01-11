@@ -170,18 +170,41 @@ class FileSystemRunStore:
         except (ValueError, TypeError):
             pass
 
-        # Check for failure
+        # Check for failure from stage_statuses
         fail_category = None
         for status_info in stage_statuses.values():
             if status_info.get("status") == "failed":
                 fail_category = status_info.get("error", "unknown")
                 break
 
+        # Check events.jsonl for run_end event (authoritative for final status)
+        events_final_status: str | None = None
+        events_error: str | None = None
+        events_path = run_dir / "events.jsonl"
+        if events_path.exists():
+            try:
+                for line in events_path.read_text().strip().split("\n"):
+                    if not line:
+                        continue
+                    event = json.loads(line)
+                    if event.get("event") == "run_end":
+                        events_final_status = event.get("status")
+                        events_error = event.get("error")
+                        break
+            except (OSError, json.JSONDecodeError):
+                pass
+
         # Map to RunStatus
-        if current_stage == "done":
+        if current_stage == "done" or events_final_status == "success":
             status = RunStatus.SUCCESS
-        elif current_stage == "failed" or fail_category:
+        elif (
+            current_stage == "failed"
+            or fail_category
+            or events_final_status == "failure"
+        ):
             status = RunStatus.FAIL
+            if not fail_category and events_error:
+                fail_category = events_error
         elif current_stage:
             if pid_alive is False:
                 status = RunStatus.FAIL

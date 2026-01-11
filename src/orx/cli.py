@@ -13,6 +13,7 @@ import typer
 from orx import __version__
 from orx.config import EngineType, OrxConfig
 from orx.paths import RunPaths
+from orx.pipeline import PipelineRegistry
 from orx.runner import create_runner
 from orx.state import StateManager
 
@@ -39,6 +40,12 @@ app = typer.Typer(
 metrics_app = typer.Typer(
     name="metrics",
     help="Metrics aggregation and analysis",
+    no_args_is_help=True,
+)
+
+pipelines_app = typer.Typer(
+    name="pipelines",
+    help="Manage execution pipelines",
     no_args_is_help=True,
 )
 
@@ -119,6 +126,14 @@ def run(
             help="Base branch to create worktree from",
         ),
     ] = None,
+    pipeline: Annotated[
+        str | None,
+        typer.Option(
+            "--pipeline",
+            "-p",
+            help="Pipeline to use (standard, fast_fix, plan_only, or custom)",
+        ),
+    ] = None,
     dry_run: Annotated[
         bool,
         typer.Option(
@@ -131,6 +146,11 @@ def run(
 
     The task can be provided as a string or as a path to a file
     (prefix with @ to read from file, e.g., @task.md).
+
+    Available pipelines:
+      - standard: Full flow with planning and decomposition (default)
+      - fast_fix: Skip planning, implement directly
+      - plan_only: Generate plan and spec only
     """
     log = logger.bind(command="run")
     log.info("Starting orx run")
@@ -165,9 +185,11 @@ def run(
         typer.echo(f"Run ID: {runner.paths.run_id}")
         typer.echo(f"Engine: {runner.config.engine.type.value}")
         typer.echo(f"Base branch: {runner.config.git.base_branch}")
+        if pipeline:
+            typer.echo(f"Pipeline: {pipeline}")
         typer.echo("")
 
-        success = runner.run(task_content)
+        success = runner.run(task_content, pipeline_id=pipeline)
 
         if success:
             typer.echo("")
@@ -181,8 +203,13 @@ def run(
             raise typer.Exit(1)
 
     except Exception as e:
-        log.error("Run failed", error=str(e))
+        import traceback
+
+        traceback_str = traceback.format_exc()
+        log.error("Run failed", error=str(e), traceback=traceback_str)
         typer.echo(f"Error: {e}", err=True)
+        typer.echo("\nFull traceback:", err=True)
+        typer.echo(traceback_str, err=True)
         raise typer.Exit(1) from e
 
 
@@ -807,6 +834,290 @@ def metrics_show(
 
 # Register metrics sub-app
 app.add_typer(metrics_app, name="metrics")
+
+# Register pipelines sub-app
+app.add_typer(pipelines_app, name="pipelines")
+
+
+# ============================================================================
+# Pipelines subcommands
+# ============================================================================
+
+
+@pipelines_app.command("list")
+def pipelines_list(
+    json_output: Annotated[
+        bool,
+        typer.Option(
+            "--json",
+            help="Output as JSON",
+        ),
+    ] = False,
+) -> None:
+    """List available pipelines."""
+    # Registry uses ~/.orx/pipelines/ by default for user pipelines
+    registry = PipelineRegistry.load()
+
+    pipelines = registry.pipelines
+
+    if json_output:
+        output = []
+        for p in pipelines:
+            output.append(
+                {
+                    "id": p.id,
+                    "name": p.name,
+                    "description": p.description,
+                    "builtin": p.builtin,
+                    "node_count": len(p.nodes),
+                }
+            )
+        typer.echo(json.dumps(output, indent=2))
+    else:
+        typer.echo("Available pipelines:")
+        typer.echo("")
+        for p in pipelines:
+            marker = "[builtin]" if p.builtin else "[custom]"
+            typer.echo(f"  {p.id:20} {marker:10} {p.name}")
+            if p.description:
+                typer.echo(f"    {p.description}")
+            typer.echo(f"    Nodes: {len(p.nodes)}")
+            typer.echo("")
+
+
+@pipelines_app.command("show")
+def pipelines_show(
+    pipeline_id: Annotated[
+        str,
+        typer.Argument(help="Pipeline ID to show"),
+    ],
+    json_output: Annotated[
+        bool,
+        typer.Option(
+            "--json",
+            help="Output as JSON",
+        ),
+    ] = False,
+) -> None:
+    """Show details of a pipeline."""
+    from orx.pipeline.registry import PipelineNotFoundError
+
+    registry = PipelineRegistry.load()
+
+    try:
+        pipeline = registry.get(pipeline_id)
+    except PipelineNotFoundError:
+        typer.echo(f"Pipeline not found: {pipeline_id}", err=True)
+        raise typer.Exit(1) from None
+
+    if json_output:
+        typer.echo(pipeline.model_dump_json(indent=2))
+    else:
+        typer.echo(f"Pipeline: {pipeline.id}")
+        typer.echo(f"Name: {pipeline.name}")
+        if pipeline.description:
+            typer.echo(f"Description: {pipeline.description}")
+        typer.echo("")
+        typer.echo("Nodes:")
+        for i, node in enumerate(pipeline.nodes, 1):
+            typer.echo(f"  {i}. {node.id} ({node.type.value})")
+            if node.template:
+                typer.echo(f"     Template: {node.template}")
+            if node.inputs:
+                typer.echo(f"     Inputs: {', '.join(node.inputs)}")
+            if node.outputs:
+                typer.echo(f"     Outputs: {', '.join(node.outputs)}")
+
+
+@pipelines_app.command("create")
+def pipelines_create(
+    name: Annotated[
+        str,
+        typer.Argument(help="Name for the new pipeline"),
+    ],
+    base_on: Annotated[
+        str,
+        typer.Option(
+            "--base",
+            "-b",
+            help="Base pipeline to copy from (optional)",
+        ),
+    ] = "standard",
+) -> None:
+    """Create a new custom pipeline.
+
+    Creates a new pipeline based on an existing one (default: standard).
+    The new pipeline is saved to ~/.orx/pipelines/<name>.yaml.
+    """
+    from orx.pipeline.definition import PipelineDefinition
+    from orx.pipeline.registry import PipelineNotFoundError
+
+    registry = PipelineRegistry.load()
+
+    # Check for existing
+    if registry.exists(name):
+        typer.echo(f"Pipeline already exists: {name}", err=True)
+        raise typer.Exit(1)
+
+    # Get base pipeline
+    try:
+        base_pipeline = registry.get(base_on)
+    except PipelineNotFoundError:
+        typer.echo(f"Base pipeline not found: {base_on}", err=True)
+        raise typer.Exit(1) from None
+
+    # Create new pipeline
+    new_pipeline = PipelineDefinition(
+        id=name,
+        name=name.replace("_", " ").title(),
+        description=f"Custom pipeline based on {base_on}",
+        nodes=base_pipeline.nodes.copy(),
+    )
+
+    # Add to registry and save
+    registry.add(new_pipeline)
+    registry.save()
+
+    typer.echo(f"Created pipeline: {name}")
+    typer.echo(f"Edit: ~/.orx/pipelines/{name}.yaml")
+
+
+@pipelines_app.command("delete")
+def pipelines_delete(
+    pipeline_id: Annotated[
+        str,
+        typer.Argument(help="Pipeline ID to delete"),
+    ],
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            "-f",
+            help="Don't prompt for confirmation",
+        ),
+    ] = False,
+) -> None:
+    """Delete a custom pipeline."""
+    from orx.pipeline.constants import BUILTIN_PIPELINE_IDS
+    from orx.pipeline.registry import PipelineNotFoundError
+
+    registry = PipelineRegistry.load()
+
+    # Check if builtin
+    if pipeline_id in BUILTIN_PIPELINE_IDS:
+        typer.echo(f"Cannot delete builtin pipeline: {pipeline_id}", err=True)
+        raise typer.Exit(1)
+
+    # Check if exists
+    if not registry.exists(pipeline_id):
+        typer.echo(f"Pipeline not found: {pipeline_id}", err=True)
+        raise typer.Exit(1)
+
+    if not force:
+        confirm = typer.confirm(f"Delete pipeline '{pipeline_id}'?")
+        if not confirm:
+            raise typer.Abort()
+
+    try:
+        registry.delete(pipeline_id)
+        registry.save()
+    except (ValueError, PipelineNotFoundError) as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1) from None
+
+    typer.echo(f"Deleted pipeline: {pipeline_id}")
+
+
+@pipelines_app.command("export")
+def pipelines_export(
+    pipeline_id: Annotated[
+        str,
+        typer.Argument(help="Pipeline ID to export"),
+    ],
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            "-o",
+            help="Output file path (default: stdout)",
+            file_okay=True,
+            resolve_path=True,
+        ),
+    ] = None,
+) -> None:
+    """Export a pipeline to YAML file."""
+    import yaml
+
+    from orx.pipeline.registry import PipelineNotFoundError
+
+    registry = PipelineRegistry.load()
+
+    try:
+        pipeline = registry.get(pipeline_id)
+    except PipelineNotFoundError:
+        typer.echo(f"Pipeline not found: {pipeline_id}", err=True)
+        raise typer.Exit(1) from None
+
+    yaml_content = yaml.dump(
+        pipeline.model_dump(mode="json"),
+        default_flow_style=False,
+        allow_unicode=True,
+        sort_keys=False,
+    )
+
+    if output:
+        output.write_text(yaml_content)
+        typer.echo(f"Exported to: {output}")
+    else:
+        typer.echo(yaml_content)
+
+
+@pipelines_app.command("import")
+def pipelines_import(
+    file: Annotated[
+        Path,
+        typer.Argument(help="YAML file to import"),
+    ],
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            "-f",
+            help="Overwrite existing pipeline",
+        ),
+    ] = False,
+) -> None:
+    """Import a pipeline from YAML file."""
+    import yaml
+
+    from orx.pipeline.definition import PipelineDefinition
+
+    if not file.exists():
+        typer.echo(f"File not found: {file}", err=True)
+        raise typer.Exit(1)
+
+    try:
+        data = yaml.safe_load(file.read_text())
+        pipeline = PipelineDefinition.model_validate(data)
+    except Exception as e:
+        typer.echo(f"Invalid pipeline file: {e}", err=True)
+        raise typer.Exit(1) from e
+
+    registry = PipelineRegistry.load()
+
+    # Check for existing
+    existing = registry.exists(pipeline.id)
+    if existing and not force:
+        typer.echo(
+            f"Pipeline already exists: {pipeline.id}. Use --force to overwrite.",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    registry.add(pipeline)
+    registry.save()
+
+    typer.echo(f"Imported pipeline: {pipeline.id}")
 
 
 if __name__ == "__main__":

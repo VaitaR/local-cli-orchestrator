@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings
 
 
@@ -23,7 +23,7 @@ class DashboardConfig(BaseSettings):
     # Paths
     runs_root: Path = Field(
         default_factory=lambda: Path.cwd() / "runs",
-        validation_alias="ORX_RUNS_ROOT",
+        validation_alias=AliasChoices("ORX_RUNS_ROOT", "runs_dir"),
         description="Base directory containing runs/",
     )
     orx_bin: str = Field(

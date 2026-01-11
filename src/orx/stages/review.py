@@ -59,7 +59,9 @@ class ReviewStage(TextOutputStage):
         if agents_path.exists():
             try:
                 content = agents_path.read_text()
-                section = extract_section(content, "Definition of Done", source="AGENTS.md")
+                section = extract_section(
+                    content, "Definition of Done", source="AGENTS.md"
+                )
                 if section:
                     definition_of_done = section.content
             except Exception:
@@ -201,6 +203,18 @@ If issues arise, this PR can be reverted without impact to other features.
             if not ctx.paths.review_md.exists():
                 return self._failure("Review output not created")
 
-            log.info("Review completed")
+            # Check verdict
+            content = ctx.pack.read_review() or ""
+            if "CHANGES_REQUESTED" in content:
+                log.info("Review requested changes")
+                result.data = result.data or {}
+                result.data["verdict"] = "changes_requested"
+                # Extract recommendations/blockers for better context
+                result.data["feedback"] = content
+            else:
+                result.data = result.data or {}
+                result.data["verdict"] = "approved"
+
+            log.info("Review completed", verdict=result.data["verdict"])
 
         return result

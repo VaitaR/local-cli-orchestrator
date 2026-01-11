@@ -591,11 +591,13 @@ class Runner:
             # Non-fatal: log warning and continue
             log.warning("Failed to build repo context pack", error=str(e))
 
-    def run(self, task: str | Path) -> bool:
+    def run(self, task: str | Path, pipeline_id: str | None = None) -> bool:
         """Run the full orchestration.
 
         Args:
             task: Task description or path to task file.
+            pipeline_id: Optional pipeline ID. If None, uses legacy FSM.
+                        Use "standard", "fast_fix", "plan_only" for builtin pipelines.
 
         Returns:
             True if run completed successfully.
@@ -604,6 +606,13 @@ class Runner:
         log.info("Starting run")
         if self.events:
             self.events.log("run_start", run_id=self.paths.run_id)
+
+        # Handle task content
+        task_content = task.read_text() if isinstance(task, Path) else task
+
+        # If pipeline specified, use pipeline runner
+        if pipeline_id:
+            return self._run_with_pipeline(task_content, pipeline_id)
 
         state_initialized = False
 
@@ -614,8 +623,7 @@ class Runner:
                 state_initialized = True
                 self.state.set_pid(os.getpid())
 
-                # Write task
-                task_content = task.read_text() if isinstance(task, Path) else task
+                # Write task (task_content already resolved above)
                 self.pack.write_task(task_content)
 
                 # Set task fingerprint for metrics
@@ -662,6 +670,101 @@ class Runner:
                 self.state.mark_stage_failed(msg)
                 self.state.set_pid(None)
                 self._save_meta(success=False)
+            raise
+
+    def _run_with_pipeline(self, task: str, pipeline_id: str) -> bool:
+        """Run using the pipeline engine.
+
+        Args:
+            task: Task description.
+            pipeline_id: Pipeline ID to use.
+
+        Returns:
+            True if pipeline completed successfully.
+        """
+        from orx.pipeline import PipelineRegistry, PipelineRunner
+
+        log = logger.bind(run_id=self.paths.run_id, pipeline=pipeline_id)
+        log.info("Running with pipeline engine")
+
+        try:
+            with _termination_signals():
+                # Initialize state
+                self.state.initialize()
+                self.state.set_pid(os.getpid())
+
+                # Create workspace
+                base_branch = self.config.git.base_branch
+                self.workspace.create(base_branch)
+                self.state.set_baseline_sha(self.workspace.baseline_sha())
+                self.meta.branch_name = f"orx/{self.paths.run_id}"
+
+                # Load pipeline
+                registry = PipelineRegistry.load()
+                pipeline = registry.get(pipeline_id)
+
+                if not pipeline:
+                    log.error("Pipeline not found", pipeline_id=pipeline_id)
+                    self.state.mark_stage_failed(f"Pipeline not found: {pipeline_id}")
+                    return False
+
+                # Create pipeline runner
+                pipeline_runner = PipelineRunner(
+                    config=self.config,
+                    paths=self.paths,
+                    workspace=self.workspace,
+                    executor=self.executor,
+                    gates=self.gates,
+                    renderer=self.renderer,
+                    state=self.state,
+                    router=self.model_router,
+                    metrics_writer=self.metrics_writer,
+                )
+
+                # Run pipeline
+                result = pipeline_runner.run(pipeline, task)
+
+                self.state.set_pid(None)
+
+                if result.success:
+                    self._save_meta(success=True)
+                    if self.events:
+                        self.events.log(
+                            "run_end",
+                            run_id=self.paths.run_id,
+                            status="success",
+                        )
+                    log.info(
+                        "Pipeline completed successfully",
+                        completed_nodes=result.completed_nodes,
+                        duration_ms=result.total_duration_ms,
+                    )
+                else:
+                    self._save_meta(success=False)
+                    if self.events:
+                        self.events.log(
+                            "run_end",
+                            run_id=self.paths.run_id,
+                            status="failure",
+                            error=result.error,
+                        )
+                    log.error("Pipeline failed", error=result.error)
+
+                return result.success
+
+        except BaseException as e:
+            msg = "Cancelled" if isinstance(e, KeyboardInterrupt) else str(e)
+            log.error("Pipeline run failed", error=msg)
+            if self.events:
+                self.events.log(
+                    "run_end",
+                    run_id=self.paths.run_id,
+                    status="failure",
+                    error=msg,
+                )
+            self.state.mark_stage_failed(msg)
+            self.state.set_pid(None)
+            self._save_meta(success=False)
             raise
 
     def resume(self) -> bool:
@@ -803,7 +906,12 @@ class Runner:
                 break
 
         # Execute stages
-        for stage in stage_order[start_idx:]:
+        idx = start_idx
+        attempts_backlogs = 0
+        max_review_loops = 3
+
+        while idx < len(stage_order):
+            stage = stage_order[idx]
             self.state.transition_to(stage)
 
             if stage == Stage.PLAN:
@@ -823,6 +931,7 @@ class Runner:
                     "knowledge_update", self._run_knowledge_update
                 )
             else:
+                idx += 1
                 continue
 
             if not result.success:
@@ -834,12 +943,81 @@ class Runner:
 
             self.state.mark_stage_completed()
 
+            # Handle Review Loop
+            if (
+                stage == Stage.REVIEW
+                and result.data
+                and result.data.get("verdict") == "changes_requested"
+            ):
+                if attempts_backlogs < max_review_loops:
+                    attempts_backlogs += 1
+                    feedback = result.data.get(
+                        "feedback", "Changes requested in review"
+                    )
+                    log.info(
+                        "Review requested changes. Creating fix item.",
+                        attempt=attempts_backlogs,
+                    )
+
+                    try:
+                        self._add_backlog_item_for_review(feedback)
+                        # Rewind to IMPLEMENT_ITEM
+                        implement_idx = -1
+                        for i, s in enumerate(stage_order):
+                            if s == Stage.IMPLEMENT_ITEM:
+                                implement_idx = i
+                                break
+
+                        if implement_idx >= 0:
+                            # Force reset stage context/state for re-run if needed
+                            # The implement loop reloads backlog, so it should be fine
+                            idx = implement_idx
+                            continue
+                    except Exception as e:
+                        log.error("Failed to recover from review failure", error=str(e))
+                else:
+                    log.warning(
+                        "Max review loops reached. Proceeding despite review failure."
+                    )
+
+            idx += 1
+
         # All done
         self.state.transition_to(Stage.DONE)
         self.state.mark_stage_completed()
         self._save_meta(success=True)
         log.info("Run completed successfully")
         return True
+
+    def _add_backlog_item_for_review(self, feedback: str) -> None:
+        """Add a work item to address review feedback.
+
+        Args:
+            feedback: The review content/feedback to address.
+        """
+        backlog = Backlog.load(self.paths.backlog_yaml)
+
+        # Generate new valid ID
+        existing_ids = {item.id for item in backlog.items}
+        next_id_num = 1
+        while f"W{next_id_num:03d}" in existing_ids:
+            next_id_num += 1
+        new_id = f"W{next_id_num:03d}"
+
+        # Create a new item
+        new_item = WorkItem(
+            id=new_id,
+            title="Address Review Feedback",
+            objective="Fix issues identified in code review",
+            acceptance=["Review comments addressed", "Tests pass"],
+            # Include feedback in description or notes
+            notes=f"Review Feedback:\n\n{feedback}",
+            status="todo",
+            files_hint=[],
+        )
+
+        backlog.add_item(new_item)
+        backlog.save(self.paths.backlog_yaml)
 
     def _run_stage_with_metrics(
         self,

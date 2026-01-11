@@ -1,12 +1,13 @@
 """Tests for dashboard store filesystem implementation."""
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
 from orx.dashboard.store.filesystem import FileSystemRunStore
-from orx.dashboard.store.models import RunStatus
+from orx.dashboard.store.models import RunStatus, RunSummary
 
 
 @pytest.fixture
@@ -364,3 +365,44 @@ class TestPathSafety:
         ]
         for path in dangerous:
             assert not store._is_safe_path(path)
+
+
+class TestRunSummaryStartTime:
+    """Tests for RunSummary started_at and created_at_iso properties."""
+
+    def test_started_at_returns_iso_format_with_valid_created_at(
+        self,
+    ) -> None:
+        """Test that started_at returns ISO 8601 formatted string when created_at is set."""
+        dt = datetime(2025, 1, 15, 10, 30, 45, tzinfo=UTC)
+        summary = RunSummary(
+            run_id="test-run",
+            created_at=dt,
+        )
+        assert summary.started_at == "2025-01-15T10:30:45+00:00"
+
+    def test_started_at_returns_none_when_created_at_is_none(self) -> None:
+        """Test that started_at returns None when created_at is None."""
+        summary = RunSummary(
+            run_id="test-run",
+            created_at=None,
+        )
+        assert summary.started_at is None
+
+    def test_created_at_iso_is_alias_for_started_at(self) -> None:
+        """Test that created_at_iso returns the same value as started_at."""
+        dt = datetime(2025, 1, 15, 10, 30, 45, tzinfo=UTC)
+        summary = RunSummary(
+            run_id="test-run",
+            created_at=dt,
+        )
+        assert summary.created_at_iso == summary.started_at
+        assert summary.created_at_iso == "2025-01-15T10:30:45+00:00"
+
+    def test_created_at_iso_returns_none_when_created_at_is_none(self) -> None:
+        """Test that created_at_iso returns None when created_at is None."""
+        summary = RunSummary(
+            run_id="test-run",
+            created_at=None,
+        )
+        assert summary.created_at_iso is None

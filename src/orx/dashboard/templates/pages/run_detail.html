@@ -8,16 +8,7 @@
 </div>
 
 <!-- Run Header (polled while running) -->
-<div id="run-header"
-     hx-get="/partials/run-header/{{ run.run_id }}"
-     {% if run.is_active %}
-     hx-trigger="load, every {{ poll_interval }}s"
-     {% else %}
-     hx-trigger="load"
-     {% endif %}
-     hx-swap="outerHTML">
-    <div class="loading">Loading run details...</div>
-</div>
+{% include "partials/run_header.html" %}
 
 <!-- Tabs -->
 <div class="tabs">

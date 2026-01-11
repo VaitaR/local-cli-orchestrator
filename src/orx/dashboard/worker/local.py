@@ -31,6 +31,8 @@ class RunJob:
     task: str
     repo_path: str | None = None
     base_branch: str | None = None
+    pipeline: str | None = None
+    pipeline_override: dict | None = None
     config_overrides: dict = field(default_factory=dict)
     process: subprocess.Popen | None = None
     started_at: float | None = None
@@ -55,6 +57,9 @@ class LocalWorker:
         self.config = config
         self._queue: Queue[RunJob] = Queue()
         self._active_jobs: dict[str, RunJob] = {}
+        self._pending_run_dirs: dict[
+            str, str
+        ] = {}  # temp_run_id -> real_run_id mapping
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
@@ -92,6 +97,8 @@ class LocalWorker:
         *,
         repo_path: str | None = None,
         base_branch: str | None = None,
+        pipeline: str | None = None,
+        pipeline_override: dict | None = None,
         config_overrides: dict | None = None,
     ) -> str:
         """Queue a new run.
@@ -100,6 +107,8 @@ class LocalWorker:
             task: Task description or @file path.
             repo_path: Path to repository.
             base_branch: Base branch name.
+            pipeline: Pipeline to use (standard, fast_fix, etc.).
+            pipeline_override: Custom pipeline definition for this run only.
             config_overrides: Optional config overrides.
 
         Returns:
@@ -130,6 +139,8 @@ class LocalWorker:
             task=task,
             repo_path=str(resolved_repo),
             base_branch=base_branch,
+            pipeline=pipeline,
+            pipeline_override=pipeline_override,
             config_overrides=config_overrides or {},
         )
 
@@ -247,6 +258,22 @@ class LocalWorker:
                 return job.process.pid
             return None
 
+    def get_worker_stats(self) -> dict[str, Any]:
+        """Get worker statistics.
+
+        Returns:
+            Dictionary with worker stats including active jobs count, queue size, etc.
+        """
+        with self._lock:
+            active_jobs = list(self._active_jobs.keys())
+
+        return {
+            "active_count": len(active_jobs),
+            "queue_size": self._queue.qsize(),
+            "max_concurrency": self.config.max_concurrency,
+            "active_jobs": active_jobs,
+        }
+
     def _run_loop(self) -> None:
         """Background worker loop."""
         while not self._stop_event.is_set():
@@ -287,6 +314,14 @@ class LocalWorker:
         # Add options
         if job.base_branch:
             cmd.extend(["--base-branch", job.base_branch])
+
+        if job.pipeline:
+            cmd.extend(["--pipeline", job.pipeline])
+        elif job.pipeline_override:
+            # Create temp pipeline file for custom inline pipeline
+            temp_pipeline_path = self._create_temp_pipeline(job.pipeline_override)
+            if temp_pipeline_path:
+                cmd.extend(["--pipeline", str(temp_pipeline_path)])
 
         base_dir = self._resolve_repo_path(job.repo_path)
 
@@ -341,12 +376,15 @@ class LocalWorker:
             actual_run_id = self._wait_for_run_id(
                 runs_dir,
                 existing_run_ids,
+                job.run_id,  # Pass temp run_id for tracking
             )
             if actual_run_id and actual_run_id != job.run_id:
                 with self._lock:
                     self._active_jobs.pop(job.run_id, None)
                     job.run_id = actual_run_id
                     self._active_jobs[job.run_id] = job
+                    # Clean up mapping
+                    self._pending_run_dirs.pop(job.run_id, None)
                 self._log.info("Resolved run id", run_id=job.run_id)
 
         except Exception as e:
@@ -377,17 +415,46 @@ class LocalWorker:
             if entry.is_dir() and not entry.name.startswith(".")
         }
 
-    def _wait_for_run_id(self, runs_dir: Path, existing: set[str]) -> str | None:
-        """Wait briefly for a new run directory to appear."""
+    def _wait_for_run_id(
+        self, runs_dir: Path, existing: set[str], temp_id: str
+    ) -> str | None:
+        """Wait briefly for a new run directory to appear.
+
+        Args:
+            runs_dir: Directory containing run folders.
+            existing: Set of run_ids that existed before this job started.
+            temp_id: Temporary run_id generated for this job.
+
+        Returns:
+            Real run_id if found, None otherwise.
+        """
         deadline = time.time() + self.config.run_id_timeout_seconds
+        found_dirs = []
+
         while time.time() < deadline:
             if runs_dir.exists():
                 for entry in runs_dir.iterdir():
                     if not entry.is_dir() or entry.name.startswith("."):
                         continue
                     if entry.name not in existing:
-                        return entry.name
+                        # Check if this run_id is already claimed by another job
+                        with self._lock:
+                            if entry.name not in self._pending_run_dirs.values():
+                                # Mark this run_id as belonging to this temp_id
+                                self._pending_run_dirs[temp_id] = entry.name
+                                return entry.name
+                        # If already claimed, keep looking
+                        found_dirs.append(entry.name)
             time.sleep(self.config.run_id_poll_interval)
+
+        # Timeout - log what we found
+        if found_dirs:
+            self._log.warning(
+                "Run ID timeout - found dirs but all claimed",
+                temp_id=temp_id,
+                found=found_dirs,
+            )
+
         return None
 
     def _cleanup_completed(self) -> None:
@@ -468,4 +535,43 @@ class LocalWorker:
             return Path(path)
         except Exception as e:
             self._log.error("Failed to create temp config", error=str(e))
+            return None
+
+    def _create_temp_pipeline(self, pipeline_override: dict[str, Any]) -> Path | None:
+        """Create a temporary pipeline file from override dict.
+
+        Args:
+            pipeline_override: Pipeline definition with 'nodes' key.
+
+        Returns:
+            Path to temp pipeline file, or None on error.
+        """
+        if not pipeline_override:
+            return None
+
+        nodes = pipeline_override.get("nodes", [])
+        if not nodes:
+            return None
+
+        import yaml
+
+        pipeline_data = {
+            "id": "__dashboard_custom__",
+            "name": "Dashboard Custom Pipeline",
+            "description": "Custom pipeline created from dashboard",
+            "nodes": nodes,
+        }
+
+        fd, path = tempfile.mkstemp(suffix=".yaml", prefix="orx_pipeline_")
+        try:
+            with os.fdopen(fd, "w") as f:
+                yaml.safe_dump(pipeline_data, f, default_flow_style=False)
+            self._log.debug(
+                "Created temp pipeline",
+                path=path,
+                node_count=len(nodes),
+            )
+            return Path(path)
+        except Exception as e:
+            self._log.error("Failed to create temp pipeline", error=str(e))
             return None

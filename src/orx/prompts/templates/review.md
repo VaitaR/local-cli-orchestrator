@@ -2,9 +2,13 @@
 
 You are reviewing the completed implementation.
 
-## Specification
+## Task & Specification
 
+{% if spec is defined and spec %}
 {{ spec }}
+{% else %}
+{{ task }}
+{% endif %}
 
 ## Changes Made
 

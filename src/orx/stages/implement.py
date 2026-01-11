@@ -73,6 +73,7 @@ class ImplementStage(ApplyStage):
             "item_id": item.id,
             "item_title": item.title,
             "item_objective": item.objective,
+            "item_notes": item.notes,
             "acceptance": item.acceptance,
             "files_hint": item.files_hint,
             "file_snippets": snippets,
@@ -155,8 +156,12 @@ class FixStage(ApplyStage):
         agents_context = extract_agents_context(worktree)
 
         # Extract focused errors instead of full logs
-        focused_ruff = extract_focused_errors(ruff_log, max_errors=15) if ruff_log else ""
-        focused_pytest = extract_focused_errors(pytest_log, max_errors=10) if pytest_log else ""
+        focused_ruff = (
+            extract_focused_errors(ruff_log, max_errors=15) if ruff_log else ""
+        )
+        focused_pytest = (
+            extract_focused_errors(pytest_log, max_errors=10) if pytest_log else ""
+        )
 
         return {
             "task_summary": task_summary,

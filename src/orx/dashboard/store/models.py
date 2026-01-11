@@ -95,6 +95,33 @@ class RunSummary(BaseModel):
         mins = minutes % 60
         return f"{hours}h {mins}m"
 
+    @property
+    def started_at(self) -> str | None:
+        """Get start time as ISO 8601 string for frontend consumption.
+
+        Returns:
+            ISO 8601 formatted timestamp string or None if created_at is None.
+        """
+        if self.created_at is None:
+            return None
+        return self.created_at.isoformat()
+
+    @property
+    def started_at_short(self) -> str | None:
+        """Get a short start time string (HH:MM) for server-rendered fallback."""
+        if self.created_at is None:
+            return None
+        return self.created_at.strftime("%H:%M")
+
+    @property
+    def created_at_iso(self) -> str | None:
+        """Alias for started_at property.
+
+        Returns:
+            Same value as started_at (ISO 8601 formatted timestamp or None).
+        """
+        return self.started_at
+
 
 class RunDetail(RunSummary):
     """Full run information for detail page.
@@ -143,6 +170,12 @@ class StartRunRequest(BaseModel):
     task: str = Field(..., min_length=1, description="Task description or @file path")
     repo_path: str | None = Field(None, description="Path to repository")
     base_branch: str | None = Field(None, description="Base branch name")
+    pipeline: str | None = Field(
+        None, description="Pipeline to use (standard, fast_fix, etc.)"
+    )
+    pipeline_override: dict[str, Any] | None = Field(
+        None, description="Custom pipeline definition (nodes) for this run only"
+    )
     config_overrides: dict[str, Any] = Field(
         default_factory=dict, description="Config overrides"
     )
