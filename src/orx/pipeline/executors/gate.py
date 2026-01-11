@@ -76,8 +76,10 @@ class GateNodeExecutor:
             if result.failed:
                 # Try auto-fix for ruff
                 if gate.name == "ruff" and exec_ctx.config.run.auto_fix_ruff:
+                    log.info("Attempting auto-fix for ruff", gate=gate.name)
                     fix_result = self._try_ruff_fix(gate, exec_ctx, node.id)
                     if fix_result:
+                        log.info("Auto-fix applied, retrying gate", gate=gate.name)
                         # Retry gate after fix
                         retry_result = gate.run(
                             cwd=exec_ctx.workspace.worktree_path,
@@ -90,6 +92,12 @@ class GateNodeExecutor:
                             gate_metric["passed"] = True
                             gate_metric["auto_fixed"] = True
                             continue
+                        else:
+                            log.warning(
+                                "Gate still failed after auto-fix",
+                                gate=gate.name,
+                                returncode=retry_result.returncode,
+                            )
 
                 log.error(
                     "Gate failed",
@@ -138,8 +146,14 @@ class GateNodeExecutor:
             if "--unsafe-fixes" not in fix_args:
                 fix_args.append("--unsafe-fixes")
 
+            # Get CommandRunner from gate
+            cmd = getattr(gate, "cmd", None)
+            if not cmd:
+                logger.warning("RuffGate missing CommandRunner, cannot auto-fix")
+                return False
+
             fix_gate = RuffGate(
-                cmd=gate._cmd,
+                cmd=cmd,
                 command=getattr(gate, "command", "ruff"),
                 args=fix_args,
                 required=getattr(gate, "required", True),
