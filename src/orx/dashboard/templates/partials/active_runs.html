@@ -30,7 +30,9 @@
                     ⚡ {{ run.current_stage or 'starting' }}
                 </span>
             </td>
-            <td class="mono">{{ run.created_at|format_short_time }}</td>
+            <td class="mono">
+                <span data-local-time data-iso="{{ run.created_at_iso or '' }}">-</span>
+            </td>
             <td class="mono">
                 <span data-timer-for="{{ run.run_id }}"
                       data-started-at="{{ run.started_at }}"

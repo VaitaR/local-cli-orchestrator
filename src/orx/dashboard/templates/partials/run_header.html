@@ -24,7 +24,9 @@
         {% if run.started_at %}
         <div class="meta-item">
             <span class="label">🕐 Started</span>
-            <span class="value mono">{{ run.created_at|format_short_time }}</span>
+            <span class="value mono">
+                <span data-local-time data-iso="{{ run.created_at_iso or '' }}">-</span>
+            </span>
         </div>
         {% endif %}
         <div class="meta-item">
