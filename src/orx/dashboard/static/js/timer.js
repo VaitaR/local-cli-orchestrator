@@ -14,6 +14,23 @@ const RunTimer = (function () {
     const timerElements = new Set();
 
     /**
+     * Check if an object has the minimal shape of a timer DOM element.
+     *
+     * This avoids relying on `instanceof HTMLElement`, which may not be available
+     * in non-browser test environments.
+     *
+     * @param {unknown} element - Candidate element.
+     * @returns {boolean} True if element looks like a timer element.
+     */
+    function isTimerElement(element) {
+        return Boolean(
+            element &&
+                typeof element.getAttribute === 'function' &&
+                'textContent' in element
+        );
+    }
+
+    /**
      * Parse ISO 8601 timestamp string to Date object.
      *
      * @param {string} isoString - ISO 8601 formatted timestamp.
@@ -62,6 +79,12 @@ const RunTimer = (function () {
         const startedAt = element.getAttribute('data-started-at');
         const runStatus = element.getAttribute('data-run-status');
 
+        // Never update completed/failed timers on the client; the server renders
+        // a static duration based on state timestamps.
+        if (runStatus !== 'running') {
+            return;
+        }
+
         if (!startedAt) {
             return;
         }
@@ -75,13 +98,7 @@ const RunTimer = (function () {
         const now = new Date();
         const elapsedSeconds = (now - startDate) / 1000;
 
-        // Only animate for running runs
-        if (runStatus === 'running') {
-            element.textContent = formatDuration(elapsedSeconds);
-        } else {
-            // For completed runs, show final static duration
-            element.textContent = formatDuration(elapsedSeconds);
-        }
+        element.textContent = formatDuration(elapsedSeconds);
     }
 
     /**
@@ -114,7 +131,10 @@ const RunTimer = (function () {
         timerSelectors.forEach((selector) => {
             const elements = document.querySelectorAll(selector);
             elements.forEach((element) => {
-                if (element instanceof HTMLElement) {
+                if (
+                    isTimerElement(element) &&
+                    element.getAttribute('data-run-status') === 'running'
+                ) {
                     timerElements.add(element);
                 }
             });
@@ -142,8 +162,12 @@ const RunTimer = (function () {
         timerElements.clear();
         scanAndInitialize();
 
-        // Start update interval (every second)
-        updateInterval = setInterval(update, 1000);
+        // Start update interval (every second) only if we have running timers
+        if (timerElements.size > 0) {
+            updateInterval = setInterval(update, 1000);
+        } else {
+            updateInterval = null;
+        }
     }
 
     /**
@@ -168,7 +192,10 @@ const RunTimer = (function () {
      * @returns {void}
      */
     function trackElement(element) {
-        if (element instanceof HTMLElement) {
+        if (
+            isTimerElement(element) &&
+            element.getAttribute('data-run-status') === 'running'
+        ) {
             timerElements.add(element);
             updateTimerElement(element);
         }
