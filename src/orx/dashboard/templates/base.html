@@ -43,6 +43,20 @@
     <script src="/static/prism-markdown.js"></script>
     <script src="/static/prism-javascript.js"></script>
     <script src="/static/prism-diff.js"></script>
+    <script type="module">
+        // Import RunTimer module
+        import RunTimer from '/static/js/timer.js';
+
+        // Initialize timers on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            RunTimer.initialize();
+        });
+
+        // Re-initialize timers after HTMX content swaps
+        document.body.addEventListener('htmx:afterSwap', () => {
+            RunTimer.initialize();
+        });
+    </script>
     <script>
         // Trigger Prism highlighting on HTMX content swap
         // HTMX now swaps artifact previews into `#artifact-preview-content`.

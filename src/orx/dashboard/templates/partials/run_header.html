@@ -21,9 +21,21 @@
             <span class="label">📍 Stage</span>
             <span class="value">{{ run.current_stage or 'N/A' }}</span>
         </div>
+        {% if run.started_at %}
+        <div class="meta-item">
+            <span class="label">🕐 Started</span>
+            <span class="value mono">{{ run.created_at|format_short_time }}</span>
+        </div>
+        {% endif %}
         <div class="meta-item">
             <span class="label">⏱ Elapsed</span>
-            <span class="value mono">{{ run.elapsed_human }}</span>
+            <span class="value mono">
+                <span data-timer-for="{{ run.run_id }}"
+                      data-started-at="{{ run.started_at }}"
+                      data-run-status="{{ run.status.value }}">
+                    {{ run.elapsed_human }}
+                </span>
+            </span>
         </div>
         {% if run.repo_path %}
         <div class="meta-item">

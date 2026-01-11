@@ -95,6 +95,26 @@ class RunSummary(BaseModel):
         mins = minutes % 60
         return f"{hours}h {mins}m"
 
+    @property
+    def started_at(self) -> str | None:
+        """Get start time as ISO 8601 string for frontend consumption.
+
+        Returns:
+            ISO 8601 formatted timestamp string or None if created_at is None.
+        """
+        if self.created_at is None:
+            return None
+        return self.created_at.isoformat()
+
+    @property
+    def created_at_iso(self) -> str | None:
+        """Alias for started_at property.
+
+        Returns:
+            Same value as started_at (ISO 8601 formatted timestamp or None).
+        """
+        return self.started_at
+
 
 class RunDetail(RunSummary):
     """Full run information for detail page.
