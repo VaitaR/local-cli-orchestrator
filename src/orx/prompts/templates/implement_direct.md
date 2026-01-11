@@ -72,36 +72,55 @@ The following errors need to be fixed:
 
 Apply your changes directly to the filesystem. Do not output code blocks - make the actual file changes.
 
-## MANDATORY: Run Linters and Tests
+## SELF-CHECK: Verify Your Changes Work
 
-**CRITICAL**: After making your changes, you MUST:
+**YOU** are responsible for validating your code BEFORE completing this stage. Don't skip this!
 
-1. **Run ruff check and format**:
-   ```bash
-   python -m ruff format .
-   python -m ruff check --fix .
-   python -m ruff check .  # Verify all issues resolved
-   ```
+### Step 1: Format and Lint Your Code
 
-2. **Run tests** (if applicable):
-   ```bash
-   python -m pytest tests/unit -v
-   ```
+Run these commands to catch style issues early:
 
-3. **Fix any failures**: If linters or tests fail, iterate until ALL checks are green.
-   - Read error output carefully
-   - Make targeted fixes
-   - Re-run checks
-   - Repeat until success
+```bash
+python -m ruff format .
+python -m ruff check --fix .
+python -m ruff check .  # Verify ALL issues are resolved
+```
 
-4. **Do NOT complete this stage until**:
-   - `ruff check .` returns no errors
-   - All relevant tests pass
+If ruff finds issues:
+- Common issues: trailing whitespace (W293), unused imports (F401), import ordering (I001)
+- Fix them manually or use ruff --fix
+- Do NOT move to next step until `ruff check .` returns no errors
+
+### Step 2: Run Tests
+
+If your changes affect tested code:
+
+```bash
+python -m pytest tests/unit -v
+```
+
+If tests fail:
+- Read the failure message
+- Make targeted fixes
+- Re-run tests
+- Repeat until all tests pass
+
+### Step 3: Final Verification Before Completion
+
+**CRITICAL**: Before marking this stage complete, verify:
+
+✓ `ruff check .` → No errors  
+✓ No trailing whitespace in any modified files  
+✓ All imports are used and properly ordered  
+✓ All tests pass  
+✓ All acceptance criteria met  
 
 {% if verify_commands is defined and verify_commands %}
-**Pipeline will verify**: {{ verify_commands }}
-Ensure you've already passed these checks yourself before finishing.
+The pipeline will run: {{ verify_commands }}
+Ensure these will pass before completing.
 {% endif %}
+
+**If verification fails, the pipeline will request changes and ask you to fix them.**
 
 ---
 

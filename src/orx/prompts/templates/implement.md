@@ -29,6 +29,21 @@ You are implementing a specific work item from the backlog.
 {{ repo_context }}
 {% endif %}
 
+{% if error_logs is defined and error_logs %}
+## Previous Errors to Fix
+
+The verification or previous implementation revealed these errors:
+
+```
+{{ error_logs }}
+```
+
+Your task is to fix these issues. Pay special attention to:
+- Linting errors (ruff): Fix trailing whitespace, import ordering, unused imports
+- Test failures: Read the error message and fix the code accordingly
+- Runtime errors: Fix the underlying issue
+{% endif %}
+
 {% if verify_commands is defined and verify_commands %}
 ## VERIFY Will Run
 
@@ -99,36 +114,54 @@ Ensure your code passes all these gates.
 
 Apply your changes directly to the filesystem. Do not output code blocks - make the actual file changes.
 
-## MANDATORY: Run Linters and Tests
+## SELF-CHECK: Verify Your Changes Work
 
-**CRITICAL**: After making your changes, you MUST:
+**YOU** are responsible for validating your code BEFORE completing this stage. The pipeline will verify, but you should catch issues first.
 
-1. **Run ruff check and format**:
-   ```bash
-   python -m ruff format .
-   python -m ruff check --fix .
-   python -m ruff check .  # Verify all issues resolved
-   ```
+### Step 1: Format and Lint Your Code
 
-2. **Run tests** (if applicable):
-   ```bash
-   python -m pytest tests/unit -v
-   ```
+Run these commands to catch style issues early:
 
-3. **Fix any failures**: If linters or tests fail, iterate until ALL checks are green.
-   - Read error output carefully
-   - Make targeted fixes
-   - Re-run checks
-   - Repeat until success
+```bash
+python -m ruff format .
+python -m ruff check --fix .
+python -m ruff check .  # Verify ALL issues are resolved
+```
 
-4. **Do NOT complete this stage until**:
-   - `ruff check .` returns no errors
-   - All relevant tests pass
+If ruff finds issues:
+- Read the error message carefully
+- Fix the issues manually or use ruff --fix
+- Do NOT move to next step until `ruff check .` returns no errors
+
+### Step 2: Run Tests
+
+If your changes touch code with tests:
+
+```bash
+python -m pytest tests/unit -v
+```
+
+If tests fail:
+- Analyze the failure output
+- Make targeted fixes
+- Re-run tests
+- Repeat until all tests pass
+
+### Step 3: Final Check Before Completion
+
+**CRITICAL**: Before you finish this stage, verify:
+
+✓ `ruff check .` → No errors  
+✓ `python -m pytest tests/unit -v` → All tests pass (if applicable)  
+✓ All acceptance criteria met  
+✓ No unused imports or whitespace issues  
 
 {% if verify_commands is defined and verify_commands %}
-**Pipeline will verify**: {{ verify_commands }}
-Ensure you've already passed these checks yourself before finishing.
+The pipeline will also run: {{ verify_commands }}
+Ensure you've already verified these locally.
 {% endif %}
+
+**If you skip these checks, the pipeline WILL FAIL and request changes via code review.**
 
 ---
 

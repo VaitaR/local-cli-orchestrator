@@ -60,6 +60,7 @@ class PipelineResult:
     node_metrics: list[NodeMetrics] = field(default_factory=list)
     total_duration_ms: int = 0
     review_changes_requested: bool = False  # True if review asked for changes
+    fix_attempts: int = 0  # Number of times implement was retried after verify failure
 
     def __bool__(self) -> bool:
         """Return success status."""
@@ -245,6 +246,77 @@ class PipelineRunner:
                 node_log.info("Node completed", duration_ms=node_duration_ms)
 
             else:
+                # Handle verify failures: try to retry implement with error feedback
+                if node.id == "verify" and self._should_retry_implement(result, nodes):
+                    node_log.info(
+                        "Verify gate failed - attempting to fix via implement retry",
+                        error=node_result.error,
+                        attempt=result.fix_attempts + 1,
+                    )
+
+                    # Find implement node to retry
+                    implement_node = next(
+                        (n for n in nodes if n.id in ("implement", "implement_direct")),
+                        None,
+                    )
+
+                    if implement_node:
+                        result.fix_attempts += 1
+
+                        # Add error feedback to context for implement
+                        error_context = {
+                            "error_logs": node_result.error or "Verification failed",
+                            "fix_attempt": result.fix_attempts,
+                        }
+                        self.store.set("verify_errors", error_context, source_node="verify")
+
+                        # Rebuild context with error feedback
+                        context = self.context_builder.build_for_node(implement_node)
+
+                        # Get executor and retry implement
+                        executor = self._get_executor_for_node(implement_node)
+                        exec_ctx = ExecutionContext(
+                            config=self.config,
+                            paths=self.paths,
+                            store=self.store,
+                            workspace=self.workspace,
+                            executor=executor,
+                            gates=self.gates,
+                            renderer=self.renderer,
+                            timeout_seconds=implement_node.config.timeout_seconds or DEFAULT_NODE_TIMEOUT,
+                        )
+
+                        try:
+                            node_result = self._execute_node(implement_node, context, exec_ctx)
+
+                            # If implement succeeds, reset completed nodes to after implement and continue
+                            if node_result.success:
+                                result.completed_nodes = [
+                                    n for n in result.completed_nodes
+                                    if nodes[0].id != "implement" or nodes[0].id != "implement_direct"
+                                ]
+                                result.completed_nodes.append(implement_node.id)
+
+                                # Store outputs
+                                for key, value in node_result.outputs.items():
+                                    self.store.set(key, value, source_node=implement_node.id)
+
+                                node_log.info(
+                                    "Implement retry successful - continuing pipeline",
+                                    fix_attempt=result.fix_attempts,
+                                )
+                                # Continue to next node (verify again)
+                                continue
+                            else:
+                                node_log.error(
+                                    "Implement retry failed",
+                                    error=node_result.error,
+                                    fix_attempt=result.fix_attempts,
+                                )
+                        except Exception as e:
+                            node_log.error("Implement retry error", error=str(e))
+
+                # Standard failure handling
                 result.success = False
                 result.failed_node = node.id
                 result.error = node_result.error
@@ -427,6 +499,28 @@ class PipelineRunner:
             tokens=tokens,
             gates=gates,
         )
+
+    def _should_retry_implement(
+        self,
+        result: PipelineResult,
+        nodes: list[NodeDefinition],
+    ) -> bool:
+        """Check if we should retry implement after verify failure.
+
+        Args:
+            result: Current pipeline result.
+            nodes: All nodes in pipeline.
+
+        Returns:
+            True if we should retry implement, False otherwise.
+        """
+        # Only retry if:
+        # 1. We have an implement node
+        # 2. We haven't exceeded max fix attempts
+        has_implement = any(n.id in ("implement", "implement_direct") for n in nodes)
+        max_attempts = self.config.run.max_fix_attempts
+
+        return has_implement and result.fix_attempts < max_attempts
 
     @classmethod
     def from_config(
