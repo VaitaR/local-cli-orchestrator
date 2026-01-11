@@ -174,7 +174,13 @@ def _build_metrics_context(
         has_model_key = "model" in stage_metric
         has_executor_key = "executor" in stage_metric
 
-        # Use fallback model when both keys are missing from stage metric
+        # Use run-level fallback model when both 'model' and 'executor' keys are
+        # missing from the stage metric. NOTE: be careful — blindly backfilling
+        # here will show a model badge for stages that never used an LLM
+        # (e.g., verify/ship). Prefer applying the fallback only when there is
+        # evidence the stage made LLM calls (tokens present, llm_duration_ms > 0,
+        # or tool_calls present). For now we keep the fallback here, but consider
+        # gating it on token/llm usage to avoid misrepresenting non-LLM stages.
         if not has_model_key and not has_executor_key and fallback_model:
             model = fallback_model
         # If both keys exist but are None/empty, respect explicit None (don't use fallback)
