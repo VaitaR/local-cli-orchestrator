@@ -177,7 +177,7 @@ def test_happy_path(
     # Check events timeline exists
     assert runner.paths.events_jsonl.exists()
     events = runner.paths.events_jsonl.read_text().splitlines()
-    assert any('"event": "run_start"' in line for line in events)
+    assert any('"event_type": "run.start"' in line for line in events)
 
     # Check metrics include implement attempts (regression for nested stage timer bug)
     metrics_writer = MetricsWriter(runner.paths)

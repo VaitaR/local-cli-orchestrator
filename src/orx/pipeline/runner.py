@@ -15,6 +15,7 @@ from orx.gates.base import Gate
 from orx.infra.command import CommandRunner
 from orx.metrics.schema import GateMetrics, StageMetrics, StageStatus, TokenUsage
 from orx.metrics.writer import MetricsWriter
+from orx.observability.runtime import RunObservability
 from orx.paths import RunPaths
 from orx.pipeline.artifacts import ArtifactStore
 from orx.pipeline.constants import DEFAULT_NODE_TIMEOUT
@@ -32,7 +33,7 @@ from orx.state import Stage, StateManager
 from orx.workspace.git_worktree import WorkspaceGitWorktree
 
 if TYPE_CHECKING:
-    from orx.config import OrxConfig
+    from orx.config import ModelSelector, OrxConfig
 
 logger = structlog.get_logger()
 
@@ -86,6 +87,8 @@ class PipelineRunner:
         state: StateManager | None = None,
         router: ModelRouter | None = None,
         metrics_writer: MetricsWriter | None = None,
+        observability: RunObservability | None = None,
+        cmd: CommandRunner | None = None,
     ) -> None:
         """Initialize pipeline runner.
 
@@ -99,6 +102,8 @@ class PipelineRunner:
             state: Run state for persistence.
             router: Model router for stage-specific models.
             metrics_writer: Optional metrics writer for stage metrics.
+            observability: Optional run observability runtime.
+            cmd: Shared command runner for command context propagation.
         """
         self.config = config
         self.paths = paths
@@ -109,6 +114,8 @@ class PipelineRunner:
         self.state = state
         self.router = router
         self.metrics_writer = metrics_writer
+        self.observability = observability
+        self.cmd = cmd or CommandRunner(dry_run=False)
 
         # Initialize artifact store
         self.store = ArtifactStore(paths)
@@ -172,13 +179,21 @@ class PipelineRunner:
             node_log.info("Executing node")
 
             node_start_perf = time.perf_counter()
-            node_start_ts = datetime.now(UTC)  # Wall-clock time for metrics
+            node_start_ts = datetime.now(UTC)  # Wall-clock timestamp for metrics
 
             # Build context for this node
             context = self.context_builder.build_for_node(node)
 
-            # Get executor for this node's stage
-            executor = self._get_executor_for_node(node)
+            # Get executor and model selector for this node's stage
+            executor, model_selector = self._get_executor_for_node(node)
+            node_started = time.perf_counter()
+            if self.observability:
+                self.observability.stage_start(
+                    stage=node.id,
+                    attempt=1,
+                    executor=executor.name,
+                    model=model_selector.model if model_selector else None,
+                )
 
             # Build execution context
             exec_ctx = ExecutionContext(
@@ -190,11 +205,14 @@ class PipelineRunner:
                 gates=self.gates,
                 renderer=self.renderer,
                 timeout_seconds=node.config.timeout_seconds or DEFAULT_NODE_TIMEOUT,
+                model_selector=model_selector,
+                observability=self.observability,
             )
 
             # Execute node
             try:
-                node_result = self._execute_node(node, context, exec_ctx)
+                with self.cmd.command_context(stage=node.id):
+                    node_result = self._execute_node(node, context, exec_ctx)
             except Exception as e:
                 node_log.error("Node execution error", error=str(e))
                 node_result = NodeResult(success=False, error=str(e))
@@ -212,14 +230,19 @@ class PipelineRunner:
                 extra=node_result.metrics,
             )
             result.node_metrics.append(metrics)
-
-            # Write stage metrics if writer available
             if self.metrics_writer:
                 try:
                     stage_metrics = self._convert_node_metrics(metrics, node_start_ts)
                     self.metrics_writer.write_stage(stage_metrics)
                 except Exception as e:
                     node_log.warning("Failed to write stage metrics", error=str(e))
+            if self.observability:
+                self.observability.stage_end(
+                    stage=node.id,
+                    status="success" if node_result.success else "failure",
+                    message=node_result.error,
+                    duration_ms=int((time.perf_counter() - node_started) * 1000),
+                )
 
             if node_result.success:
                 result.completed_nodes.append(node.id)
@@ -280,7 +303,17 @@ class PipelineRunner:
                         context = self.context_builder.build_for_node(implement_node)
 
                         # Get executor and retry implement
-                        executor = self._get_executor_for_node(implement_node)
+                        executor, model_selector = self._get_executor_for_node(
+                            implement_node
+                        )
+                        retry_started = time.perf_counter()
+                        if self.observability:
+                            self.observability.stage_start(
+                                stage=implement_node.id,
+                                attempt=result.fix_attempts + 1,
+                                executor=executor.name,
+                                model=model_selector.model if model_selector else None,
+                            )
                         exec_ctx = ExecutionContext(
                             config=self.config,
                             paths=self.paths,
@@ -291,12 +324,29 @@ class PipelineRunner:
                             renderer=self.renderer,
                             timeout_seconds=implement_node.config.timeout_seconds
                             or DEFAULT_NODE_TIMEOUT,
+                            model_selector=model_selector,
+                            observability=self.observability,
                         )
 
                         try:
-                            node_result = self._execute_node(
-                                implement_node, context, exec_ctx
-                            )
+                            with self.cmd.command_context(
+                                stage=implement_node.id,
+                                attempt=str(result.fix_attempts + 1),
+                            ):
+                                node_result = self._execute_node(
+                                    implement_node, context, exec_ctx
+                                )
+                            if self.observability:
+                                self.observability.stage_end(
+                                    stage=implement_node.id,
+                                    status="success"
+                                    if node_result.success
+                                    else "failure",
+                                    message=node_result.error,
+                                    duration_ms=int(
+                                        (time.perf_counter() - retry_started) * 1000
+                                    ),
+                                )
 
                             # If implement succeeds, we need to re-run verify on the new changes
                             if node_result.success:
@@ -330,6 +380,15 @@ class PipelineRunner:
                                 )
                         except Exception as e:
                             node_log.error("Implement retry error", error=str(e))
+                            if self.observability:
+                                self.observability.stage_end(
+                                    stage=implement_node.id,
+                                    status="failure",
+                                    message=str(e),
+                                    duration_ms=int(
+                                        (time.perf_counter() - retry_started) * 1000
+                                    ),
+                                )
 
                 # Standard failure handling
                 result.success = False
@@ -377,7 +436,9 @@ class PipelineRunner:
 
         return executor.execute(node, context, exec_ctx)
 
-    def _get_executor_for_node(self, node: NodeDefinition) -> Executor:
+    def _get_executor_for_node(
+        self, node: NodeDefinition
+    ) -> tuple[Executor, ModelSelector | None]:
         """Get the appropriate LLM executor for a node.
 
         Uses model router if available and node has stage mapping.
@@ -389,15 +450,67 @@ class PipelineRunner:
             LLM executor.
         """
         if not self.router:
-            return self.executor
+            return self.executor, None
 
         # Map node to stage name for routing
         stage = self._map_node_to_stage(node.id)
         if not stage:
-            return self.executor
+            return self.executor, None
 
-        executor, _selector = self.router.get_executor_for_stage(stage.value)
-        return executor
+        executor, selector = self.router.get_executor_for_stage(stage.value)
+        return executor, selector
+
+    def _convert_node_metrics(
+        self,
+        node_metrics: NodeMetrics,
+        start_ts: datetime,
+    ) -> StageMetrics:
+        """Convert NodeMetrics to StageMetrics schema."""
+        log = logger.bind(node_id=node_metrics.node_id)
+        log.debug("Converting node metrics", duration_ms=node_metrics.duration_ms)
+
+        stage = node_metrics.node_id
+        status = StageStatus.SUCCESS if node_metrics.success else StageStatus.FAIL
+
+        gates: list[GateMetrics] = []
+        if "gates" in node_metrics.extra:
+            gates_data = node_metrics.extra.get("gates", [])
+            if isinstance(gates_data, list):
+                for gate_data in gates_data:
+                    if isinstance(gate_data, dict):
+                        try:
+                            gates.append(GateMetrics(**gate_data))
+                        except Exception as e:
+                            log.error(
+                                "Failed to parse gate metrics",
+                                gate_data=gate_data,
+                                error=str(e),
+                            )
+
+        tokens: TokenUsage | None = None
+        if "tokens" in node_metrics.extra:
+            token_data = node_metrics.extra["tokens"]
+            if isinstance(token_data, dict):
+                try:
+                    tokens = TokenUsage(**token_data)
+                except Exception as e:
+                    log.error(
+                        "Failed to parse token usage",
+                        token_data=token_data,
+                        error=str(e),
+                    )
+
+        return StageMetrics(
+            run_id=self.paths.run_id,
+            stage=stage,
+            start_ts=start_ts.isoformat(),
+            end_ts=(start_ts.replace(microsecond=0)).isoformat(),
+            duration_ms=node_metrics.duration_ms,
+            status=status,
+            failure_message=node_metrics.error,
+            tokens=tokens,
+            gates=gates,
+        )
 
     def _map_node_to_stage(self, node_id: str) -> Stage | None:
         """Map node ID to stage name.
@@ -420,100 +533,6 @@ class PipelineRunner:
             "knowledge_update": Stage.KNOWLEDGE_UPDATE,
         }
         return mapping.get(node_id)
-
-    def _convert_node_metrics(
-        self,
-        node_metrics: NodeMetrics,
-        start_ts: datetime,
-    ) -> StageMetrics:
-        """Convert NodeMetrics to StageMetrics schema.
-
-        Handles missing or malformed optional fields gracefully:
-        - Missing token data: logged as warning, defaults to None
-        - Malformed token data: logged as error, defaults to None
-        - Missing gate data: logged as warning, defaults to empty list
-        - Malformed gate data: logged as error, skipped (doesn't crash)
-
-        Args:
-            node_metrics: Node execution metrics.
-            start_ts: Start timestamp for the node.
-
-        Returns:
-            StageMetrics instance.
-        """
-        log = logger.bind(node_id=node_metrics.node_id)
-        log.debug("Converting node metrics", duration_ms=node_metrics.duration_ms)
-
-        # Map node_id to stage name
-        stage = node_metrics.node_id
-
-        # Map success to status
-        status = StageStatus.SUCCESS if node_metrics.success else StageStatus.FAIL
-
-        # Extract gates from extra with error handling
-        gates: list[GateMetrics] = []
-        if "gates" in node_metrics.extra:
-            gates_data = node_metrics.extra.get("gates", [])
-            if not isinstance(gates_data, list):
-                log.warning(
-                    "Gates field is not a list", gates_type=type(gates_data).__name__
-                )
-            else:
-                for gate_data in gates_data:
-                    if isinstance(gate_data, dict):
-                        try:
-                            gates.append(GateMetrics(**gate_data))
-                        except Exception as e:
-                            log.error(
-                                "Failed to parse gate metrics",
-                                gate_data=gate_data,
-                                error=str(e),
-                            )
-                    else:
-                        log.warning(
-                            "Gate item is not a dict",
-                            gate_type=type(gate_data).__name__,
-                        )
-
-        # Extract tokens from extra with error handling
-        tokens: TokenUsage | None = None
-        if "tokens" in node_metrics.extra:
-            token_data = node_metrics.extra["tokens"]
-            if token_data is None:
-                log.debug("Tokens field is None")
-            elif not isinstance(token_data, dict):
-                log.warning(
-                    "Tokens field is not a dict", tokens_type=type(token_data).__name__
-                )
-            else:
-                try:
-                    tokens = TokenUsage(**token_data)
-                    log.debug("Parsed token usage", tokens_total=tokens.total)
-                except Exception as e:
-                    log.error(
-                        "Failed to parse token usage",
-                        token_data=token_data,
-                        error=str(e),
-                    )
-
-        log.debug(
-            "Metrics conversion complete",
-            status=status.value,
-            gate_count=len(gates),
-            has_tokens=tokens is not None,
-        )
-
-        return StageMetrics(
-            run_id=self.paths.run_id,
-            stage=stage,
-            start_ts=start_ts.isoformat(),
-            end_ts=(start_ts.replace(microsecond=0)).isoformat(),
-            duration_ms=node_metrics.duration_ms,
-            status=status,
-            failure_message=node_metrics.error,
-            tokens=tokens,
-            gates=gates,
-        )
 
     def _should_retry_implement(
         self,
@@ -546,6 +565,8 @@ class PipelineRunner:
         gates: list[Gate],
         state: StateManager | None = None,
         metrics_writer: MetricsWriter | None = None,
+        observability: RunObservability | None = None,
+        cmd: CommandRunner | None = None,
     ) -> PipelineRunner:
         """Create a pipeline runner from configuration.
 
@@ -556,6 +577,8 @@ class PipelineRunner:
             gates: Quality gates.
             state: Run state.
             metrics_writer: Optional metrics writer for stage metrics.
+            observability: Optional run observability runtime.
+            cmd: Shared command runner.
 
         Returns:
             Configured PipelineRunner.
@@ -563,13 +586,13 @@ class PipelineRunner:
         from orx.prompts.renderer import PromptRenderer
 
         # Create router and get default executor
-        cmd = CommandRunner()
+        shared_cmd = cmd or CommandRunner()
         router = ModelRouter(
             engine=config.engine,
             executors=config.executors,
             stages=config.stages,
             fallback=config.fallback,
-            cmd=cmd,
+            cmd=shared_cmd,
             dry_run=False,
         )
         executor = router.get_primary_executor()
@@ -587,6 +610,8 @@ class PipelineRunner:
             state=state,
             router=router,
             metrics_writer=metrics_writer,
+            observability=observability,
+            cmd=shared_cmd,
         )
 
 

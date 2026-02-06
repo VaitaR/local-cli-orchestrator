@@ -52,6 +52,46 @@
             onclick="setActiveTab(this)">
         📈 Metrics
     </button>
+    <button class="tab"
+            data-tab="timeline"
+            hx-get="/partials/run-tab/{{ run.run_id }}?tab=timeline"
+            hx-target="#tab-content"
+            hx-swap="innerHTML"
+            onclick="setActiveTab(this)">
+        🧭 Timeline
+    </button>
+    <button class="tab"
+            data-tab="llm"
+            hx-get="/partials/run-tab/{{ run.run_id }}?tab=llm"
+            hx-target="#tab-content"
+            hx-swap="innerHTML"
+            onclick="setActiveTab(this)">
+        🧠 LLM
+    </button>
+    <button class="tab"
+            data-tab="proc"
+            hx-get="/partials/run-tab/{{ run.run_id }}?tab=proc"
+            hx-target="#tab-content"
+            hx-swap="innerHTML"
+            onclick="setActiveTab(this)">
+        ⚙️ Proc
+    </button>
+    <button class="tab"
+            data-tab="fs"
+            hx-get="/partials/run-tab/{{ run.run_id }}?tab=fs"
+            hx-target="#tab-content"
+            hx-swap="innerHTML"
+            onclick="setActiveTab(this)">
+        🗂️ FS
+    </button>
+    <button class="tab"
+            data-tab="tty"
+            hx-get="/partials/run-tab/{{ run.run_id }}?tab=tty"
+            hx-target="#tab-content"
+            hx-swap="innerHTML"
+            onclick="setActiveTab(this)">
+        🖥️ TTY
+    </button>
 </div>
 
 <!-- Tab Content -->

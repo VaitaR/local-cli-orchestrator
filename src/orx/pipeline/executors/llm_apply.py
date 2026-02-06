@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -69,13 +70,38 @@ class LLMApplyNodeExecutor:
             # Get timeout
             timeout = node.config.timeout_seconds or exec_ctx.timeout_seconds
 
+            corr_ids = None
+            started = time.perf_counter()
+            if exec_ctx.observability:
+                corr_ids = exec_ctx.observability.llm_request(
+                    stage=node.id,
+                    prompt_path=prompt_path,
+                    item_id=item_id,
+                    attempt=iteration,
+                    model=exec_ctx.model_selector.model
+                    if exec_ctx.model_selector
+                    else None,
+                )
+
             # Call LLM
             result = exec_ctx.executor.run_apply(
                 cwd=exec_ctx.workspace.worktree_path,
                 prompt_path=prompt_path,
                 logs=logs,
                 timeout=timeout,
+                model_selector=exec_ctx.model_selector,
             )
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            if exec_ctx.observability:
+                exec_ctx.observability.llm_response(
+                    stage=node.id,
+                    result=result,
+                    out_path=None,
+                    item_id=item_id,
+                    attempt=iteration,
+                    correlation_ids=corr_ids,
+                    duration_ms=duration_ms,
+                )
 
             if result.failed:
                 log.error("LLM apply failed", error=result.error_message)
@@ -95,6 +121,13 @@ class LLMApplyNodeExecutor:
             patch_diff = ""
             if exec_ctx.paths.patch_diff.exists():
                 patch_diff = exec_ctx.paths.patch_diff.read_text()
+                if exec_ctx.observability:
+                    exec_ctx.observability.fs_patch(
+                        stage=node.id,
+                        patch_path=exec_ctx.paths.patch_diff,
+                        item_id=item_id,
+                        attempt=int(iteration),
+                    )
 
             # Build outputs
             outputs: dict[str, Any] = {}

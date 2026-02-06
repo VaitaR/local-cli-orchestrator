@@ -18,6 +18,12 @@ from orx.dashboard.store.models import (
     RunStatus,
     RunSummary,
 )
+from orx.observability.projector import (
+    ProjectedRun,
+    load_events,
+    project_run,
+    project_timeline,
+)
 
 if TYPE_CHECKING:
     from orx.dashboard.config import DashboardConfig
@@ -35,12 +41,12 @@ class FileSystemRunStore:
             ├── context/
             ├── artifacts/
             ├── logs/
-            └── metrics/
+            └── observability/
     """
 
     # Default allowed extensions for safety
     DEFAULT_ALLOWED_EXTENSIONS: frozenset[str] = frozenset(
-        {".md", ".json", ".yaml", ".yml", ".txt", ".log", ".diff"}
+        {".md", ".json", ".yaml", ".yml", ".txt", ".log", ".diff", ".cast"}
     )
 
     def __init__(
@@ -125,6 +131,22 @@ class FileSystemRunStore:
             self._log.warning("Failed to read JSON", path=str(path), error=str(e))
         return None
 
+    def _events_path(self, run_dir: Path) -> Path:
+        """Return canonical observability events path for a run directory."""
+        return run_dir / "observability" / "events.jsonl"
+
+    def _load_projected_run(
+        self, run_dir: Path
+    ) -> tuple[list[dict[str, Any]], ProjectedRun | None]:
+        """Load raw events and projected run summary from observability timeline."""
+        events_path = self._events_path(run_dir)
+        if not events_path.exists():
+            return [], None
+        events = load_events(events_path)
+        if not events:
+            return [], None
+        return events, project_run(events)
+
     def _load_run_summary(self, run_id: str) -> RunSummary | None:
         """Load a run summary from filesystem.
 
@@ -138,16 +160,12 @@ class FileSystemRunStore:
         if not run_dir.is_dir():
             return None
 
-        # Read meta.json (immutable metadata)
         meta = self._read_json(run_dir / "meta.json") or {}
-
-        # Read state.json (current state)
         state = self._read_json(run_dir / "state.json") or {}
+        events, projected = self._load_projected_run(run_dir)
 
         current_stage = state.get("current_stage")
-        stage_statuses = state.get("stage_statuses", {})
         pid = state.get("pid")
-
         pid_alive: bool | None = None
         if isinstance(pid, int) and pid > 0:
             try:
@@ -156,83 +174,74 @@ class FileSystemRunStore:
             except ProcessLookupError:
                 pid_alive = False
             except PermissionError:
-                # If we cannot query, treat as unknown rather than running.
                 pid_alive = None
 
-        # Parse timestamps (used for elapsed + staleness heuristics)
-        created_at = None
-        updated_at = None
-        try:
-            if "created_at" in state:
-                created_at = datetime.fromisoformat(state["created_at"])
-            elif "created_at" in meta:
-                created_at = datetime.fromisoformat(meta["created_at"])
-            if "updated_at" in state:
-                updated_at = datetime.fromisoformat(state["updated_at"])
-        except (ValueError, TypeError):
-            pass
+        created_at: datetime | None = None
+        updated_at: datetime | None = None
+        fail_category: str | None = None
 
-        # Check for failure from stage_statuses
-        fail_category = None
-        for status_info in stage_statuses.values():
-            if status_info.get("status") == "failed":
-                fail_category = status_info.get("error", "unknown")
-                break
-
-        # Check events.jsonl for run_end event (authoritative for final status)
-        events_final_status: str | None = None
-        events_error: str | None = None
-        events_path = run_dir / "events.jsonl"
-        if events_path.exists():
+        if projected and projected.start_ts:
             try:
-                for line in events_path.read_text().strip().split("\n"):
-                    if not line:
-                        continue
-                    event = json.loads(line)
-                    if event.get("event") == "run_end":
-                        events_final_status = event.get("status")
-                        events_error = event.get("error")
+                created_at = datetime.fromisoformat(projected.start_ts)
+            except ValueError:
+                created_at = None
+        if projected and projected.end_ts:
+            try:
+                updated_at = datetime.fromisoformat(projected.end_ts)
+            except ValueError:
+                updated_at = None
+
+        if created_at is None:
+            for value in (state.get("created_at"), meta.get("created_at")):
+                if isinstance(value, str):
+                    try:
+                        created_at = datetime.fromisoformat(value)
                         break
-            except (OSError, json.JSONDecodeError):
-                pass
+                    except ValueError:
+                        continue
+        if updated_at is None and isinstance(state.get("updated_at"), str):
+            try:
+                updated_at = datetime.fromisoformat(cast(str, state["updated_at"]))
+            except ValueError:
+                updated_at = None
 
-        # Map to RunStatus
-        if current_stage == "done" or events_final_status == "success":
-            status = RunStatus.SUCCESS
-        elif (
-            current_stage == "failed"
-            or fail_category
-            or events_final_status == "failure"
-        ):
-            status = RunStatus.FAIL
-            if not fail_category and events_error:
-                fail_category = events_error
-        elif current_stage:
-            if pid_alive is False:
+        run_end_error: str | None = None
+        for event in reversed(events):
+            if event.get("event_type") != "run.end":
+                continue
+            payload = event.get("payload")
+            if isinstance(payload, dict):
+                err = payload.get("error")
+                if isinstance(err, str) and err.strip():
+                    run_end_error = err.strip()
+            break
+
+        if projected:
+            current_stage = projected.current_stage or current_stage
+            if projected.status in {"success", "completed"}:
+                status = RunStatus.SUCCESS
+            elif projected.status in {"failure", "failed", "fail"} or any(
+                str(stage.get("status") or "") in {"failure", "failed", "fail"}
+                for stage in projected.stages
+            ):
                 status = RunStatus.FAIL
-                fail_category = fail_category or "process_exited"
-            else:
+            elif projected.end_ts is None:
                 status = RunStatus.RUNNING
-        else:
-            status = RunStatus.UNKNOWN
-
-        # If pid is missing, treat very old "running" states as stale.
-        if (
-            status == RunStatus.RUNNING
-            and pid_alive is None
-            and updated_at is not None
-            and self.config is not None
-        ):
-            now = datetime.now(tz=UTC)
-            if updated_at.tzinfo is None:
-                updated_at = updated_at.replace(tzinfo=UTC)
-            age_seconds = (now - updated_at).total_seconds()
-            if age_seconds > self.config.stale_run_without_pid_seconds:
+            else:
                 status = RunStatus.UNKNOWN
-                fail_category = fail_category or "stale_no_pid"
+        else:
+            status = RunStatus.from_state(
+                state_status=cast(str | None, state.get("status")),
+                stage=current_stage if isinstance(current_stage, str) else None,
+            )
+            if status == RunStatus.RUNNING and pid_alive is False:
+                status = RunStatus.FAIL
+                fail_category = "process_exited"
 
-        # Calculate elapsed time
-        elapsed_ms = None
+        if run_end_error:
+            fail_category = run_end_error
+
+        elapsed_ms: int | None = None
         if created_at:
             end_time = updated_at or datetime.now(tz=UTC)
             if created_at.tzinfo is None:
@@ -376,21 +385,26 @@ class FileSystemRunStore:
         # Read additional detail from state.json
         state = self._read_json(run_dir / "state.json") or {}
         meta = self._read_json(run_dir / "meta.json") or {}
+        events, projected = self._load_projected_run(run_dir)
 
-        # Get stage statuses
-        stage_statuses = {}
-        for key, val in state.get("stage_statuses", {}).items():
-            stage_statuses[key] = val.get("status", "unknown")
+        # Get stage statuses from observability projection only
+        stage_statuses: dict[str, str] = {}
+        if projected:
+            for stage in projected.stages:
+                stage_name = str(stage.get("stage") or "unknown")
+                stage_statuses[stage_name] = str(stage.get("status") or "unknown")
 
         # Build last error info
         last_error = None
         evidence = state.get("last_failure_evidence", {})
         if (evidence or summary.fail_category) and not summary.is_active:
-            message = self._summarize_failure(evidence, summary.fail_category)
+            message = self._summarize_failure(
+                cast(dict[str, Any], evidence), summary.fail_category
+            )
             last_error = LastError(
                 category=summary.fail_category,
                 message=message,
-                evidence_paths=list(evidence.keys()),
+                evidence_paths=list(evidence.keys()) if isinstance(evidence, dict) else [],
             )
 
         # List artifacts
@@ -400,11 +414,9 @@ class FileSystemRunStore:
         # List logs
         logs = self.list_logs(run_id)
 
-        # Check for diff and metrics
+        # Check for diff and observability
         has_diff = (run_dir / "artifacts" / "patch.diff").exists()
-        has_metrics = (run_dir / "metrics" / "run.json").exists() or (
-            run_dir / "metrics" / "stages.jsonl"
-        ).exists()
+        has_metrics = self._events_path(run_dir).exists()
 
         # Load task content
         task_content = None
@@ -415,36 +427,23 @@ class FileSystemRunStore:
             with contextlib.suppress(OSError):
                 task_content = task_path.read_text()
 
-        metrics_summary = None
-        if has_metrics:
-            metrics_summary = self._read_json(run_dir / "metrics" / "run.json")
-            if metrics_summary is None:
-                # Fallback: synthesize partial metrics from stages.jsonl
-                stage_metrics = self.get_stage_metrics(run_id)
-                if stage_metrics:
-                    total_duration = sum(m.get("duration_ms", 0) for m in stage_metrics)
-                    total_tokens = {
-                        "input": sum(
-                            m.get("tokens", {}).get("input", 0)
-                            for m in stage_metrics
-                            if m.get("tokens")
-                        ),
-                        "output": sum(
-                            m.get("tokens", {}).get("output", 0)
-                            for m in stage_metrics
-                            if m.get("tokens")
-                        ),
-                        "total": sum(
-                            m.get("tokens", {}).get("total", 0)
-                            for m in stage_metrics
-                            if m.get("tokens")
-                        ),
-                    }
-                    metrics_summary = {
-                        "total_duration_ms": total_duration,
-                        "tokens": total_tokens if total_tokens["total"] > 0 else None,
-                        "stages_executed": len(stage_metrics),
-                    }
+        metrics_summary: dict[str, Any] | None = None
+        if projected:
+            metrics_summary = {
+                "status": projected.status,
+                "total_duration_ms": projected.duration_ms,
+                "tokens": projected.tokens,
+                "stages_executed": len(projected.stages),
+                "stages": projected.stages,
+            }
+        elif events:
+            metrics_summary = {
+                "status": summary.status.value,
+                "total_duration_ms": summary.elapsed_ms,
+                "tokens": {"input": 0, "output": 0, "total": 0, "tool_calls": 0},
+                "stages_executed": 0,
+                "stages": [],
+            }
 
         return RunDetail(
             **summary.model_dump(),
@@ -476,12 +475,12 @@ class FileSystemRunStore:
         artifacts: list[ArtifactInfo] = []
 
         # Scan allowed directories
-        for subdir_name in ("context", "artifacts", "prompts"):
+        for subdir_name in ("context", "artifacts", "prompts", "observability"):
             subdir = run_dir / subdir_name
             if not subdir.is_dir():
                 continue
 
-            for file_path in subdir.iterdir():
+            for file_path in subdir.rglob("*"):
                 if not file_path.is_file():
                     continue
 
@@ -489,7 +488,7 @@ class FileSystemRunStore:
                 if ext not in self._allowed_extensions:
                     continue
 
-                relative = f"{subdir_name}/{file_path.name}"
+                relative = str(file_path.relative_to(run_dir))
 
                 try:
                     size = file_path.stat().st_size
@@ -621,39 +620,59 @@ class FileSystemRunStore:
             return None
 
     def get_run_metrics(self, run_id: str) -> dict[str, Any] | None:
-        """Get aggregated run metrics.
-
-        Args:
-            run_id: Run identifier.
-
-        Returns:
-            Run metrics dict or None.
-        """
-        return self._read_json(self._runs_dir / run_id / "metrics" / "run.json")
+        """Project run metrics from observability events."""
+        run_dir = self._runs_dir / run_id
+        _events, projected = self._load_projected_run(run_dir)
+        if projected is None:
+            return None
+        return {
+            "status": projected.status,
+            "total_duration_ms": projected.duration_ms,
+            "tokens": projected.tokens,
+            "stages_executed": len(projected.stages),
+            "stages": projected.stages,
+        }
 
     def get_stage_metrics(self, run_id: str) -> list[dict[str, Any]]:
-        """Get per-stage metrics.
-
-        Args:
-            run_id: Run identifier.
-
-        Returns:
-            List of stage metric records.
-        """
-        stages_path = self._runs_dir / run_id / "metrics" / "stages.jsonl"
-        if not stages_path.exists():
+        """Project per-stage metrics from observability events."""
+        run_dir = self._runs_dir / run_id
+        _events, projected = self._load_projected_run(run_dir)
+        if projected is None:
             return []
 
-        metrics: list[dict[str, Any]] = []
-        try:
-            for line in stages_path.read_text().splitlines():
-                if line.strip():
-                    data = json.loads(line)
-                    if isinstance(data, dict):
-                        metrics.append(cast(dict[str, Any], data))
-        except (json.JSONDecodeError, OSError) as e:
-            self._log.warning(
-                "Failed to read stage metrics", run_id=run_id, error=str(e)
+        output: list[dict[str, Any]] = []
+        for stage in projected.stages:
+            tokens = stage.get("tokens") if isinstance(stage.get("tokens"), dict) else {}
+            output.append(
+                {
+                    "stage": stage.get("stage"),
+                    "item_id": stage.get("item_id"),
+                    "attempt": stage.get("attempt"),
+                    "start_ts": stage.get("start_ts"),
+                    "end_ts": stage.get("end_ts"),
+                    "duration_ms": stage.get("duration_ms"),
+                    "status": stage.get("status"),
+                    "failure_message": stage.get("error"),
+                    "executor": stage.get("executor"),
+                    "model": stage.get("model"),
+                    "tokens": tokens,
+                    "gates": [],
+                }
             )
+        return output
 
-        return metrics
+    def get_timeline_groups(self, run_id: str) -> dict[str, list[dict[str, Any]]]:
+        """Get grouped observability timeline buckets for a run."""
+        run_dir = self._runs_dir / run_id
+        events_path = self._events_path(run_dir)
+        if not events_path.exists():
+            return {"llm": [], "proc": [], "fs": [], "tty": [], "gate": [], "other": []}
+        return project_timeline(load_events(events_path))
+
+    def get_observability_events(self, run_id: str) -> list[dict[str, Any]]:
+        """Get raw observability events."""
+        run_dir = self._runs_dir / run_id
+        events_path = self._events_path(run_dir)
+        if not events_path.exists():
+            return []
+        return load_events(events_path)

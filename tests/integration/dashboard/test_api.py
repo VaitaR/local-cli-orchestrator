@@ -64,26 +64,125 @@ def runs_root(tmp_path: Path) -> Path:
     logs.mkdir()
     (logs / "run.log").write_text("INFO Starting\nINFO Done\n")
 
-    # Add stage metrics but omit aggregated run.json to exercise handler fallbacks.
-    metrics = run1 / "metrics"
-    metrics.mkdir()
-    (metrics / "stages.jsonl").write_text(
+    observability1 = run1 / "observability"
+    observability1.mkdir()
+    (observability1 / "events.jsonl").write_text(
         "\n".join(
             [
                 json.dumps(
                     {
-                        "stage": "plan",
-                        "duration_ms": 100,
-                        "status": "success",
-                        "tokens": {"input": 2, "output": 3, "total": 5},
+                        "schema_version": "2.0",
+                        "event_id": "e1",
+                        "ts": "2025-01-15T10:00:00+00:00",
+                        "run_id": "test-run-001",
+                        "source": "supervisor",
+                        "event_type": "run.start",
+                        "step_id": 1,
+                        "correlation": {},
+                        "payload": {},
                     }
                 ),
                 json.dumps(
                     {
-                        "stage": "implement",
-                        "duration_ms": 200,
-                        "status": "success",
-                        "tokens": {"input": 1, "output": 4, "total": 5},
+                        "schema_version": "2.0",
+                        "event_id": "e2",
+                        "ts": "2025-01-15T10:00:01+00:00",
+                        "run_id": "test-run-001",
+                        "source": "supervisor",
+                        "event_type": "stage.start",
+                        "step_id": 2,
+                        "correlation": {},
+                        "payload": {"stage": "plan", "attempt": 1},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "schema_version": "2.0",
+                        "event_id": "e3",
+                        "ts": "2025-01-15T10:00:02+00:00",
+                        "run_id": "test-run-001",
+                        "source": "gateway",
+                        "event_type": "llm.response",
+                        "step_id": 3,
+                        "correlation": {},
+                        "payload": {
+                            "stage": "plan",
+                            "attempt": 1,
+                            "tokens": {"input": 2, "output": 3, "total": 5},
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "schema_version": "2.0",
+                        "event_id": "e4",
+                        "ts": "2025-01-15T10:00:03+00:00",
+                        "run_id": "test-run-001",
+                        "source": "supervisor",
+                        "event_type": "stage.end",
+                        "step_id": 4,
+                        "correlation": {},
+                        "payload": {"stage": "plan", "attempt": 1, "status": "success"},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "schema_version": "2.0",
+                        "event_id": "e5",
+                        "ts": "2025-01-15T10:00:04+00:00",
+                        "run_id": "test-run-001",
+                        "source": "supervisor",
+                        "event_type": "stage.start",
+                        "step_id": 5,
+                        "correlation": {},
+                        "payload": {"stage": "implement", "attempt": 1},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "schema_version": "2.0",
+                        "event_id": "e6",
+                        "ts": "2025-01-15T10:00:05+00:00",
+                        "run_id": "test-run-001",
+                        "source": "gateway",
+                        "event_type": "llm.response",
+                        "step_id": 6,
+                        "correlation": {},
+                        "payload": {
+                            "stage": "implement",
+                            "attempt": 1,
+                            "tokens": {"input": 1, "output": 4, "total": 5},
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "schema_version": "2.0",
+                        "event_id": "e7",
+                        "ts": "2025-01-15T10:00:06+00:00",
+                        "run_id": "test-run-001",
+                        "source": "supervisor",
+                        "event_type": "stage.end",
+                        "step_id": 7,
+                        "correlation": {},
+                        "payload": {
+                            "stage": "implement",
+                            "attempt": 1,
+                            "status": "success",
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "schema_version": "2.0",
+                        "event_id": "e8",
+                        "ts": "2025-01-15T10:30:00+00:00",
+                        "run_id": "test-run-001",
+                        "source": "supervisor",
+                        "event_type": "run.end",
+                        "step_id": 8,
+                        "correlation": {},
+                        "payload": {"status": "success"},
                     }
                 ),
             ]
@@ -117,6 +216,41 @@ def runs_root(tmp_path: Path) -> Path:
                 },
             }
         )
+    )
+    observability2 = run2 / "observability"
+    observability2.mkdir()
+    (observability2 / "events.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "schema_version": "2.0",
+                        "event_id": "e1",
+                        "ts": now.isoformat(),
+                        "run_id": "test-run-002",
+                        "source": "supervisor",
+                        "event_type": "run.start",
+                        "step_id": 1,
+                        "correlation": {},
+                        "payload": {},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "schema_version": "2.0",
+                        "event_id": "e2",
+                        "ts": now.isoformat(),
+                        "run_id": "test-run-002",
+                        "source": "supervisor",
+                        "event_type": "stage.start",
+                        "step_id": 2,
+                        "correlation": {},
+                        "payload": {"stage": "implement", "attempt": 1},
+                    }
+                ),
+            ]
+        )
+        + "\n"
     )
     logs2 = run2 / "logs"
     logs2.mkdir()

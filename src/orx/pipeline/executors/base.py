@@ -6,9 +6,10 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
-    from orx.config import OrxConfig
+    from orx.config import ModelSelector, OrxConfig
     from orx.executors.base import Executor
     from orx.gates.base import Gate
+    from orx.observability.runtime import RunObservability
     from orx.paths import RunPaths
     from orx.pipeline.artifacts import ArtifactStore
     from orx.pipeline.definition import NodeDefinition
@@ -63,6 +64,8 @@ class ExecutionContext:
     gates: list[Gate]
     renderer: PromptRenderer
     timeout_seconds: int | None = None
+    model_selector: ModelSelector | None = None
+    observability: RunObservability | None = None
 
 
 class NodeExecutor(Protocol):

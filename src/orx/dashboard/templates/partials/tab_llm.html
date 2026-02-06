@@ -1,0 +1,42 @@
+<div class="tab-content">
+    {% if llm_events %}
+    <section class="card">
+        <div class="card-header"><h3>🧠 LLM Trace</h3></div>
+        <div class="card-body">
+            <table class="metrics-table">
+                <thead>
+                    <tr>
+                        <th>Step</th>
+                        <th>Type</th>
+                        <th>Stage</th>
+                        <th>Model</th>
+                        <th>Tokens/Chars</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for event in llm_events %}
+                    {% set payload = event.payload or {} %}
+                    <tr>
+                        <td>{{ event.step_id }}</td>
+                        <td>{{ event.event_type }}</td>
+                        <td>{{ payload.stage or '-' }}</td>
+                        <td>{{ payload.model or '-' }}</td>
+                        <td>
+                            {% if payload.tokens %}
+                            {{ payload.tokens.total | default(0) }} tokens
+                            {% elif payload.chars %}
+                            {{ payload.chars }} chars
+                            {% else %}
+                            -
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+    {% else %}
+    <div class="empty-state"><p>No LLM events.</p></div>
+    {% endif %}
+</div>

@@ -1,0 +1,32 @@
+<div class="tab-content">
+    {% if tty_events %}
+    <section class="card">
+        <div class="card-header"><h3>🖥️ TTY Segments</h3></div>
+        <div class="card-body">
+            <table class="metrics-table">
+                <thead>
+                    <tr>
+                        <th>Step</th>
+                        <th>Type</th>
+                        <th>Segment</th>
+                        <th>Path</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for event in tty_events %}
+                    {% set payload = event.payload or {} %}
+                    <tr>
+                        <td>{{ event.step_id }}</td>
+                        <td>{{ event.event_type }}</td>
+                        <td>{{ payload.segment or '-' }}</td>
+                        <td><code>{{ payload.path or '-' }}</code></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+    {% else %}
+    <div class="empty-state"><p>No TTY segment events.</p></div>
+    {% endif %}
+</div>

@@ -174,6 +174,10 @@ def _build_metrics_context(
         has_model_key = "model" in stage_metric
         has_executor_key = "executor" in stage_metric
 
+        status = str(stage_metric.get("status", "unknown"))
+        if status in {"failure", "failed"}:
+            status = "fail"
+
         # Use run-level fallback model when both 'model' and 'executor' keys are
         # missing from the stage metric. NOTE: be careful — blindly backfilling
         # here will show a model badge for stages that never used an LLM
@@ -214,7 +218,7 @@ def _build_metrics_context(
                 "item_id": stage_metric.get("item_id"),
                 "attempt": stage_metric.get("attempt", 1),
                 "duration": float(stage_metric.get("duration_ms") or 0) / 1000.0,
-                "status": stage_metric.get("status", "unknown"),
+                "status": status,
                 "tokens": tokens_total,
                 "tokens_in": tokens_in,
                 "tokens_out": tokens_out,
@@ -332,7 +336,10 @@ async def run_header(request: Request, run_id: str) -> Any:
 async def run_tab(
     request: Request,
     run_id: str,
-    tab: str = Query("overview", pattern="^(overview|artifacts|diff|logs|metrics)$"),
+    tab: str = Query(
+        "overview",
+        pattern="^(overview|artifacts|diff|logs|metrics|timeline|llm|proc|fs|tty)$",
+    ),
 ) -> Any:
     """Render a tab content for run detail page."""
     templates = request.app.state.templates
@@ -367,6 +374,20 @@ async def run_tab(
             fallback_duration_ms=run.elapsed_ms or 0,
             fallback_model=run.engine,
         )
+    elif tab in {"timeline", "llm", "proc", "fs", "tty"}:
+        groups = cast(dict[str, list[dict[str, Any]]], store.get_timeline_groups(run_id))
+        if tab == "timeline":
+            context["timeline"] = cast(
+                list[dict[str, Any]], store.get_observability_events(run_id)
+            )
+        elif tab == "llm":
+            context["llm_events"] = groups.get("llm", [])
+        elif tab == "proc":
+            context["proc_events"] = groups.get("proc", [])
+        elif tab == "fs":
+            context["fs_events"] = groups.get("fs", [])
+        elif tab == "tty":
+            context["tty_events"] = groups.get("tty", [])
 
     return templates.TemplateResponse(template_name, context)
 

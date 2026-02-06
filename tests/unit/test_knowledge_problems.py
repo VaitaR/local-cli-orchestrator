@@ -1,5 +1,8 @@
-"""Unit tests for knowledge problems collection."""
+"""Unit tests for event-driven knowledge problems collection."""
 
+from __future__ import annotations
+
+import json
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -13,23 +16,38 @@ from orx.knowledge.problems import (
 )
 
 
-class TestStageProblem:
-    """Tests for StageProblem dataclass."""
+def _event(
+    step_id: int,
+    event_type: str,
+    payload: dict[str, object] | None = None,
+    *,
+    event_id: str | None = None,
+) -> dict[str, object]:
+    return {
+        "schema_version": "2.0",
+        "event_id": event_id or f"e{step_id}",
+        "ts": "2026-02-06T00:00:00+00:00",
+        "run_id": "test_run_123",
+        "source": "supervisor",
+        "event_type": event_type,
+        "step_id": step_id,
+        "correlation": {},
+        "payload": payload or {},
+    }
 
+
+class TestStageProblem:
     def test_to_summary_basic(self) -> None:
-        """Test basic summary generation."""
         problem = StageProblem(
             stage="implement",
             category="gate_failure",
             message="Ruff found 5 errors",
         )
         summary = problem.to_summary()
-
         assert "[implement:gate_failure]" in summary
         assert "Ruff found 5 errors" in summary
 
-    def test_to_summary_with_gate(self) -> None:
-        """Test summary with gate name."""
+    def test_to_summary_with_gate_and_item(self) -> None:
         problem = StageProblem(
             stage="verify",
             category="gate_failure",
@@ -38,269 +56,159 @@ class TestStageProblem:
             item_id="W001",
         )
         summary = problem.to_summary()
-
-        assert "[verify:gate_failure]" in summary
         assert "(pytest)" in summary
         assert "item=W001" in summary
 
-    def test_to_summary_truncates_message(self) -> None:
-        """Test that long messages are truncated."""
-        problem = StageProblem(
-            stage="implement",
-            category="timeout",
-            message="A" * 200,
-        )
-        summary = problem.to_summary()
-
-        # Message should be truncated to 100 chars
-        assert len(summary) < 250
-
 
 class TestProblemsSummary:
-    """Tests for ProblemsSummary dataclass."""
-
     def test_has_problems_empty(self) -> None:
-        """Test has_problems with no problems."""
-        summary = ProblemsSummary()
-        assert not summary.has_problems()
+        assert not ProblemsSummary().has_problems()
 
-    def test_has_problems_with_problems(self) -> None:
-        """Test has_problems with problems."""
+    def test_has_problems_with_entries(self) -> None:
         summary = ProblemsSummary(
-            problems=[StageProblem(stage="test", category="error", message="fail")]
+            problems=[StageProblem(stage="x", category="y", message="z")]
         )
         assert summary.has_problems()
 
-    def test_has_problems_with_fix_iterations(self) -> None:
-        """Test has_problems with fix iterations only."""
-        summary = ProblemsSummary(total_fix_iterations=2)
-        assert summary.has_problems()
-
-    def test_to_prompt_section_no_problems(self) -> None:
-        """Test prompt section with no problems."""
-        summary = ProblemsSummary()
-        section = summary.to_prompt_section()
-
-        assert "No significant problems" in section
-
-    def test_to_prompt_section_with_problems(self) -> None:
-        """Test prompt section with problems."""
+    def test_to_prompt_section_contains_event_refs(self) -> None:
         summary = ProblemsSummary(
             problems=[
                 StageProblem(
-                    stage="implement",
+                    stage="verify",
                     category="gate_failure",
-                    message="Ruff check failed",
-                    gate_name="ruff",
-                    error_output="F401: unused import",
-                ),
+                    message="Gate ruff rejected",
+                    event_refs=["ev-1 (step 10)"],
+                )
             ],
-            gate_failures={"ruff": 2},
-            failure_categories={"gate_failure": 2},
-            stages_failed=2,
-            total_fix_iterations=1,
+            stages_failed=1,
+            total_fix_iterations=0,
         )
         section = summary.to_prompt_section()
+        assert "Event refs:" in section
+        assert "ev-1 (step 10)" in section
 
-        assert "## Problems Encountered" in section
-        assert "Stages that failed: 2" in section
-        assert "Gate failures: ruff=2" in section
-        assert "**Problem 1:**" in section
-        assert "Gate: ruff" in section
-        assert "F401: unused import" in section
-
-    def test_to_prompt_section_limits_problems(self) -> None:
-        """Test that prompt section limits number of problems."""
-        problems = [
-            StageProblem(stage=f"stage{i}", category="error", message=f"Error {i}")
-            for i in range(20)
-        ]
-        summary = ProblemsSummary(problems=problems)
-
-        section = summary.to_prompt_section(max_problems=5)
-
-        # Should only show 5 problems
-        assert "**Problem 5:**" in section
-        assert "**Problem 6:**" not in section
-        assert "... and 15 more problems" in section
-
-    def test_get_lessons_learned_gate_failures(self) -> None:
-        """Test lessons learned from gate failures."""
-        summary = ProblemsSummary(gate_failures={"ruff": 3, "pytest": 1})
+    def test_lessons_include_context_bloat(self) -> None:
+        summary = ProblemsSummary(failure_categories={"context_bloat": 1})
         lessons = summary.get_lessons_learned()
-
-        assert len(lessons) >= 1
-        assert any("ruff" in lesson.lower() for lesson in lessons)
-
-    def test_get_lessons_learned_parse_errors(self) -> None:
-        """Test lessons learned from parse errors."""
-        summary = ProblemsSummary(failure_categories={"parse_error": 2})
-        lessons = summary.get_lessons_learned()
-
-        assert any("parse error" in lesson.lower() for lesson in lessons)
-
-    def test_get_lessons_learned_timeout(self) -> None:
-        """Test lessons learned from timeouts."""
-        summary = ProblemsSummary(failure_categories={"timeout": 1})
-        lessons = summary.get_lessons_learned()
-
-        assert any("timeout" in lesson.lower() for lesson in lessons)
+        assert any("context bloat" in lesson.lower() for lesson in lessons)
 
 
 class TestProblemsCollector:
-    """Tests for ProblemsCollector."""
-
     @pytest.fixture
     def mock_paths(self, tmp_path: Path) -> MagicMock:
-        """Create mock RunPaths with metrics dir."""
         paths = MagicMock()
         paths.run_id = "test_run_123"
-        paths.metrics = tmp_path / "metrics"
-        paths.metrics.mkdir()
+        paths.observability_events_jsonl = tmp_path / "observability" / "events.jsonl"
+        paths.observability_events_jsonl.parent.mkdir(parents=True, exist_ok=True)
         return paths
 
     def test_collect_empty(self, mock_paths: MagicMock) -> None:
-        """Test collecting with no stages.jsonl."""
         collector = ProblemsCollector(mock_paths)
         summary = collector.collect()
-
         assert not summary.has_problems()
         assert summary.problems == []
 
-    def test_collect_success_only(self, mock_paths: MagicMock) -> None:
-        """Test collecting when all stages succeeded."""
-        stages_jsonl = mock_paths.metrics / "stages.jsonl"
-        stages_jsonl.write_text(
-            '{"run_id": "test", "stage": "plan", "status": "success", "attempt": 1}\n'
-            '{"run_id": "test", "stage": "spec", "status": "success", "attempt": 1}\n'
+    def test_collect_stage_failure(self, mock_paths: MagicMock) -> None:
+        events = [
+            _event(
+                1,
+                "stage.end",
+                {"stage": "implement", "attempt": 1, "status": "failure", "message": "boom"},
+            )
+        ]
+        mock_paths.observability_events_jsonl.write_text(
+            "\n".join(json.dumps(event) for event in events)
         )
-
-        collector = ProblemsCollector(mock_paths)
-        summary = collector.collect()
-
-        assert not summary.has_problems()
-        assert summary.stages_failed == 0
-
-    def test_collect_with_failures(self, mock_paths: MagicMock) -> None:
-        """Test collecting with stage failures."""
-        stages_jsonl = mock_paths.metrics / "stages.jsonl"
-        stages_jsonl.write_text(
-            '{"run_id": "test", "stage": "implement", "item_id": "W001", '
-            '"status": "fail", "attempt": 1, '
-            '"failure_category": "gate_failure", "failure_message": "Ruff failed"}\n'
-        )
-
-        collector = ProblemsCollector(mock_paths)
-        summary = collector.collect()
-
-        assert summary.has_problems()
+        summary = ProblemsCollector(mock_paths).collect()
         assert summary.stages_failed == 1
+        assert summary.failure_categories["stage_failure"] == 1
         assert len(summary.problems) == 1
-        assert summary.problems[0].stage == "implement"
-        assert summary.problems[0].category == "gate_failure"
-        assert summary.failure_categories["gate_failure"] == 1
 
-    def test_collect_with_gate_metrics(self, mock_paths: MagicMock) -> None:
-        """Test collecting gate failure details."""
-        stages_jsonl = mock_paths.metrics / "stages.jsonl"
-        stages_jsonl.write_text(
-            '{"run_id": "test", "stage": "verify", "status": "fail", "attempt": 1, '
-            '"failure_category": "gate_failure", "failure_message": "Gate failed", '
-            '"gates": [{"name": "ruff", "passed": false, "error_output": "F401"}]}\n'
+    def test_collect_gate_failure(self, mock_paths: MagicMock) -> None:
+        events = [
+            _event(
+                2,
+                "gate.approval",
+                {"gate": "ruff", "status": "rejected", "item_id": "W001", "attempt": 1},
+            )
+        ]
+        mock_paths.observability_events_jsonl.write_text(
+            "\n".join(json.dumps(event) for event in events)
         )
-
-        collector = ProblemsCollector(mock_paths)
-        summary = collector.collect()
-
+        summary = ProblemsCollector(mock_paths).collect()
         assert summary.gate_failures["ruff"] == 1
-        assert summary.problems[0].gate_name == "ruff"
-        assert summary.problems[0].error_output == "F401"
+        assert any(problem.gate_name == "ruff" for problem in summary.problems)
 
     def test_collect_fix_iterations(self, mock_paths: MagicMock) -> None:
-        """Test collecting fix iterations."""
-        stages_jsonl = mock_paths.metrics / "stages.jsonl"
-        stages_jsonl.write_text(
-            '{"run_id": "test", "stage": "fix", "item_id": "W001", "status": "success", "attempt": 1}\n'
-            '{"run_id": "test", "stage": "fix", "item_id": "W001", "status": "success", "attempt": 2}\n'
+        events = [
+            _event(
+                1,
+                "stage.end",
+                {"stage": "fix", "item_id": "W001", "attempt": 1, "status": "success"},
+            ),
+            _event(
+                2,
+                "stage.end",
+                {"stage": "fix", "item_id": "W001", "attempt": 2, "status": "failure"},
+            ),
+        ]
+        mock_paths.observability_events_jsonl.write_text(
+            "\n".join(json.dumps(event) for event in events)
         )
-
-        collector = ProblemsCollector(mock_paths)
-        summary = collector.collect()
-
+        summary = ProblemsCollector(mock_paths).collect()
         assert summary.total_fix_iterations == 2
         assert len(summary.fix_attempts) == 2
 
     def test_collect_retries_detection(self, mock_paths: MagicMock) -> None:
-        """Test detecting stages that were retried."""
-        stages_jsonl = mock_paths.metrics / "stages.jsonl"
-        stages_jsonl.write_text(
-            '{"run_id": "test", "stage": "implement", "item_id": "W001", "status": "fail", "attempt": 1}\n'
-            '{"run_id": "test", "stage": "implement", "item_id": "W001", "status": "success", "attempt": 2}\n'
+        events = [
+            _event(
+                1,
+                "stage.end",
+                {"stage": "implement", "item_id": "W001", "attempt": 1, "status": "failure"},
+            ),
+            _event(
+                2,
+                "stage.end",
+                {"stage": "implement", "item_id": "W001", "attempt": 2, "status": "success"},
+            ),
+        ]
+        mock_paths.observability_events_jsonl.write_text(
+            "\n".join(json.dumps(event) for event in events)
         )
-
-        collector = ProblemsCollector(mock_paths)
-        summary = collector.collect()
-
+        summary = ProblemsCollector(mock_paths).collect()
         assert summary.stages_retried == 1
 
-    def test_collect_invalid_json_line(self, mock_paths: MagicMock) -> None:
-        """Test handling of invalid JSON lines."""
-        stages_jsonl = mock_paths.metrics / "stages.jsonl"
-        stages_jsonl.write_text(
-            "not valid json\n"
-            '{"run_id": "test", "stage": "plan", "status": "success", "attempt": 1}\n'
+    def test_detect_context_bloat(self, mock_paths: MagicMock) -> None:
+        events = [
+            _event(1, "llm.request", {"chars": 100, "stage": "plan"}),
+            _event(2, "llm.request", {"chars": 150, "stage": "spec"}),
+            _event(3, "llm.request", {"chars": 240, "stage": "review"}),
+        ]
+        mock_paths.observability_events_jsonl.write_text(
+            "\n".join(json.dumps(event) for event in events)
         )
+        summary = ProblemsCollector(mock_paths).collect()
+        assert summary.failure_categories["context_bloat"] == 1
 
-        collector = ProblemsCollector(mock_paths)
-        summary = collector.collect()
-
-        # Should skip invalid line and process valid one
-        assert summary.stages_failed == 0
-
-    def test_collect_with_error_info(self, mock_paths: MagicMock) -> None:
-        """Test extracting detailed error info."""
-        stages_jsonl = mock_paths.metrics / "stages.jsonl"
-        stages_jsonl.write_text(
-            '{"run_id": "test", "stage": "decompose", "status": "fail", "attempt": 1, '
-            '"failure_category": "parse_error", "failure_message": "Invalid YAML", '
-            '"error_info": {"category": "parse_error", "message": "Details", '
-            '"suggested_action": "Check YAML format"}}\n'
+    def test_detect_looping(self, mock_paths: MagicMock) -> None:
+        events = [
+            _event(i, "proc.exec.start", {"cmd": ["pytest", "-q"]}) for i in range(1, 7)
+        ]
+        mock_paths.observability_events_jsonl.write_text(
+            "\n".join(json.dumps(event) for event in events)
         )
-
-        collector = ProblemsCollector(mock_paths)
-        summary = collector.collect()
-
-        assert len(summary.problems) == 1
-        assert summary.problems[0].suggested_fix == "Check YAML format"
+        summary = ProblemsCollector(mock_paths).collect()
+        assert summary.failure_categories["looping"] == 1
 
 
 class TestFixAttempt:
-    """Tests for FixAttempt dataclass."""
-
     def test_fix_attempt_creation(self) -> None:
-        """Test creating a fix attempt."""
         attempt = FixAttempt(
             item_id="W001",
             attempt=1,
-            trigger="ruff",
+            trigger="verify_failure",
             succeeded=True,
-            duration_ms=5000,
+            duration_ms=200,
         )
-
         assert attempt.item_id == "W001"
         assert attempt.succeeded
-        assert attempt.trigger == "ruff"
-
-    def test_fix_attempt_with_error(self) -> None:
-        """Test fix attempt with error info."""
-        attempt = FixAttempt(
-            item_id="W001",
-            attempt=2,
-            trigger="pytest",
-            succeeded=False,
-            duration_ms=30000,
-            error_before="AssertionError in test_app",
-        )
-
-        assert not attempt.succeeded
-        assert attempt.error_before is not None

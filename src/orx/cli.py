@@ -44,6 +44,12 @@ metrics_app = typer.Typer(
     no_args_is_help=True,
 )
 
+observability_app = typer.Typer(
+    name="observability",
+    help="Validate/export observability v2 bundles",
+    no_args_is_help=True,
+)
+
 pipelines_app = typer.Typer(
     name="pipelines",
     help="Manage execution pipelines",
@@ -630,6 +636,120 @@ def clean(
 
 
 # ============================================================================
+# Observability subcommands
+# ============================================================================
+
+
+@observability_app.command("validate")
+def observability_validate(
+    run_id: Annotated[str, typer.Option("--run-id", help="Run ID to validate")],
+    base_dir: Annotated[
+        Path,
+        typer.Option(
+            "--dir",
+            "-d",
+            help="Base directory for the project",
+            exists=True,
+            file_okay=False,
+            resolve_path=True,
+        ),
+    ] = Path.cwd(),
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Output as JSON"),
+    ] = False,
+) -> None:
+    """Validate observability/events.jsonl against v2 contract."""
+    from orx.observability import load_event_types, validate_events_file
+
+    try:
+        paths = RunPaths.from_existing(base_dir, run_id)
+        result = validate_events_file(paths.observability_events_jsonl, run_id)
+        event_types = load_event_types(paths.observability_events_jsonl)
+    except ValueError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1) from e
+
+    if json_output:
+        typer.echo(
+            json.dumps(
+                {
+                    "run_id": run_id,
+                    "ok": result.ok,
+                    "events": result.events,
+                    "errors": result.errors,
+                    "event_types": event_types,
+                },
+                indent=2,
+            )
+        )
+    else:
+        typer.echo(f"Run: {run_id}")
+        typer.echo(f"Events: {result.events}")
+        typer.echo(f"Valid: {'yes' if result.ok else 'no'}")
+        if event_types:
+            typer.echo("Event types:")
+            for key in sorted(event_types):
+                typer.echo(f"  - {key}: {event_types[key]}")
+        if result.errors:
+            typer.echo("")
+            typer.echo("Errors:")
+            for err in result.errors:
+                typer.echo(f"  - {err}")
+
+    if not result.ok:
+        raise typer.Exit(1)
+
+
+@observability_app.command("export")
+def observability_export(
+    run_id: Annotated[str, typer.Option("--run-id", help="Run ID to export")],
+    mode: Annotated[
+        str,
+        typer.Option("--mode", help="Export mode (only redacted is supported)"),
+    ] = "redacted",
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            "-o",
+            help="Output path for exported events JSONL",
+            file_okay=True,
+            dir_okay=False,
+            resolve_path=True,
+        ),
+    ] = None,
+    base_dir: Annotated[
+        Path,
+        typer.Option(
+            "--dir",
+            "-d",
+            help="Base directory for the project",
+            exists=True,
+            file_okay=False,
+            resolve_path=True,
+        ),
+    ] = Path.cwd(),
+) -> None:
+    """Export redacted observability events."""
+    from orx.observability import export_redacted_events
+
+    if mode != "redacted":
+        typer.echo("Error: only --mode redacted is supported", err=True)
+        raise typer.Exit(1)
+
+    try:
+        paths = RunPaths.from_existing(base_dir, run_id)
+    except ValueError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1) from e
+
+    out_path = output or paths.observability_redacted_events_jsonl
+    count = export_redacted_events(paths.observability_events_jsonl, out_path)
+    typer.echo(f"Exported {count} events to {out_path}")
+
+
+# ============================================================================
 # Metrics subcommands
 # ============================================================================
 
@@ -662,6 +782,13 @@ def metrics_rebuild(
 
     Scans all run directories and builds a combined metrics report.
     """
+    typer.echo(
+        "Legacy metrics are not supported after observability v2 cutover.",
+        err=True,
+    )
+    typer.echo("Use `orx observability validate` and dashboard timeline views.")
+    raise typer.Exit(1)
+
     from orx.metrics import MetricsAggregator
 
     log = logger.bind(command="metrics rebuild")
@@ -719,6 +846,13 @@ def metrics_report(
     - Gate pass rates
     - Top failure reasons
     """
+    typer.echo(
+        "Legacy metrics are not supported after observability v2 cutover.",
+        err=True,
+    )
+    typer.echo("Use `orx observability validate` and dashboard timeline views.")
+    raise typer.Exit(1)
+
     from orx.metrics import MetricsAggregator
 
     log = logger.bind(command="metrics report")
@@ -782,6 +916,13 @@ def metrics_show(
 
     Displays run-level metrics or detailed per-stage metrics.
     """
+    typer.echo(
+        "Legacy metrics are not supported after observability v2 cutover.",
+        err=True,
+    )
+    typer.echo("Use `orx observability validate` and dashboard timeline views.")
+    raise typer.Exit(1)
+
     from orx.metrics.writer import MetricsWriter
 
     log = logger.bind(command="metrics show", run_id=run_id)
@@ -873,6 +1014,9 @@ def metrics_show(
 
 # Register metrics sub-app
 app.add_typer(metrics_app, name="metrics")
+
+# Register observability sub-app
+app.add_typer(observability_app, name="observability")
 
 # Register pipelines sub-app
 app.add_typer(pipelines_app, name="pipelines")

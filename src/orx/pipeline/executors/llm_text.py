@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Any
 
@@ -57,6 +58,17 @@ class LLMTextNodeExecutor:
             # Get timeout
             timeout = node.config.timeout_seconds or exec_ctx.timeout_seconds
 
+            corr_ids = None
+            started = time.perf_counter()
+            if exec_ctx.observability:
+                corr_ids = exec_ctx.observability.llm_request(
+                    stage=node.id,
+                    prompt_path=prompt_path,
+                    model=exec_ctx.model_selector.model
+                    if exec_ctx.model_selector
+                    else None,
+                )
+
             # Call LLM
             result = exec_ctx.executor.run_text(
                 cwd=exec_ctx.workspace.worktree_path,
@@ -64,7 +76,17 @@ class LLMTextNodeExecutor:
                 out_path=out_path,
                 logs=logs,
                 timeout=timeout,
+                model_selector=exec_ctx.model_selector,
             )
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            if exec_ctx.observability:
+                exec_ctx.observability.llm_response(
+                    stage=node.id,
+                    result=result,
+                    out_path=out_path,
+                    correlation_ids=corr_ids,
+                    duration_ms=duration_ms,
+                )
 
             if result.failed:
                 log.error("LLM execution failed", error=result.error_message)

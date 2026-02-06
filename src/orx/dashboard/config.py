@@ -23,7 +23,7 @@ class DashboardConfig(BaseSettings):
     # Paths
     runs_root: Path = Field(
         default_factory=lambda: Path.cwd() / "runs",
-        validation_alias=AliasChoices("ORX_RUNS_ROOT", "runs_dir"),
+        validation_alias=AliasChoices("runs_root", "ORX_RUNS_ROOT", "runs_dir"),
         description="Base directory containing runs/",
     )
     orx_bin: str = Field(
@@ -89,11 +89,11 @@ class DashboardConfig(BaseSettings):
 
     # Security
     allowed_extensions: set[str] = Field(
-        default={".md", ".json", ".log", ".diff", ".txt", ".yaml", ".yml"},
+        default={".md", ".json", ".log", ".diff", ".txt", ".yaml", ".yml", ".cast"},
         description="File extensions allowed for preview",
     )
     allowed_dirs: set[str] = Field(
-        default={"context", "artifacts", "logs", "metrics", "prompts"},
+        default={"context", "artifacts", "logs", "prompts", "observability"},
         description="Subdirectories allowed for file access",
     )
 

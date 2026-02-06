@@ -5,9 +5,14 @@ from __future__ import annotations
 import json
 import subprocess
 import threading
+import time
+import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import IO
+from typing import IO, Protocol
 
 import structlog
 
@@ -33,6 +38,44 @@ class CommandResult:
     stderr_path: Path | None
     command: list[str]
     cwd: Path | None
+
+
+@dataclass
+class CommandExecutionStart:
+    """Command execution start event payload."""
+
+    command_id: str
+    command: list[str]
+    cwd: Path | None
+    env_allowlist: dict[str, str]
+    context: dict[str, str]
+    ts: str
+
+
+@dataclass
+class CommandExecutionEnd:
+    """Command execution end event payload."""
+
+    command_id: str
+    command: list[str]
+    cwd: Path | None
+    returncode: int
+    duration_ms: int
+    stdout_path: Path | None
+    stderr_path: Path | None
+    error: str | None = None
+
+
+class CommandObserver(Protocol):
+    """Observer interface for command execution lifecycle callbacks."""
+
+    def on_command_start(self, event: CommandExecutionStart) -> None:
+        """Called immediately before command execution."""
+        ...
+
+    def on_command_end(self, event: CommandExecutionEnd) -> None:
+        """Called after command completion or failure."""
+        ...
 
 
 class CommandRunner:
@@ -62,6 +105,100 @@ class CommandRunner:
         """
         self.dry_run = dry_run
         self.heartbeat_interval = heartbeat_interval
+        self._observers: list[CommandObserver] = []
+        self._context = threading.local()
+
+    def add_observer(self, observer: CommandObserver) -> None:
+        """Register a command lifecycle observer."""
+        self._observers.append(observer)
+
+    @contextmanager
+    def command_context(self, **context: str) -> Iterator[None]:
+        """Temporarily attach context to emitted command lifecycle events."""
+        existing = getattr(self._context, "value", {})
+        merged = {**existing, **{k: v for k, v in context.items() if v is not None}}
+        self._context.value = merged
+        try:
+            yield
+        finally:
+            self._context.value = existing
+
+    def _current_context(self) -> dict[str, str]:
+        """Get current command context attached to this runner."""
+        current = getattr(self._context, "value", {})
+        if isinstance(current, dict):
+            return {str(k): str(v) for k, v in current.items()}
+        return {}
+
+    def _sanitize_env(self, env: dict[str, str] | None) -> dict[str, str]:
+        """Return env map with potentially sensitive entries removed."""
+        if not env:
+            return {}
+        blocked_markers = ("token", "secret", "key", "password", "auth")
+        result: dict[str, str] = {}
+        for key, value in env.items():
+            key_lower = key.lower()
+            if any(marker in key_lower for marker in blocked_markers):
+                continue
+            result[key] = value
+        return result
+
+    def _notify_start(
+        self,
+        *,
+        command: list[str],
+        cwd: Path | None,
+        env: dict[str, str] | None,
+    ) -> str:
+        """Notify observers about command start and return command id."""
+        command_id = uuid.uuid4().hex
+        if not self._observers:
+            return command_id
+        event = CommandExecutionStart(
+            command_id=command_id,
+            command=command,
+            cwd=cwd,
+            env_allowlist=self._sanitize_env(env),
+            context=self._current_context(),
+            ts=datetime.now(tz=UTC).isoformat(),
+        )
+        for observer in self._observers:
+            try:
+                observer.on_command_start(event)
+            except Exception:
+                logger.debug("Command observer start callback failed")
+        return command_id
+
+    def _notify_end(
+        self,
+        *,
+        command_id: str,
+        command: list[str],
+        cwd: Path | None,
+        returncode: int,
+        duration_ms: int,
+        stdout_path: Path | None,
+        stderr_path: Path | None,
+        error: str | None = None,
+    ) -> None:
+        """Notify observers about command completion."""
+        if not self._observers:
+            return
+        event = CommandExecutionEnd(
+            command_id=command_id,
+            command=command,
+            cwd=cwd,
+            returncode=returncode,
+            duration_ms=duration_ms,
+            stdout_path=stdout_path,
+            stderr_path=stderr_path,
+            error=error,
+        )
+        for observer in self._observers:
+            try:
+                observer.on_command_end(event)
+            except Exception:
+                logger.debug("Command observer end callback failed")
 
     @staticmethod
     def _heartbeat_logger(
@@ -109,6 +246,8 @@ class CommandRunner:
         """
         log = logger.bind(command=command, cwd=str(cwd) if cwd else None)
         log.info("Running command")
+        started = time.perf_counter()
+        command_id = self._notify_start(command=command, cwd=cwd, env=env)
 
         if self.dry_run:
             log.info("Dry run - skipping execution")
@@ -162,13 +301,24 @@ class CommandRunner:
                 # If writing fails, ignore in dry-run
                 pass
 
-            return CommandResult(
+            result = CommandResult(
                 returncode=0,
                 stdout_path=stdout_path,
                 stderr_path=stderr_path,
                 command=command,
                 cwd=cwd,
             )
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            self._notify_end(
+                command_id=command_id,
+                command=command,
+                cwd=cwd,
+                returncode=result.returncode,
+                duration_ms=duration_ms,
+                stdout_path=stdout_path,
+                stderr_path=stderr_path,
+            )
+            return result
 
         stdout_handle: IO[bytes] | int | None = None
         stderr_handle: IO[bytes] | int | None = None
@@ -232,22 +382,55 @@ class CommandRunner:
                     cwd=cwd,
                 )
 
-            return CommandResult(
+            command_result = CommandResult(
                 returncode=result.returncode,
                 stdout_path=stdout_path,
                 stderr_path=stderr_path,
                 command=command,
                 cwd=cwd,
             )
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            self._notify_end(
+                command_id=command_id,
+                command=command,
+                cwd=cwd,
+                returncode=command_result.returncode,
+                duration_ms=duration_ms,
+                stdout_path=stdout_path,
+                stderr_path=stderr_path,
+            )
+            return command_result
 
         except subprocess.TimeoutExpired as e:
             log.error("Command timed out", timeout=timeout)
             msg = f"Command timed out after {timeout}s: {' '.join(command)}"
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            self._notify_end(
+                command_id=command_id,
+                command=command,
+                cwd=cwd,
+                returncode=-1,
+                duration_ms=duration_ms,
+                stdout_path=stdout_path,
+                stderr_path=stderr_path,
+                error=msg,
+            )
             raise CommandError(msg, command=command, cwd=cwd) from e
 
         except FileNotFoundError as e:
             log.error("Command not found", command=command[0])
             msg = f"Command not found: {command[0]}"
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            self._notify_end(
+                command_id=command_id,
+                command=command,
+                cwd=cwd,
+                returncode=-1,
+                duration_ms=duration_ms,
+                stdout_path=stdout_path,
+                stderr_path=stderr_path,
+                error=msg,
+            )
             raise CommandError(msg, command=command, cwd=cwd) from e
 
         finally:
@@ -282,9 +465,21 @@ class CommandRunner:
         """
         log = logger.bind(command=command, cwd=str(cwd) if cwd else None)
         log.info("Running command (capture mode)")
+        started = time.perf_counter()
+        command_id = self._notify_start(command=command, cwd=cwd, env=env)
 
         if self.dry_run:
             log.info("Dry run - skipping execution")
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            self._notify_end(
+                command_id=command_id,
+                command=command,
+                cwd=cwd,
+                returncode=0,
+                duration_ms=duration_ms,
+                stdout_path=None,
+                stderr_path=None,
+            )
             return 0, "", ""
 
         import os
@@ -314,14 +509,46 @@ class CommandRunner:
                     cwd=cwd,
                 )
 
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            self._notify_end(
+                command_id=command_id,
+                command=command,
+                cwd=cwd,
+                returncode=result.returncode,
+                duration_ms=duration_ms,
+                stdout_path=None,
+                stderr_path=None,
+            )
             return result.returncode, result.stdout, result.stderr
         except subprocess.TimeoutExpired as e:
             log.error("Command timed out", timeout=timeout)
             msg = f"Command timed out after {timeout}s: {' '.join(command)}"
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            self._notify_end(
+                command_id=command_id,
+                command=command,
+                cwd=cwd,
+                returncode=-1,
+                duration_ms=duration_ms,
+                stdout_path=None,
+                stderr_path=None,
+                error=msg,
+            )
             raise CommandError(msg, command=command, cwd=cwd) from e
         except FileNotFoundError as e:
             log.error("Command not found", command=command[0])
             msg = f"Command not found: {command[0]}"
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            self._notify_end(
+                command_id=command_id,
+                command=command,
+                cwd=cwd,
+                returncode=-1,
+                duration_ms=duration_ms,
+                stdout_path=None,
+                stderr_path=None,
+                error=msg,
+            )
             raise CommandError(msg, command=command, cwd=cwd) from e
 
     def start_process(
@@ -352,6 +579,8 @@ class CommandRunner:
         """
         log = logger.bind(command=command, cwd=str(cwd) if cwd else None)
         log.info("Starting process")
+        started = time.perf_counter()
+        command_id = self._notify_start(command=command, cwd=cwd, env=env)
 
         if self.dry_run:
             msg = f"CommandRunner.start_process does not support dry_run: {' '.join(command)}"
@@ -388,10 +617,31 @@ class CommandRunner:
                 start_new_session=start_new_session,
             )
             log.info("Process started", pid=process.pid)
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            self._notify_end(
+                command_id=command_id,
+                command=command,
+                cwd=cwd,
+                returncode=0,
+                duration_ms=duration_ms,
+                stdout_path=stdout_path,
+                stderr_path=stderr_path,
+            )
             return process
         except Exception as e:
             msg = f"Failed to start process: {' '.join(command)}"
             log.error("Failed to start process", error=str(e))
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            self._notify_end(
+                command_id=command_id,
+                command=command,
+                cwd=cwd,
+                returncode=-1,
+                duration_ms=duration_ms,
+                stdout_path=stdout_path,
+                stderr_path=stderr_path,
+                error=msg,
+            )
             raise CommandError(msg, command=command, cwd=cwd) from e
         finally:
             if stdout_handle and stdout_handle != subprocess.DEVNULL:
