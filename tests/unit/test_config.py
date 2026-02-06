@@ -47,6 +47,7 @@ def test_default_config_population() -> None:
 
     # Codex - now uses dynamic discovery with gpt-5.2-codex as default
     assert config.executors.codex.available_models
+    assert "gpt-5.3-codex" in config.executors.codex.available_models
     assert "gpt-5.2-codex" in config.executors.codex.available_models
     assert config.executors.codex.default.model == "gpt-5.2-codex"
     for stage in required_stages:

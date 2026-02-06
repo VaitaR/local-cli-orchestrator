@@ -106,6 +106,42 @@ class ModelInfo:
 # ============================================================================
 
 CODEX_MODELS: dict[str, ModelInfo] = {
+    "gpt-5.3-codex": ModelInfo(
+        id="gpt-5.3-codex",
+        name="GPT-5.3 Codex",
+        engine="codex",
+        description="Latest generation agentic coding model",
+        capabilities=ModelCapabilities(
+            supports_reasoning=True,
+            reasoning_levels=[
+                ReasoningLevel.LOW,
+                ReasoningLevel.MEDIUM,
+                ReasoningLevel.HIGH,
+            ],
+            default_reasoning=ReasoningLevel.MEDIUM,
+            supports_web_search=True,
+            context_window=200000,
+            tier=1,
+        ),
+    ),
+    "gpt-5.3": ModelInfo(
+        id="gpt-5.3",
+        name="GPT-5.3",
+        engine="codex",
+        description="Latest generation full GPT-5.3 model",
+        capabilities=ModelCapabilities(
+            supports_reasoning=True,
+            reasoning_levels=[
+                ReasoningLevel.LOW,
+                ReasoningLevel.MEDIUM,
+                ReasoningLevel.HIGH,
+            ],
+            default_reasoning=ReasoningLevel.MEDIUM,
+            supports_web_search=True,
+            context_window=200000,
+            tier=1,
+        ),
+    ),
     "gpt-5.2-codex": ModelInfo(
         id="gpt-5.2-codex",
         name="GPT-5.2 Codex",
