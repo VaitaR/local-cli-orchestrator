@@ -17,6 +17,12 @@ from orx.runner import Runner
 from orx.state import Stage
 
 
+@pytest.fixture(autouse=True)
+def disable_global_pytest_plugins(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Avoid loading host-level pytest plugins in gate subprocesses."""
+    monkeypatch.setenv("PYTEST_DISABLE_PLUGIN_AUTOLOAD", "1")
+
+
 @pytest.fixture
 def happy_path_executor() -> FakeExecutor:
     """Create executor with happy path scenarios."""

@@ -4,16 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import structlog
 
 from orx.context.pack import ContextPack
 from orx.knowledge.problems import ProblemsCollector, ProblemsSummary
 from orx.paths import RunPaths
-
-if TYPE_CHECKING:
-    pass
 
 logger = structlog.get_logger()
 
@@ -164,7 +160,7 @@ class EvidenceCollector:
 
     def _read_review(self) -> str:
         """Read the review artifact."""
-        review_path = self.paths.artifacts / "review.md"
+        review_path = self.paths.review_md
         if review_path.exists():
             return review_path.read_text()
         return ""
@@ -179,7 +175,11 @@ class EvidenceCollector:
             Dict mapping gate name to log tail.
         """
         logs: dict[str, str] = {}
-        logs_dir = self.paths.logs
+        logs_dir = getattr(self.paths, "logs_dir", None)
+        if not isinstance(logs_dir, Path):
+            logs_dir = getattr(self.paths, "logs", None)
+        if not isinstance(logs_dir, Path):
+            return logs
 
         if not logs_dir.exists():
             return logs

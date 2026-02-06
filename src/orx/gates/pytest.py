@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 import structlog
@@ -90,8 +91,12 @@ class PytestGate(BaseGate):
                 message="No tests found - skipped",
             )
 
-        # Build command
-        full_command = [self.command, *self.args]
+        # Build command. Use the current interpreter for default pytest command
+        # so gates run under the same Python version as orx itself.
+        if self.command == "pytest":
+            full_command = [sys.executable, "-m", "pytest", *self.args]
+        else:
+            full_command = [self.command, *self.args]
 
         env = {}
         pythonpath = str(cwd)

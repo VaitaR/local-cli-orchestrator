@@ -4,13 +4,17 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
 from orx.context.backlog import Backlog, WorkItem, WorkItemStatus
 from orx.pipeline.definition import NodeDefinition, NodeType
 from orx.pipeline.executors.base import ExecutionContext, NodeResult
+
+if TYPE_CHECKING:
+    from orx.pipeline.executors.gate import GateNodeExecutor
+    from orx.pipeline.executors.llm_apply import LLMApplyNodeExecutor
 
 logger = structlog.get_logger()
 
@@ -32,10 +36,10 @@ class MapNodeExecutor:
     Supports configurable concurrency.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the executor."""
-        self._llm_apply_executor: Any = None
-        self._gate_executor: Any = None
+        self._llm_apply_executor: LLMApplyNodeExecutor | None = None
+        self._gate_executor: GateNodeExecutor | None = None
 
     def execute(
         self,

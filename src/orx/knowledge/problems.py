@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import structlog
@@ -148,7 +149,7 @@ class ProblemsSummary:
             lines.append(f"- Succeeded: {succeeded}, Failed: {failed}")
 
             # Show fix triggers
-            triggers = {}
+            triggers: dict[str, int] = {}
             for fa in self.fix_attempts:
                 triggers[fa.trigger] = triggers.get(fa.trigger, 0) + 1
             if triggers:
@@ -232,7 +233,14 @@ class ProblemsCollector:
         log.debug("Collecting problems from stages.jsonl")
 
         summary = ProblemsSummary()
-        stages_jsonl = self.paths.metrics / "stages.jsonl"
+        metrics_dir = getattr(self.paths, "metrics_dir", None)
+        if not isinstance(metrics_dir, Path):
+            metrics_dir = getattr(self.paths, "metrics", None)
+        if not isinstance(metrics_dir, Path):
+            log.debug("No metrics directory found on RunPaths")
+            return summary
+
+        stages_jsonl = metrics_dir / "stages.jsonl"
 
         if not stages_jsonl.exists():
             log.debug("No stages.jsonl found")
@@ -279,25 +287,25 @@ class ProblemsCollector:
             summary: ProblemsSummary to update.
             stage_attempts: Dict tracking attempts per stage.
         """
-        stage = record.get("stage", "unknown")
+        stage = str(record.get("stage", "unknown"))
         item_id = record.get("item_id")
-        attempt = record.get("attempt", 1)
-        status = record.get("status", "unknown")
+        attempt = int(record.get("attempt", 1))
+        status = str(record.get("status", "unknown"))
 
         # Track attempts
         key = f"{stage}:{item_id or 'none'}"
         stage_attempts[key] = max(stage_attempts.get(key, 0), attempt)
 
         # Process failures
-        if status == "fail":
+        if status in {"fail", "failed"}:
             summary.stages_failed += 1
             self._extract_problem(record, summary)
 
         # Process gate results
         gates = record.get("gates", [])
         for gate in gates:
-            if not gate.get("passed", True):
-                gate_name = gate.get("name", "unknown")
+            if isinstance(gate, dict) and not gate.get("passed", True):
+                gate_name = str(gate.get("name", "unknown"))
                 summary.gate_failures[gate_name] = (
                     summary.gate_failures.get(gate_name, 0) + 1
                 )
@@ -318,8 +326,8 @@ class ProblemsCollector:
             record: Stage metrics record.
             summary: ProblemsSummary to update.
         """
-        category = record.get("failure_category", "unknown")
-        message = record.get("failure_message", "No message")
+        category = str(record.get("failure_category", "unknown"))
+        message = str(record.get("failure_message", "No message"))
 
         # Track category
         summary.failure_categories[category] = (
@@ -330,26 +338,38 @@ class ProblemsCollector:
         error_output = None
         gates = record.get("gates", [])
         for gate in gates:
-            if not gate.get("passed", True) and gate.get("error_output"):
-                error_output = gate["error_output"]
+            if (
+                isinstance(gate, dict)
+                and not gate.get("passed", True)
+                and gate.get("error_output")
+            ):
+                error_output = str(gate["error_output"])
                 break
 
         # Check error_info for more details
         error_info = record.get("error_info", {})
-        if error_info and not error_output:
-            error_output = error_info.get("stack_trace") or error_info.get(
-                "details", {}
-            ).get("output")
+        if isinstance(error_info, dict) and error_info and not error_output:
+            details_val = error_info.get("details", {})
+            details = details_val if isinstance(details_val, dict) else {}
+            stack_trace = error_info.get("stack_trace")
+            if stack_trace is not None:
+                error_output = str(stack_trace)
+            elif details.get("output") is not None:
+                error_output = str(details.get("output"))
 
         problem = StageProblem(
-            stage=record.get("stage", "unknown"),
+            stage=str(record.get("stage", "unknown")),
             category=category,
             message=message,
-            attempt=record.get("attempt", 1),
-            item_id=record.get("item_id"),
+            attempt=int(record.get("attempt", 1)),
+            item_id=str(record.get("item_id")) if record.get("item_id") else None,
             gate_name=self._get_failed_gate_name(record),
             error_output=error_output,
-            suggested_fix=error_info.get("suggested_action") if error_info else None,
+            suggested_fix=(
+                str(error_info.get("suggested_action"))
+                if isinstance(error_info, dict) and error_info.get("suggested_action")
+                else None
+            ),
         )
         summary.problems.append(problem)
 
@@ -368,23 +388,27 @@ class ProblemsCollector:
         trigger = "unknown"
         gates = record.get("gates", [])
         for gate in gates:
-            if not gate.get("passed", True):
-                trigger = gate.get("name", "unknown")
+            if isinstance(gate, dict) and not gate.get("passed", True):
+                trigger = str(gate.get("name", "unknown"))
                 break
 
         # If no gates, check failure category
         if trigger == "unknown":
             category = record.get("failure_category")
             if category:
-                trigger = category
+                trigger = str(category)
 
         fix_attempt = FixAttempt(
-            item_id=record.get("item_id", "unknown"),
-            attempt=record.get("attempt", 1),
+            item_id=str(record.get("item_id", "unknown")),
+            attempt=int(record.get("attempt", 1)),
             trigger=trigger,
-            succeeded=record.get("status") == "success",
-            duration_ms=record.get("duration_ms", 0),
-            error_before=record.get("failure_message"),
+            succeeded=str(record.get("status")) in {"success", "completed"},
+            duration_ms=int(record.get("duration_ms", 0)),
+            error_before=(
+                str(record.get("failure_message"))
+                if record.get("failure_message")
+                else None
+            ),
         )
         summary.fix_attempts.append(fix_attempt)
 
@@ -399,6 +423,7 @@ class ProblemsCollector:
         """
         gates = record.get("gates", [])
         for gate in gates:
-            if not gate.get("passed", True):
-                return gate.get("name")
+            if isinstance(gate, dict) and not gate.get("passed", True):
+                gate_name = gate.get("name")
+                return str(gate_name) if gate_name is not None else None
         return None

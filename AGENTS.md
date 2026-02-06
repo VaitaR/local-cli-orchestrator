@@ -6,13 +6,15 @@
 * Never write to `runs/` outside `RunPaths` / `ContextPack` helpers.
 * All subprocess calls must go through `CommandRunner` so logs are consistent.
 * Ensure `patch.diff` is always produced by `git diff`.
+* Treat `pipeline/*` as production execution path (`standard` by default for `orx run`); use legacy FSM only when explicitly requested.
+* Python support is limited to 3.11/3.12.
 * Add tests for every stage and resume behavior.
 * Prefer small commits; keep functions pure when possible.
 * Keep prompts in `src/orx/prompts/` and render with a single renderer module.
 
 ## Definition of Done (MVP)
 
-* `orx run` completes successfully in toy repo with FakeExecutor.
+* `orx run` (default `standard` pipeline) completes successfully in toy repo with FakeExecutor.
 * Artifacts and logs are present as specified.
 * Fix-loop works on failing pytest.
 * Resume works.

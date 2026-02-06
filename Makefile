@@ -1,4 +1,6 @@
-.PHONY: fmt lint test test-integration smoke-llm install clean help
+.PHONY: check-python fmt lint test test-integration smoke-llm install clean help run kill
+
+PYTHON ?= python3.11
 
 # Default target
 help:
@@ -13,29 +15,35 @@ help:
 	@echo "  make smoke-llm        Run LLM smoke tests (requires RUN_LLM_TESTS=1)"
 	@echo "  make clean            Remove build artifacts"
 
-install:
-	python -m pip install -e ".[dev,dashboard]"
+check-python:
+	@$(PYTHON) -c "import sys; v=sys.version_info[:2]; \
+assert (3, 11) <= v < (3, 13), \
+'Unsupported Python version {}.{}. Use Python 3.11 or 3.12.'.format(*v)"
 
-run:
-	python -m orx.dashboard
+install: check-python
+	$(PYTHON) -m pip install -e ".[dev,dashboard]"
 
-fmt:
-	python -m ruff format .
+# http://127.0.0.1:8421
+run: check-python
+	$(PYTHON) -m orx.dashboard
 
-lint:
-	python -m ruff check .
-	python -m ruff check --fix .
-	python -m mypy src/orx tests
+fmt: check-python
+	$(PYTHON) -m ruff format .
 
-test:
-	python -m pytest tests/unit -q
+lint: check-python
+	$(PYTHON) -m ruff check .
+	$(PYTHON) -m ruff check --fix .
+	$(PYTHON) -m mypy src/orx tests
 
-test-integration:
-	python -m pytest tests/integration -q
+test: check-python
+	$(PYTHON) -m pytest tests/unit -q
 
-smoke-llm:
+test-integration: check-python
+	$(PYTHON) -m pytest tests/integration -q
+
+smoke-llm: check-python
 	@if [ "$$RUN_LLM_TESTS" = "1" ]; then \
-		python -m pytest tests/smoke -q; \
+		$(PYTHON) -m pytest tests/smoke -q; \
 	else \
 		echo "Skipping LLM smoke tests. Set RUN_LLM_TESTS=1 to run."; \
 	fi

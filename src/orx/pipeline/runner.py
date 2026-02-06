@@ -12,6 +12,7 @@ import structlog
 from orx.executors.base import Executor
 from orx.executors.router import ModelRouter
 from orx.gates.base import Gate
+from orx.infra.command import CommandRunner
 from orx.metrics.schema import GateMetrics, StageMetrics, StageStatus, TokenUsage
 from orx.metrics.writer import MetricsWriter
 from orx.paths import RunPaths
@@ -19,7 +20,7 @@ from orx.pipeline.artifacts import ArtifactStore
 from orx.pipeline.constants import DEFAULT_NODE_TIMEOUT
 from orx.pipeline.context_builder import ContextBuilder
 from orx.pipeline.definition import NodeDefinition, NodeType, PipelineDefinition
-from orx.pipeline.executors.base import ExecutionContext, NodeResult
+from orx.pipeline.executors.base import ExecutionContext, NodeExecutor, NodeResult
 from orx.pipeline.executors.custom import CustomNodeExecutor
 from orx.pipeline.executors.gate import GateNodeExecutor
 from orx.pipeline.executors.llm_apply import LLMApplyNodeExecutor
@@ -27,7 +28,7 @@ from orx.pipeline.executors.llm_text import LLMTextNodeExecutor
 from orx.pipeline.executors.map import MapNodeExecutor
 from orx.pipeline.registry import PipelineRegistry
 from orx.prompts.renderer import PromptRenderer
-from orx.state import RunState, Stage
+from orx.state import Stage, StateManager
 from orx.workspace.git_worktree import WorkspaceGitWorktree
 
 if TYPE_CHECKING:
@@ -82,10 +83,10 @@ class PipelineRunner:
         executor: Executor,
         gates: list[Gate],
         renderer: PromptRenderer,
-        state: RunState | None = None,
+        state: StateManager | None = None,
         router: ModelRouter | None = None,
         metrics_writer: MetricsWriter | None = None,
-    ):
+    ) -> None:
         """Initialize pipeline runner.
 
         Args:
@@ -116,7 +117,7 @@ class PipelineRunner:
         self.context_builder = ContextBuilder(self.store, workspace.worktree_path)
 
         # Node executors
-        self._executors = {
+        self._executors: dict[NodeType, NodeExecutor] = {
             NodeType.LLM_TEXT: LLMTextNodeExecutor(),
             NodeType.LLM_APPLY: LLMApplyNodeExecutor(),
             NodeType.MAP: MapNodeExecutor(),
@@ -234,7 +235,10 @@ class PipelineRunner:
                         self.state.mark_stage_completed(stage_name)
 
                 # Handle review loop: if review requests changes, skip ship and rewind to implement
-                if node.id == "review" and node_result.metadata.get("verdict") == "changes_requested":
+                if (
+                    node.id == "review"
+                    and node_result.metadata.get("verdict") == "changes_requested"
+                ):
                     node_log.info("Review requested changes - skipping ship stage")
                     # Don't execute ship node
                     # In fast_fix pipeline, this means we stop here (no loop implemented yet)
@@ -268,7 +272,9 @@ class PipelineRunner:
                             "error_logs": node_result.error or "Verification failed",
                             "fix_attempt": result.fix_attempts,
                         }
-                        self.store.set("verify_errors", error_context, source_node="verify")
+                        self.store.set(
+                            "verify_errors", error_context, source_node="verify"
+                        )
 
                         # Rebuild context with error feedback
                         context = self.context_builder.build_for_node(implement_node)
@@ -283,23 +289,29 @@ class PipelineRunner:
                             executor=executor,
                             gates=self.gates,
                             renderer=self.renderer,
-                            timeout_seconds=implement_node.config.timeout_seconds or DEFAULT_NODE_TIMEOUT,
+                            timeout_seconds=implement_node.config.timeout_seconds
+                            or DEFAULT_NODE_TIMEOUT,
                         )
 
                         try:
-                            node_result = self._execute_node(implement_node, context, exec_ctx)
+                            node_result = self._execute_node(
+                                implement_node, context, exec_ctx
+                            )
 
                             # If implement succeeds, we need to re-run verify on the new changes
                             if node_result.success:
                                 result.completed_nodes = [
-                                    n for n in result.completed_nodes
-                                    if nodes[0].id != "implement" and nodes[0].id != "implement_direct"
+                                    node_id
+                                    for node_id in result.completed_nodes
+                                    if node_id not in ("implement", "implement_direct")
                                 ]
                                 result.completed_nodes.append(implement_node.id)
 
                                 # Store outputs
                                 for key, value in node_result.outputs.items():
-                                    self.store.set(key, value, source_node=implement_node.id)
+                                    self.store.set(
+                                        key, value, source_node=implement_node.id
+                                    )
 
                                 node_log.info(
                                     "Implement retry successful - re-running verify gate",
@@ -532,7 +544,7 @@ class PipelineRunner:
         paths: RunPaths,
         workspace: WorkspaceGitWorktree,
         gates: list[Gate],
-        state: RunState | None = None,
+        state: StateManager | None = None,
         metrics_writer: MetricsWriter | None = None,
     ) -> PipelineRunner:
         """Create a pipeline runner from configuration.
@@ -548,11 +560,18 @@ class PipelineRunner:
         Returns:
             Configured PipelineRunner.
         """
-        from orx.executors.router import ModelRouter
         from orx.prompts.renderer import PromptRenderer
 
         # Create router and get default executor
-        router = ModelRouter.from_config(config, paths)
+        cmd = CommandRunner()
+        router = ModelRouter(
+            engine=config.engine,
+            executors=config.executors,
+            stages=config.stages,
+            fallback=config.fallback,
+            cmd=cmd,
+            dry_run=False,
+        )
         executor = router.get_primary_executor()
 
         # Create renderer
@@ -578,7 +597,7 @@ def run_pipeline(
     paths: RunPaths,
     workspace: WorkspaceGitWorktree,
     gates: list[Gate],
-    state: RunState | None = None,
+    state: StateManager | None = None,
     registry: PipelineRegistry | None = None,
 ) -> PipelineResult:
     """Convenience function to run a pipeline by ID.
@@ -600,11 +619,9 @@ def run_pipeline(
         ValueError: If pipeline not found.
     """
     if registry is None:
-        registry = PipelineRegistry.load(paths)
+        registry = PipelineRegistry.load()
 
     pipeline = registry.get(pipeline_id)
-    if not pipeline:
-        raise ValueError(f"Pipeline not found: {pipeline_id}")
 
     runner = PipelineRunner.from_config(
         config=config,

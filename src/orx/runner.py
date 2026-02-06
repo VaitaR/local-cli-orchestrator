@@ -6,6 +6,7 @@ import json
 import os
 import signal
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -15,7 +16,7 @@ from typing import Any
 import structlog
 
 from orx.config import EngineConfig, EngineType, ModelSelector, OrxConfig
-from orx.context.backlog import Backlog, WorkItem
+from orx.context.backlog import Backlog, WorkItem, WorkItemStatus
 from orx.context.pack import ContextPack
 from orx.context.repo_context import RepoContextBuilder
 from orx.exceptions import GuardrailError
@@ -53,7 +54,7 @@ logger = structlog.get_logger()
 
 
 @contextmanager
-def _termination_signals():
+def _termination_signals() -> Iterator[None]:
     """Convert SIGTERM/SIGINT into KeyboardInterrupt for graceful cleanup."""
     old_term = signal.getsignal(signal.SIGTERM)
     old_int = signal.getsignal(signal.SIGINT)
@@ -1012,7 +1013,7 @@ class Runner:
             acceptance=["Review comments addressed", "Tests pass"],
             # Include feedback in description or notes
             notes=f"Review Feedback:\n\n{feedback}",
-            status="todo",
+            status=WorkItemStatus.TODO,
             files_hint=[],
         )
 

@@ -18,6 +18,11 @@
 
 ## Installation
 
+### Python Support
+
+- Supported: Python 3.11, 3.12
+- Not supported: Python 3.13+
+
 ```bash
 pip install -e ".[dev]"
 ```
@@ -33,6 +38,11 @@ orx init
 
 # Run a task
 orx run "Add a function add(a,b) that returns the sum"
+# Equivalent explicit form (pipeline engine is production default)
+orx run --pipeline standard "Add a function add(a,b) that returns the sum"
+
+# Legacy FSM path (migration/debug only)
+orx run --legacy-fsm "Add a function add(a,b) that returns the sum"
 
 # Or from a file
 orx run @task.md

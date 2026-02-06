@@ -650,7 +650,7 @@ class OrxConfig(BaseModel):
         def merge_executor(name: str) -> None:
             exec_cfg: ExecutorConfig = getattr(self.executors, name)
             default_exec: ExecutorConfig = getattr(default_cfg.executors, name)
-            fields_set = getattr(exec_cfg, "model_fields_set", set())
+            fields_set: set[str] = set(getattr(exec_cfg, "model_fields_set", set()))
 
             if "available_models" not in fields_set:
                 exec_cfg.available_models = list(default_exec.available_models)

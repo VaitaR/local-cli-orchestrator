@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from orx.dashboard.server import create_app
+from orx.executors.models import get_default_model
 
 
 @pytest.fixture
@@ -237,7 +238,7 @@ class TestPartialEndpoints:
     ) -> None:
         response = client.get("/partials/run-tab/test-run-001?tab=metrics")
         assert response.status_code == 200
-        assert "Token Usage" in response.text
+        assert "Tokens" in response.text
         assert "Stage Breakdown" in response.text
         assert "plan" in response.text
 
@@ -317,9 +318,10 @@ class TestAPIEndpoints:
 
         # Verify gemini engine data
         gemini = next(e for e in data["engines"] if e["value"] == "gemini")
+        gemini_default = get_default_model("gemini")
         assert gemini["label"] == "Gemini"
-        assert "gemini-2.0-flash" in gemini["available_models"]
-        assert gemini["stage_models"]["plan"] == "gemini-2.0-flash"
+        assert gemini_default in gemini["available_models"]
+        assert gemini["stage_models"]["plan"] == gemini_default
 
         # Verify stages
         assert any(s["value"] == "plan" for s in data["stages"])
@@ -346,11 +348,12 @@ class TestAPIEndpoints:
         assert data["default_engine"] == "gemini"
 
         gemini = next(e for e in data["engines"] if e["value"] == "gemini")
+        gemini_default = get_default_model("gemini")
         # available_models is omitted in the YAML and should fall back to defaults
-        assert "gemini-2.0-flash" in gemini["available_models"]
+        assert gemini_default in gemini["available_models"]
         # stage_models is partial in the YAML: keep explicit override, fill others
         assert gemini["stage_models"]["plan"] == "gemini-1.5-pro"
-        assert gemini["stage_models"]["spec"] == "gemini-2.0-flash"
+        assert gemini["stage_models"]["spec"] == gemini_default
 
     def test_get_run_status(self, client: TestClient) -> None:
         """Test getting run status via API."""

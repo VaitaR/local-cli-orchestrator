@@ -8,7 +8,6 @@ This module provides:
 
 from __future__ import annotations
 
-import subprocess
 from dataclasses import dataclass, field
 from enum import Enum
 from functools import lru_cache
@@ -16,7 +15,10 @@ from typing import Any
 
 import structlog
 
+from orx.infra.command import CommandRunner
+
 logger = structlog.get_logger()
+_discovery_cmd = CommandRunner()
 
 
 class ReasoningLevel(str, Enum):
@@ -503,18 +505,16 @@ CURSOR_MODELS: dict[str, ModelInfo] = {
 def _run_cli_command(cmd: list[str], timeout: int = 10) -> str | None:
     """Run a CLI command and return stdout, or None on failure."""
     try:
-        result = subprocess.run(
+        returncode, stdout, stderr = _discovery_cmd.run_capture(
             cmd,
-            capture_output=True,
-            text=True,
             timeout=timeout,
             check=False,
         )
-        if result.returncode == 0:
-            return result.stdout
-        logger.debug("CLI command failed", cmd=cmd, stderr=result.stderr)
+        if returncode == 0:
+            return stdout
+        logger.debug("CLI command failed", cmd=cmd, stderr=stderr)
         return None
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+    except Exception as e:
         logger.debug("CLI command error", cmd=cmd, error=str(e))
         return None
 

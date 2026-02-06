@@ -438,15 +438,15 @@ class MetricsAggregator:
                     "-" * 40,
                 ]
             )
-            for name, stats in sorted(report.gate_stats.items()):
+            for name, gate_stats in sorted(report.gate_stats.items()):
                 pass_pct = (
-                    stats.pass_count / stats.total_runs * 100
-                    if stats.total_runs > 0
+                    gate_stats.pass_count / gate_stats.total_runs * 100
+                    if gate_stats.total_runs > 0
                     else 0
                 )
                 lines.append(
                     f"  {name:20} | "
-                    f"P50: {stats.duration_p50:>6}ms | "
+                    f"P50: {gate_stats.duration_p50:>6}ms | "
                     f"Pass: {pass_pct:>5.1f}%"
                 )
 

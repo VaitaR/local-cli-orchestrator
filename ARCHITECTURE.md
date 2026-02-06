@@ -1,11 +1,11 @@
 # System Architecture
 
-> **Last Updated:** 2026-01-03  
+> **Last Updated:** 2026-02-06  
 > **Status:** v0.3 - Self-Improving Orchestrator
 
 ## Overview
 
-**orx** is a local, CLI-first orchestrator that coordinates AI coding agents (Codex CLI, Gemini CLI) through a sequential Finite State Machine (FSM). It manages git isolation, quality gates, fix-loops, and produces auditable artifacts.
+**orx** is a local, CLI-first orchestrator that coordinates AI coding agents (Codex CLI, Gemini CLI) through a pipeline engine (`pipeline/*`, `standard` by default). A legacy FSM flow remains available via `orx run --legacy-fsm`. It manages git isolation, quality gates, fix-loops, and produces auditable artifacts.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -15,8 +15,8 @@
                                 │
                                 ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                       Runner (FSM)                               │
-│   INIT → PLAN → SPEC → DECOMPOSE → IMPLEMENT → VERIFY → ...    │
+│              Runner (Pipeline Engine + Legacy FSM)              │
+│   standard/fast_fix/plan_only pipelines + legacy FSM fallback   │
 └─────────────────────────────────────────────────────────────────┘
           │              │              │              │
           ▼              ▼              ▼              ▼
@@ -49,9 +49,11 @@ Entry point for all user interactions. Built with Typer.
 | `init` | Initialize configuration |
 | `clean` | Remove run artifacts |
 
-### 2. Runner (Orchestration FSM)
+### 2. Runner (Orchestration Engine)
 
-Central orchestrator implementing a Finite State Machine with these stages:
+Production path uses `PipelineRunner` with built-in and custom pipelines. Legacy FSM is retained for migration/debug via `--legacy-fsm`.
+
+Legacy FSM stages:
 
 ```mermaid
 stateDiagram-v2
@@ -248,7 +250,7 @@ Gate Failure (ruff/pytest)
 
 | Layer | Technology |
 |-------|------------|
-| Language | Python 3.11+ |
+| Language | Python 3.11, 3.12 |
 | CLI Framework | Typer |
 | Configuration | Pydantic + YAML |
 | Templating | Jinja2 |

@@ -103,7 +103,11 @@ class LLMTextNodeExecutor:
                 else:
                     outputs[output_key] = content
 
-            log.info("LLM text node completed", output_keys=list(outputs.keys()), metadata_keys=list(metadata.keys()))
+            log.info(
+                "LLM text node completed",
+                output_keys=list(outputs.keys()),
+                metadata_keys=list(metadata.keys()),
+            )
             return NodeResult(success=True, outputs=outputs, metadata=metadata)
 
         except Exception as e:
@@ -126,21 +130,24 @@ class LLMTextNodeExecutor:
         Returns:
             Path to rendered prompt file.
         """
+        if node.template is None:
+            msg = f"Node {node.id} has no template"
+            raise ValueError(msg)
+
         # Map context keys to template variables and enrich from store
         template_context = self._build_template_context(context, exec_ctx)
+        template_name = node.template.removesuffix(".md")
 
         # Render to prompts directory
-        prompt_path = exec_ctx.paths.prompt_path(node.template.replace(".md", ""))
+        prompt_path = exec_ctx.paths.prompt_path(template_name)
         exec_ctx.renderer.render_to_file(
-            node.template.replace(".md", ""),
+            template_name,
             prompt_path,
             **template_context,
         )
 
         # Copy to worktree for sandboxed executors
-        worktree_prompt = exec_ctx.paths.copy_prompt_to_worktree(
-            node.template.replace(".md", "")
-        )
+        worktree_prompt = exec_ctx.paths.copy_prompt_to_worktree(template_name)
 
         return worktree_prompt
 

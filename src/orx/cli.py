@@ -14,6 +14,7 @@ from orx import __version__
 from orx.config import EngineType, OrxConfig
 from orx.paths import RunPaths
 from orx.pipeline import PipelineRegistry
+from orx.pipeline.constants import DEFAULT_PIPELINE_ID
 from orx.runner import create_runner
 from orx.state import StateManager
 
@@ -127,13 +128,23 @@ def run(
         ),
     ] = None,
     pipeline: Annotated[
-        str | None,
+        str,
         typer.Option(
             "--pipeline",
             "-p",
-            help="Pipeline to use (standard, fast_fix, plan_only, or custom)",
+            help=(
+                "Pipeline to use (standard, fast_fix, plan_only, or custom path). "
+                f"Default: {DEFAULT_PIPELINE_ID}"
+            ),
         ),
-    ] = None,
+    ] = DEFAULT_PIPELINE_ID,
+    legacy_fsm: Annotated[
+        bool,
+        typer.Option(
+            "--legacy-fsm",
+            help="Use legacy FSM runner instead of pipeline engine.",
+        ),
+    ] = False,
     dry_run: Annotated[
         bool,
         typer.Option(
@@ -148,9 +159,11 @@ def run(
     (prefix with @ to read from file, e.g., @task.md).
 
     Available pipelines:
-      - standard: Full flow with planning and decomposition (default)
+      - standard: Full flow with planning and decomposition (default production path)
       - fast_fix: Skip planning, implement directly
       - plan_only: Generate plan and spec only
+
+    Use --legacy-fsm to run the deprecated FSM flow.
     """
     log = logger.bind(command="run")
     log.info("Starting orx run")
@@ -172,6 +185,15 @@ def run(
         if default_config.exists():
             config_path = default_config
 
+    if legacy_fsm and pipeline != DEFAULT_PIPELINE_ID:
+        typer.echo(
+            "Error: --legacy-fsm cannot be used with a custom --pipeline value.",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    selected_pipeline: str | None = None if legacy_fsm else pipeline
+
     try:
         runner = create_runner(
             base_dir,
@@ -185,11 +207,13 @@ def run(
         typer.echo(f"Run ID: {runner.paths.run_id}")
         typer.echo(f"Engine: {runner.config.engine.type.value}")
         typer.echo(f"Base branch: {runner.config.git.base_branch}")
-        if pipeline:
-            typer.echo(f"Pipeline: {pipeline}")
+        if legacy_fsm:
+            typer.echo("Pipeline: legacy_fsm")
+        elif selected_pipeline:
+            typer.echo(f"Pipeline: {selected_pipeline}")
         typer.echo("")
 
-        success = runner.run(task_content, pipeline_id=pipeline)
+        success = runner.run(task_content, pipeline_id=selected_pipeline)
 
         if success:
             typer.echo("")
@@ -806,10 +830,21 @@ def metrics_show(
                 typer.echo("=" * 50)
                 typer.echo(f"Status: {run_metrics.final_status.value}")
                 typer.echo(f"Total Duration: {run_metrics.total_duration_ms}ms")
-                typer.echo(f"Total Stages: {run_metrics.stages_total}")
+                typer.echo(f"Total Stages: {run_metrics.stages_executed}")
                 typer.echo(f"Fix Attempts: {run_metrics.fix_attempts_total}")
-                typer.echo(f"Gates Passed: {run_metrics.gates_passed}")
-                typer.echo(f"Gates Failed: {run_metrics.gates_failed}")
+
+                stage_metrics = writer.read_stages()
+                gates_passed = sum(
+                    1 for stage in stage_metrics for gate in stage.gates if gate.passed
+                )
+                gates_failed = sum(
+                    1
+                    for stage in stage_metrics
+                    for gate in stage.gates
+                    if not gate.passed
+                )
+                typer.echo(f"Gates Passed: {gates_passed}")
+                typer.echo(f"Gates Failed: {gates_failed}")
 
                 if run_metrics.stage_breakdown:
                     typer.echo("")

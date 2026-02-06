@@ -164,9 +164,9 @@ class LLMApplyNodeExecutor:
         def get_context_value(key: str, default: str = "") -> str:
             """Get value from context or artifact store."""
             if key in context:
-                return context[key]
+                return str(context[key])
             if exec_ctx.store.exists(key):
-                return exec_ctx.store.get(key)
+                return str(exec_ctx.store.get(key))
             return default
 
         # Task
