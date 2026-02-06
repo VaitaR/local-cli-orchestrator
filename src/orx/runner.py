@@ -6,12 +6,12 @@ import json
 import os
 import signal
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import structlog
 
@@ -36,6 +36,7 @@ from orx.metrics.events import EventLogger
 from orx.metrics.schema import FailureCategory, StageStatus
 from orx.metrics.writer import MetricsWriter, append_to_index
 from orx.paths import RunPaths
+from orx.pipeline.constants import DEFAULT_PIPELINE_ID
 from orx.prompts.renderer import PromptRenderer
 from orx.stages.base import StageContext, StageResult
 from orx.stages.decompose import DecomposeStage
@@ -217,6 +218,7 @@ class Runner:
         base_dir: Path,
         run_id: str | None = None,
         dry_run: bool = False,
+        default_pipeline_id: str | None = None,
     ) -> None:
         """Initialize the runner.
 
@@ -225,10 +227,12 @@ class Runner:
             base_dir: Base directory for the project.
             run_id: Optional run ID (for resume).
             dry_run: If True, don't execute commands.
+            default_pipeline_id: Default pipeline for `run()` when none is passed.
         """
         self.config = config
         self.base_dir = base_dir
         self.dry_run = dry_run
+        self.default_pipeline_id = default_pipeline_id
 
         # Create or load paths
         if run_id:
@@ -592,13 +596,20 @@ class Runner:
             # Non-fatal: log warning and continue
             log.warning("Failed to build repo context pack", error=str(e))
 
-    def run(self, task: str | Path, pipeline_id: str | None = None) -> bool:
+    def run(
+        self,
+        task: str | Path,
+        pipeline_id: str | None = None,
+        *,
+        use_default_pipeline: bool = True,
+    ) -> bool:
         """Run the full orchestration.
 
         Args:
             task: Task description or path to task file.
-            pipeline_id: Optional pipeline ID. If None, uses legacy FSM.
-                        Use "standard", "fast_fix", "plan_only" for builtin pipelines.
+            pipeline_id: Optional pipeline ID override.
+            use_default_pipeline: Whether to use configured default pipeline
+                when `pipeline_id` is not provided. Set to False to force legacy FSM.
 
         Returns:
             True if run completed successfully.
@@ -611,9 +622,15 @@ class Runner:
         # Handle task content
         task_content = task.read_text() if isinstance(task, Path) else task
 
-        # If pipeline specified, use pipeline runner
-        if pipeline_id:
-            return self._run_with_pipeline(task_content, pipeline_id)
+        effective_pipeline_id = (
+            pipeline_id
+            if pipeline_id is not None
+            else (self.default_pipeline_id if use_default_pipeline else None)
+        )
+
+        # If pipeline specified/effective, use pipeline runner.
+        if effective_pipeline_id:
+            return self._run_with_pipeline(task_content, effective_pipeline_id)
 
         state_initialized = False
 
@@ -1023,7 +1040,7 @@ class Runner:
     def _run_stage_with_metrics(
         self,
         stage_name: str,
-        run_fn: Any,
+        run_fn: Callable[[StageContext], StageResult],
     ) -> StageResult:
         """Run a stage with metrics collection.
 
@@ -1054,7 +1071,7 @@ class Runner:
             timer.start_llm(
                 model=ctx.model_selector.model if ctx.model_selector else None
             )
-            result = run_fn(ctx)
+            result: StageResult = run_fn(ctx)
             # If stage failed, attempt model fallback and a single retry.
             fallback_applied = False
             if result and not result.success:
@@ -1100,8 +1117,9 @@ class Runner:
 
                     # Try model fallback if still failing
                     if result and not result.success:
+                        current_selector = ctx.model_selector or ModelSelector()
                         new_selector, applied = self.model_router.apply_fallback(
-                            stage_name, synthetic, ctx.model_selector
+                            stage_name, synthetic, current_selector
                         )
                         if applied:
                             logger.info(
@@ -1193,7 +1211,7 @@ class Runner:
             result: Stage result.
         """
         outputs: list[str | Path] = []
-        artifacts: dict[str, Path] = {}
+        artifacts: dict[str, Path | str] = {}
 
         # Stage-specific outputs
         if stage == "plan" and self.paths.plan_md.exists():
@@ -1375,14 +1393,12 @@ class Runner:
                     # Run implement or fix
                     timer.start_llm()
                     if attempt == 1:
-                        result = self.stages["implement"].execute_for_item(
-                            implement_ctx, item
-                        )
+                        implement_stage = cast(ImplementStage, self.stages["implement"])
+                        result = implement_stage.execute_for_item(implement_ctx, item)
                     else:
                         evidence = self.state.state.last_failure_evidence
-                        result = self.stages["fix"].execute_fix(
-                            fix_ctx, item, attempt, evidence
-                        )  # type: ignore[attr-defined]
+                        fix_stage = cast(FixStage, self.stages["fix"])
+                        result = fix_stage.execute_fix(fix_ctx, item, attempt, evidence)
                     timer.end_llm()
 
                     if not result.success:
@@ -1398,7 +1414,7 @@ class Runner:
                     # Check for empty diff
                     if base_ctx.workspace.diff_empty():
                         log.warning("No changes produced")
-                        self.state.set_failure_evidence({"diff_empty": True})
+                        self.state.set_failure_evidence({"diff_empty": "true"})
                         self.metrics.record_failure(
                             FailureCategory.EMPTY_DIFF, "No changes produced"
                         )
@@ -1926,4 +1942,10 @@ def create_runner(
     # Apply overrides
     cfg.apply_overrides(engine=engine, model=model, base_branch=base_branch)
 
-    return Runner(cfg, base_dir=base_dir, run_id=run_id, dry_run=dry_run)
+    return Runner(
+        cfg,
+        base_dir=base_dir,
+        run_id=run_id,
+        dry_run=dry_run,
+        default_pipeline_id=DEFAULT_PIPELINE_ID,
+    )

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import importlib
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 import structlog
 
@@ -96,7 +96,10 @@ class CustomNodeExecutor:
         if not callable(func):
             msg = f"Imported object is not callable: {path}"
             raise TypeError(msg)
-        return func
+        return cast(
+            Callable[[NodeDefinition, dict[str, Any], ExecutionContext], NodeResult],
+            func,
+        )
 
     def _get_builtin_handler(
         self, node_id: str

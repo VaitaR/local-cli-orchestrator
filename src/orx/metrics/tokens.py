@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 from typing import Any
 
 import structlog
@@ -26,7 +27,7 @@ def estimate_tokens(text: str, model: str | None = None) -> int:
         return 0
 
     try:
-        import tiktoken
+        tiktoken = importlib.import_module("tiktoken")
     except ImportError:
         logger.warning("tiktoken not installed, using rough character estimate")
         # Rough fallback: ~4 characters per token

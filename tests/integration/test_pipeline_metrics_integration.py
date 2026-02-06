@@ -6,6 +6,7 @@ import json
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -129,7 +130,7 @@ class TestCustomPipelineMetrics:
         ]
 
         # Run metrics (empty - testing fallback behavior)
-        run_metrics = {}
+        run_metrics: dict[str, Any] = {}
 
         # Build context
         context = _build_metrics_context(

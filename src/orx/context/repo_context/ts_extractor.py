@@ -131,7 +131,8 @@ def _parse_jsonc(path: Path) -> dict[str, Any]:
     try:
         text = path.read_text(encoding="utf-8")
         text = strip_jsonc(text)
-        return json.loads(text)
+        loaded = json.loads(text)
+        return loaded if isinstance(loaded, dict) else {}
     except (OSError, json.JSONDecodeError) as e:
         logger.warning("Failed to parse JSONC", path=str(path), error=str(e))
         return {}

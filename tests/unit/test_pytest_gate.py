@@ -5,9 +5,10 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from typing import cast
 
 from orx.gates.pytest import PytestGate
-from orx.infra.command import CommandResult
+from orx.infra.command import CommandResult, CommandRunner
 
 
 class StubCommandRunner:
@@ -44,7 +45,7 @@ def test_pytest_gate_sets_pythonpath(tmp_path: Path) -> None:
     (tests_dir / "test_sample.py").write_text("def test_ok():\n    assert True\n")
 
     runner = StubCommandRunner()
-    gate = PytestGate(cmd=runner)
+    gate = PytestGate(cmd=cast(CommandRunner, runner))
     log_path = tmp_path / "logs" / "pytest.log"
 
     prev_pythonpath = os.environ.get("PYTHONPATH")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -136,7 +137,11 @@ class TestMetricsWriterRobustness:
         bad_metrics = MagicMock()
         bad_metrics.to_dict.side_effect = ValueError("Cannot serialize")
 
-        metrics_list = [good_metrics, bad_metrics, good_metrics]
+        metrics_list: list[StageMetrics] = [
+            good_metrics,
+            cast(StageMetrics, bad_metrics),
+            good_metrics,
+        ]
 
         # Should not raise
         writer.write_stages(metrics_list)

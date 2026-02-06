@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, cast
 
+from orx.config import ModelSelector
 from orx.context.backlog import Backlog
 from orx.context.pack import ContextPack
-from orx.executors.base import ExecResult, LogPaths
+from orx.executors.base import ExecResult, LogPaths, ResolvedInvocation
 from orx.paths import RunPaths
 from orx.prompts.renderer import PromptRenderer
 from orx.stages.base import StageContext
@@ -40,7 +42,7 @@ class StubExecutor:
         out_path: Path,
         logs: LogPaths,
         timeout: int | None = None,
-        model_selector: object | None = None,
+        model_selector: ModelSelector | None = None,
     ) -> ExecResult:
         del cwd, prompt_path, timeout, model_selector
         out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -62,7 +64,7 @@ class StubExecutor:
         prompt_path: Path,
         logs: LogPaths,
         timeout: int | None = None,
-        model_selector: object | None = None,
+        model_selector: ModelSelector | None = None,
     ) -> ExecResult:
         raise NotImplementedError
 
@@ -73,8 +75,9 @@ class StubExecutor:
         cwd: Path,
         logs: LogPaths,
         out_path: Path | None = None,
-        model_selector: object | None = None,
-    ) -> object:
+        model_selector: ModelSelector | None = None,
+    ) -> ResolvedInvocation:
+        _ = (prompt_path, cwd, logs, out_path, model_selector)
         raise NotImplementedError
 
 
@@ -89,8 +92,8 @@ def _build_context(tmp_path: Path, executor: StubExecutor) -> StageContext:
         paths=paths,
         pack=pack,
         state=state,
-        workspace=StubWorkspace(tmp_path),
-        executor=executor,
+        workspace=cast(Any, StubWorkspace(tmp_path)),
+        executor=cast(Any, executor),
         gates=[],
         renderer=PromptRenderer(),
         config={"run": {"max_backlog_items": 4, "coalesce_backlog_items": False}},

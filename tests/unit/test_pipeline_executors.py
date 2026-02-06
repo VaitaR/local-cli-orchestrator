@@ -136,6 +136,7 @@ class TestGateNodeExecutor:
 
         result = executor.execute(node, {}, mock_exec_ctx)
         assert not result.success
+        assert result.error is not None
         assert "ruff" in result.error
 
     def test_no_gates_configured(self, mock_exec_ctx):
@@ -195,6 +196,7 @@ class TestCustomNodeExecutor:
 
         result = executor.execute(node, {}, mock_exec_ctx)
         assert not result.success
+        assert result.error is not None
         assert "callable_path" in result.error
 
     def test_ship_builtin_handler(self, mock_exec_ctx):

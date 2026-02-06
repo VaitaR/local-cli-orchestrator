@@ -6,7 +6,7 @@ import json
 import os
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 
@@ -56,12 +56,12 @@ class FileSystemRunStore:
             # Direct path mode (for testing)
             self.config = None
             self._runs_dir = config_or_path
-            self._allowed_extensions = self.DEFAULT_ALLOWED_EXTENSIONS
+            self._allowed_extensions: set[str] = set(self.DEFAULT_ALLOWED_EXTENSIONS)
         else:
             # Config mode (production)
             self.config = config_or_path
             self._runs_dir = config_or_path.get_runs_dir()
-            self._allowed_extensions = config_or_path.allowed_extensions
+            self._allowed_extensions = set(config_or_path.allowed_extensions)
 
         self._log = logger.bind(component="FileSystemRunStore")
 
@@ -118,7 +118,9 @@ class FileSystemRunStore:
         """
         try:
             if path.exists():
-                return json.loads(path.read_text())
+                data = json.loads(path.read_text())
+                if isinstance(data, dict):
+                    return cast(dict[str, Any], data)
         except (json.JSONDecodeError, OSError) as e:
             self._log.warning("Failed to read JSON", path=str(path), error=str(e))
         return None
@@ -618,7 +620,7 @@ class FileSystemRunStore:
             self._log.warning("Failed to read log", log_name=log_name, error=str(e))
             return None
 
-    def get_run_metrics(self, run_id: str) -> dict | None:
+    def get_run_metrics(self, run_id: str) -> dict[str, Any] | None:
         """Get aggregated run metrics.
 
         Args:
@@ -629,7 +631,7 @@ class FileSystemRunStore:
         """
         return self._read_json(self._runs_dir / run_id / "metrics" / "run.json")
 
-    def get_stage_metrics(self, run_id: str) -> list[dict]:
+    def get_stage_metrics(self, run_id: str) -> list[dict[str, Any]]:
         """Get per-stage metrics.
 
         Args:
@@ -642,11 +644,13 @@ class FileSystemRunStore:
         if not stages_path.exists():
             return []
 
-        metrics = []
+        metrics: list[dict[str, Any]] = []
         try:
             for line in stages_path.read_text().splitlines():
                 if line.strip():
-                    metrics.append(json.loads(line))
+                    data = json.loads(line)
+                    if isinstance(data, dict):
+                        metrics.append(cast(dict[str, Any], data))
         except (json.JSONDecodeError, OSError) as e:
             self._log.warning(
                 "Failed to read stage metrics", run_id=run_id, error=str(e)

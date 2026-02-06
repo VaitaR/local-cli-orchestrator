@@ -5,6 +5,7 @@ import json
 # Add src to path
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -15,7 +16,7 @@ from orx.dashboard.store.models import RunStatus
 
 
 @pytest.fixture
-def temp_runs_dir(tmp_path):
+def temp_runs_dir(tmp_path: Path) -> Path:
     """Create temporary runs directory."""
     runs_dir = tmp_path / "runs"
     runs_dir.mkdir()
@@ -23,13 +24,18 @@ def temp_runs_dir(tmp_path):
 
 
 @pytest.fixture
-def store(temp_runs_dir):
+def store(temp_runs_dir: Path) -> FileSystemRunStore:
     """Create FileSystemRunStore instance."""
     # Use direct Path mode for testing
     return FileSystemRunStore(temp_runs_dir)
 
 
-def create_run(runs_dir: Path, run_id: str, current_stage: str, stage_statuses: dict):
+def create_run(
+    runs_dir: Path,
+    run_id: str,
+    current_stage: str,
+    stage_statuses: dict[str, dict[str, Any]],
+) -> None:
     """Helper to create a test run."""
     import os
 
@@ -70,7 +76,9 @@ def create_run(runs_dir: Path, run_id: str, current_stage: str, stage_statuses: 
     logs.mkdir(exist_ok=True)
 
 
-def test_stage_progress_plan_running(store, temp_runs_dir):
+def test_stage_progress_plan_running(
+    store: FileSystemRunStore, temp_runs_dir: Path
+) -> None:
     """Test that plan running shows correct status."""
     run_id = "test_plan_running"
     create_run(
@@ -88,7 +96,9 @@ def test_stage_progress_plan_running(store, temp_runs_dir):
     assert run.stage_statuses["plan"] == "running"
 
 
-def test_stage_progress_spec_running_after_plan(store, temp_runs_dir):
+def test_stage_progress_spec_running_after_plan(
+    store: FileSystemRunStore, temp_runs_dir: Path
+) -> None:
     """Test that spec running after plan completed shows correct status."""
     run_id = "test_spec_running"
     create_run(
@@ -109,7 +119,9 @@ def test_stage_progress_spec_running_after_plan(store, temp_runs_dir):
     assert run.stage_statuses["spec"] == "running"
 
 
-def test_stage_progress_multiple_stages_completed(store, temp_runs_dir):
+def test_stage_progress_multiple_stages_completed(
+    store: FileSystemRunStore, temp_runs_dir: Path
+) -> None:
     """Test multiple stages completed with implement running."""
     run_id = "test_multi_stages"
     create_run(

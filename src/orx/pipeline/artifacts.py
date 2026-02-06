@@ -239,7 +239,7 @@ class ArtifactStore:
         if key == "backlog":
             # Backlog has its own serialization
             if hasattr(value, "to_yaml"):
-                return value.to_yaml()
+                return str(value.to_yaml())
             return yaml.dump(value, default_flow_style=False)
 
         if isinstance(value, str):

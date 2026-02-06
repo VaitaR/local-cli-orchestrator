@@ -213,7 +213,11 @@ def run(
             typer.echo(f"Pipeline: {selected_pipeline}")
         typer.echo("")
 
-        success = runner.run(task_content, pipeline_id=selected_pipeline)
+        success = runner.run(
+            task_content,
+            pipeline_id=selected_pipeline,
+            use_default_pipeline=not legacy_fsm,
+        )
 
         if success:
             typer.echo("")

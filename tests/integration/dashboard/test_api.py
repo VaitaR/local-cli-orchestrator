@@ -4,6 +4,7 @@ import json
 from collections.abc import Generator
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 from fastapi.testclient import TestClient
@@ -261,7 +262,8 @@ class TestPartialEndpoints:
 
     def test_active_runs_shows_running_run(self, client: TestClient) -> None:
         """Ensure active runs partial renders a running run."""
-        runs_dir = client.app.state.store.runs_dir
+        app = cast(Any, client.app)
+        runs_dir = app.state.store.runs_dir
         run_id = "running-run-001"
         run_dir = runs_dir / run_id
         run_dir.mkdir()
@@ -297,7 +299,8 @@ class TestPartialEndpoints:
 
     def test_start_run_form_defaults_repo_path(self, client: TestClient) -> None:
         """Ensure start run form defaults repo path based on runs root."""
-        runs_root = client.app.state.config.runs_root
+        app = cast(Any, client.app)
+        runs_root = app.state.config.runs_root
         response = client.get("/partials/start-run-form")
         assert response.status_code == 200
         assert str(runs_root.parent) in response.text
@@ -386,7 +389,8 @@ class TestAPIEndpoints:
         self, client: TestClient
     ) -> None:
         """Runs that look active but lack pid can't be cancelled by the dashboard."""
-        runs_dir = client.app.state.store.runs_dir
+        app = cast(Any, client.app)
+        runs_dir = app.state.store.runs_dir
         run_id = "running-no-pid-001"
         run_dir = runs_dir / run_id
         run_dir.mkdir()

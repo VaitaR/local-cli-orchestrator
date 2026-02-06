@@ -246,6 +246,18 @@ def test_plan_stage_produces_output():
 | ARG002 | Unused argument | Add `# noqa: ARG002` if API requires it |
 | W293 | Whitespace on blank line | Delete trailing spaces |
 
+### Strict Typing (Mypy)
+
+- Keep `mypy` strict for `src/orx` and tests; avoid broad `ignore_errors` overrides.
+- Do not “fix” typing by loosening config globally; fix annotations/casts at call sites.
+- Prefer `Sequence[Gate]` for read-only gate inputs to avoid list invariance problems.
+- FastAPI handlers and startup/shutdown callbacks must have explicit return types.
+- For `dict`/`list` annotations, always provide type parameters (`dict[str, Any]`, etc.).
+- In tests, prefer `patch.object(...)` over direct method reassignment to avoid `method-assign`.
+- When mocking `Popen`, set `MagicMock` fields first, then `cast(...)` only on return value.
+- Avoid variable names that shadow imported helpers (e.g. don’t shadow `patch` from `unittest.mock`).
+- Use `DashboardConfig(runs_root=...)` in typed code; `runs_dir` is runtime alias, not mypy-safe keyword.
+
 ---
 
 ## Common Tasks
@@ -310,4 +322,7 @@ def test_plan_stage_produces_output():
 - Max 300 lines total, 200 per file, 50 deletions by default
 - **HTMX handlers**: Never rely solely on `DOMContentLoaded` for HTMX-injected content
 - **Token estimation**: Always provide fallback when tiktoken unavailable (char-based ~4 chars/token)
+- **Gate mocks in tests**: Must implement `run(...)->GateResult` to satisfy `Gate` protocol under strict mypy
+- **Stage model selectors**: `ctx.model_selector` is optional; assert non-`None` before reading `.model`
+- **StageContext in unit tests**: It expects concrete workspace/executor types; use typed stubs + focused `cast` in tests
 <!-- ORX:END AGENTS -->

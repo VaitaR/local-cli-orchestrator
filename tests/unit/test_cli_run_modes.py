@@ -24,7 +24,13 @@ class _FakeRunner:
             git=SimpleNamespace(base_branch="main"),
         )
 
-    def run(self, task: str | Path, pipeline_id: str | None = None) -> bool:
+    def run(
+        self,
+        task: str | Path,
+        pipeline_id: str | None = None,
+        *,
+        use_default_pipeline: bool = True,  # noqa: ARG002
+    ) -> bool:
         self.calls.append((task, pipeline_id))
         return self._run_success
 

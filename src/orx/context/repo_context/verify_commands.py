@@ -6,7 +6,8 @@ during the VERIFY stage, so the agent knows exactly what checks to expect.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any
 
 from orx.context.repo_context.blocks import ContextBlock, ContextPriority
 
@@ -14,7 +15,7 @@ if TYPE_CHECKING:
     from orx.gates.base import Gate
 
 
-def build_verify_commands(gates: list[Gate]) -> ContextBlock | None:
+def build_verify_commands(gates: Sequence[Gate]) -> ContextBlock | None:
     """Build a context block describing verify commands.
 
     Args:
@@ -32,8 +33,9 @@ def build_verify_commands(gates: list[Gate]) -> ContextBlock | None:
         name = gate.name
 
         # Try to get the full command rendering from gate first
-        if hasattr(gate, "render_command"):
-            full_cmd = gate.render_command()  # type: ignore[no-any-return]
+        render_command: Any = getattr(gate, "render_command", None)
+        if callable(render_command):
+            full_cmd = str(render_command())
         else:
             # Fallback: build from command and args attributes
             command = getattr(gate, "command", name)
@@ -58,7 +60,7 @@ def build_verify_commands(gates: list[Gate]) -> ContextBlock | None:
     )
 
 
-def render_verify_commands_markdown(gates: list[Gate]) -> str:
+def render_verify_commands_markdown(gates: Sequence[Gate]) -> str:
     """Render verify commands as standalone markdown.
 
     Args:

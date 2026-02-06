@@ -54,4 +54,4 @@ clean:
 	find . -type f -name "*.pyc" -delete
 
 kill:
-	pkill -f "python -m orx.dashboard" || true
+	pkill -f "[p]ython.*-m orx.dashboard" || true

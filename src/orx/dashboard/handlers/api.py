@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import structlog
 from fastapi import APIRouter, HTTPException, Request
@@ -30,7 +30,7 @@ class PipelineUpdateRequest(BaseModel):
 
 
 @router.post("/runs/start", response_model=StartRunResponse)
-async def start_run(request: Request, payload: StartRunRequest):
+async def start_run(request: Request, payload: StartRunRequest) -> StartRunResponse:
     """Start a new orx run.
 
     Returns:
@@ -63,7 +63,7 @@ async def start_run(request: Request, payload: StartRunRequest):
 
 
 @router.post("/runs/{run_id}/cancel")
-async def cancel_run(request: Request, run_id: str):
+async def cancel_run(request: Request, run_id: str) -> Any:
     """Cancel a running orx run.
 
     Returns:
@@ -124,7 +124,7 @@ async def cancel_run(request: Request, run_id: str):
 
 
 @router.post("/runs/{run_id}/restart")
-async def restart_run(request: Request, run_id: str):
+async def restart_run(request: Request, run_id: str) -> Any:
     """Restart a failed or completed orx run.
 
     Returns:
@@ -175,7 +175,7 @@ async def restart_run(request: Request, run_id: str):
 
 
 @router.get("/runs/{run_id}/status")
-async def run_status(request: Request, run_id: str):
+async def run_status(request: Request, run_id: str) -> dict[str, Any]:
     """Get run status (JSON).
 
     Returns:
@@ -198,23 +198,23 @@ async def run_status(request: Request, run_id: str):
 
 
 @router.get("/health")
-async def health():
+async def health() -> dict[str, str]:
     """Health check endpoint."""
     return {"status": "ok"}
 
 
 @router.get("/worker/stats")
-async def worker_stats(request: Request):
+async def worker_stats(request: Request) -> dict[str, Any]:
     """Get worker statistics.
 
     Returns worker status including active jobs, queue size, and concurrency limits.
     """
     worker = request.app.state.worker
-    return worker.get_worker_stats()
+    return cast(dict[str, Any], worker.get_worker_stats())
 
 
 @router.get("/config/engines")
-async def get_available_engines(request: Request):
+async def get_available_engines(request: Request) -> dict[str, Any]:
     """Get available engine types, stages, and model configurations.
 
     Returns configuration options for the start run form, including
@@ -257,7 +257,7 @@ async def get_available_engines(request: Request):
         return merged
 
     # Get available engines (exclude FAKE for production UI unless in debug)
-    engines = []
+    engines: list[dict[str, Any]] = []
     for e in EngineType:
         if e == EngineType.FAKE and not dashboard_config.debug:
             continue
@@ -265,7 +265,7 @@ async def get_available_engines(request: Request):
         # Get models with full capabilities from models.py
         models_data = serialize_models_for_api(e.value)
 
-        engine_data = {
+        engine_data: dict[str, Any] = {
             "value": e.value,
             "label": e.value.capitalize(),
             "is_test": e == EngineType.FAKE,
@@ -312,7 +312,7 @@ async def get_available_engines(request: Request):
     default_engine = orx_config.engine.type.value
     engine_values = {e["value"] for e in engines}
     if default_engine not in engine_values and engines:
-        default_engine = engines[0]["value"]
+        default_engine = str(engines[0]["value"])
 
     return {
         "engines": engines,
@@ -328,7 +328,7 @@ async def get_available_engines(request: Request):
 
 
 @router.get("/pipelines")
-async def list_pipelines():
+async def list_pipelines() -> dict[str, Any]:
     """List all available pipelines.
 
     Returns:
@@ -373,7 +373,7 @@ async def list_pipelines():
 
 
 @router.get("/pipelines/{pipeline_id}")
-async def get_pipeline(pipeline_id: str):
+async def get_pipeline(pipeline_id: str) -> dict[str, Any]:
     """Get a specific pipeline.
 
     Returns:
@@ -394,7 +394,7 @@ async def get_pipeline(pipeline_id: str):
 
 
 @router.post("/pipelines")
-async def create_pipeline(payload: PipelineCreateRequest):
+async def create_pipeline(payload: PipelineCreateRequest) -> dict[str, Any]:
     """Create a new custom pipeline.
 
     Returns:
@@ -434,7 +434,9 @@ async def create_pipeline(payload: PipelineCreateRequest):
 
 
 @router.put("/pipelines/{pipeline_id}")
-async def update_pipeline(pipeline_id: str, payload: PipelineUpdateRequest):
+async def update_pipeline(
+    pipeline_id: str, payload: PipelineUpdateRequest
+) -> dict[str, Any]:
     """Update a pipeline.
 
     Returns:
@@ -471,7 +473,7 @@ async def update_pipeline(pipeline_id: str, payload: PipelineUpdateRequest):
 
 
 @router.delete("/pipelines/{pipeline_id}")
-async def delete_pipeline(pipeline_id: str):
+async def delete_pipeline(pipeline_id: str) -> dict[str, str]:
     """Delete a custom pipeline.
 
     Returns:
@@ -502,7 +504,7 @@ async def delete_pipeline(pipeline_id: str):
 
 
 @router.get("/context-blocks")
-async def list_context_blocks():
+async def list_context_blocks() -> dict[str, Any]:
     """List available context blocks.
 
     Returns:
@@ -595,7 +597,7 @@ async def list_context_blocks():
 
 
 @router.get("/node-types")
-async def list_node_types():
+async def list_node_types() -> dict[str, Any]:
     """List available node types for pipeline editor.
 
     Returns:
@@ -651,7 +653,7 @@ async def list_node_types():
 
 
 @router.get("/available-gates")
-async def list_available_gates():
+async def list_available_gates() -> dict[str, Any]:
     """List available gate types for pipeline editor.
 
     Returns:
@@ -682,7 +684,7 @@ async def list_available_gates():
 
 
 @router.get("/templates")
-async def list_templates():
+async def list_templates() -> dict[str, Any]:
     """List available prompt templates.
 
     Returns:

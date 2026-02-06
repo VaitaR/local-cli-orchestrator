@@ -5,6 +5,7 @@ This is the primary entry point for building repo context.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -58,7 +59,7 @@ class RepoContextBuilder:
     def __init__(
         self,
         worktree: Path,
-        gates: list[Gate] | None = None,
+        gates: Sequence[Gate] | None = None,
         *,
         profile_budget: int = 3000,
         full_budget: int = 11000,
@@ -72,7 +73,7 @@ class RepoContextBuilder:
             full_budget: Character budget for full extraction.
         """
         self.worktree = worktree
-        self.gates = gates or []
+        self.gates = list(gates or [])
         self.profile_budget = profile_budget
         self.full_budget = full_budget
 
@@ -218,7 +219,7 @@ class RepoContextBuilder:
 
 def build_repo_context(
     worktree: Path,
-    gates: list[Gate] | None = None,
+    gates: Sequence[Gate] | None = None,
 ) -> RepoContextResult:
     """Convenience function to build repo context.
 

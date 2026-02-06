@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
+from orx.gates.base import GateResult
 from orx.metrics.collector import MetricsCollector, StageTimer
 from orx.metrics.schema import (
     FailureCategory,
@@ -11,7 +13,7 @@ from orx.metrics.schema import (
 )
 
 
-class FakeGateResult:
+class FakeGateResult(GateResult):
     """Fake gate result for testing."""
 
     def __init__(
@@ -22,9 +24,13 @@ class FakeGateResult:
         returncode: int = 0,
         log_tail: str = "",
     ) -> None:
-        self.ok = ok
-        self.failed = failed
-        self.returncode = returncode
+        _ = failed
+        super().__init__(
+            ok=ok,
+            returncode=returncode,
+            log_path=Path("/tmp/nonexistent.log"),
+            message="",
+        )
         self._log_tail = log_tail
 
     def get_log_tail(self, lines: int = 20) -> str:  # noqa: ARG002

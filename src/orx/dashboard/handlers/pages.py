@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
@@ -9,7 +11,7 @@ router = APIRouter(tags=["pages"])
 
 
 @router.get("/", response_class=HTMLResponse)
-async def runs_list(request: Request):
+async def runs_list(request: Request) -> Any:
     """Render the main runs list page."""
     templates = request.app.state.templates
     config = request.app.state.config
@@ -25,7 +27,7 @@ async def runs_list(request: Request):
 
 
 @router.get("/runs/{run_id}", response_class=HTMLResponse)
-async def run_detail(request: Request, run_id: str):
+async def run_detail(request: Request, run_id: str) -> Any:
     """Render the run detail page."""
     templates = request.app.state.templates
     store = request.app.state.store

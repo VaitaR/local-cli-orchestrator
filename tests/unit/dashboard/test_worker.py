@@ -1,30 +1,29 @@
 """Tests for dashboard local worker."""
 
+import subprocess
 import time
 from pathlib import Path
+from typing import cast
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-
-class MockConfig:
-    """Mock configuration for worker tests."""
-
-    max_concurrency: int = 2
-    cancel_grace_seconds: float = 2.0
-    orx_bin: str = "orx"
-    runs_root: Path = Path("/tmp/test-repo/runs")
-    run_id_timeout_seconds: float = 0.1
-    run_id_poll_interval: float = 0.01
+from orx.dashboard.config import DashboardConfig
 
 
 @pytest.fixture
-def mock_config(tmp_path: Path) -> MockConfig:
-    """Create a mock config for testing."""
-    config = MockConfig()
-    config.runs_root = tmp_path / "repo" / "runs"
-    config.runs_root.parent.mkdir(parents=True, exist_ok=True)
-    return config
+def mock_config(tmp_path: Path) -> DashboardConfig:
+    """Create a dashboard config for testing."""
+    runs_root = tmp_path / "repo" / "runs"
+    runs_root.parent.mkdir(parents=True, exist_ok=True)
+    return DashboardConfig(
+        runs_root=runs_root,
+        max_concurrency=2,
+        cancel_grace_seconds=2,
+        orx_bin="orx",
+        run_id_timeout_seconds=0.1,
+        run_id_poll_interval=0.01,
+    )
 
 
 @pytest.fixture
@@ -38,7 +37,7 @@ def repo_root(tmp_path: Path) -> Path:
 class TestLocalWorker:
     """Tests for LocalWorker."""
 
-    def test_worker_starts_and_stops(self, mock_config: MockConfig) -> None:
+    def test_worker_starts_and_stops(self, mock_config: DashboardConfig) -> None:
         """Test that worker can start and stop cleanly."""
         from orx.dashboard.worker.local import LocalWorker
 
@@ -51,7 +50,7 @@ class TestLocalWorker:
         assert worker._thread is None or not worker._thread.is_alive()
 
     def test_worker_can_queue_run(
-        self, mock_config: MockConfig, repo_root: Path
+        self, mock_config: DashboardConfig, repo_root: Path
     ) -> None:
         """Test that worker can queue a run."""
         from orx.dashboard.worker.local import LocalWorker
@@ -66,7 +65,7 @@ class TestLocalWorker:
         finally:
             worker.stop()
 
-    def test_cancel_non_existent_run(self, mock_config: MockConfig) -> None:
+    def test_cancel_non_existent_run(self, mock_config: DashboardConfig) -> None:
         """Test that cancelling non-existent run returns False."""
         from orx.dashboard.worker.local import LocalWorker
 
@@ -74,7 +73,9 @@ class TestLocalWorker:
         result = worker.cancel_run("non-existent-run")
         assert result is False
 
-    def test_get_pid_returns_none_for_unknown(self, mock_config: MockConfig) -> None:
+    def test_get_pid_returns_none_for_unknown(
+        self, mock_config: DashboardConfig
+    ) -> None:
         """Test that get_run_pid returns None for unknown runs."""
         from orx.dashboard.worker.local import LocalWorker
 
@@ -83,7 +84,7 @@ class TestLocalWorker:
         assert pid is None
 
     def test_worker_handles_multiple_runs(
-        self, mock_config: MockConfig, repo_root: Path
+        self, mock_config: DashboardConfig, repo_root: Path
     ) -> None:
         """Test that worker can handle multiple run requests."""
         from orx.dashboard.worker.local import LocalWorker
@@ -103,7 +104,7 @@ class TestLocalWorker:
             worker.stop()
 
     def test_execute_job_uses_cli_flags_for_simple_overrides(
-        self, mock_config: MockConfig, repo_root: Path
+        self, mock_config: DashboardConfig, repo_root: Path
     ) -> None:
         """Simple overrides should be passed via CLI flags (no temp config)."""
         from orx.dashboard.worker.local import LocalWorker, RunJob
@@ -113,29 +114,37 @@ class TestLocalWorker:
 
         recorded: dict[str, object] = {}
 
-        def _start_process(cmd, *, cwd, env, start_new_session):  # noqa: ANN001
-            recorded["cmd"] = cmd
+        def _start_process(
+            command: list[str],
+            *,
+            cwd: Path | None = None,
+            stdout_path: Path | None = None,
+            stderr_path: Path | None = None,
+            env: dict[str, str] | None = None,
+            start_new_session: bool = True,
+        ) -> subprocess.Popen[bytes]:
+            _ = (stdout_path, stderr_path)
+            recorded["cmd"] = command
             recorded["cwd"] = cwd
             recorded["env"] = env
             recorded["start_new_session"] = start_new_session
-            proc = MagicMock()
-            proc.pid = 12345
-            proc.poll.return_value = None
-            proc.returncode = None
-            return proc
+            proc_mock = MagicMock()
+            proc_mock.pid = 12345
+            proc_mock.poll.return_value = None
+            proc_mock.returncode = None
+            return cast(subprocess.Popen[bytes], proc_mock)
 
-        worker._cmd.start_process = _start_process  # type: ignore[method-assign]
-        worker._wait_for_run_id = (  # type: ignore[method-assign]
-            lambda *_args, **_kwargs: None
-        )
-
-        job = RunJob(
-            run_id="placeholder",
-            task="Test task",
-            repo_path=str(repo_root),
-            config_overrides={"engine": "gemini", "model": "gemini-1.5-pro"},
-        )
-        worker._execute_job(job)
+        with (
+            patch.object(worker._cmd, "start_process", side_effect=_start_process),
+            patch.object(worker, "_wait_for_run_id", return_value=None),
+        ):
+            job = RunJob(
+                run_id="placeholder",
+                task="Test task",
+                repo_path=str(repo_root),
+                config_overrides={"engine": "gemini", "model": "gemini-1.5-pro"},
+            )
+            worker._execute_job(job)
 
         cmd = recorded["cmd"]
         assert isinstance(cmd, list)
@@ -145,14 +154,13 @@ class TestLocalWorker:
         assert "--model" in cmd and cmd[cmd.index("--model") + 1] == "gemini-1.5-pro"
 
     def test_execute_job_uses_temp_config_for_stage_overrides(
-        self, mock_config: MockConfig, repo_root: Path, tmp_path: Path
+        self, mock_config: DashboardConfig, repo_root: Path, tmp_path: Path
     ) -> None:
         """Per-stage overrides should be passed via a generated config file."""
         import os
 
         import yaml
 
-        from orx.dashboard.worker import local as local_mod
         from orx.dashboard.worker.local import LocalWorker, RunJob
 
         (repo_root / "runs").mkdir(exist_ok=True)
@@ -161,29 +169,37 @@ class TestLocalWorker:
         recorded: dict[str, object] = {}
         temp_config_path = tmp_path / "orx_dashboard_test.yaml"
 
-        def _mkstemp(*, suffix, prefix):  # noqa: ANN001
+        def _mkstemp(*, suffix: str, prefix: str) -> tuple[int, str]:
             path = str(temp_config_path)
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             _ = (suffix, prefix)
             return fd, path
 
-        def _start_process(cmd, *, cwd, env, start_new_session):  # noqa: ANN001
-            recorded["cmd"] = cmd
+        def _start_process(
+            command: list[str],
+            *,
+            cwd: Path | None = None,
+            stdout_path: Path | None = None,
+            stderr_path: Path | None = None,
+            env: dict[str, str] | None = None,
+            start_new_session: bool = True,
+        ) -> subprocess.Popen[bytes]:
+            _ = (stdout_path, stderr_path)
+            recorded["cmd"] = command
             recorded["cwd"] = cwd
             recorded["env"] = env
             recorded["start_new_session"] = start_new_session
-            proc = MagicMock()
-            proc.pid = 12346
-            proc.poll.return_value = None
-            proc.returncode = None
-            return proc
+            proc_mock = MagicMock()
+            proc_mock.pid = 12346
+            proc_mock.poll.return_value = None
+            proc_mock.returncode = None
+            return cast(subprocess.Popen[bytes], proc_mock)
 
-        worker._cmd.start_process = _start_process  # type: ignore[method-assign]
-        worker._wait_for_run_id = (  # type: ignore[method-assign]
-            lambda *_args, **_kwargs: None
-        )
-
-        with patch.object(local_mod.tempfile, "mkstemp", side_effect=_mkstemp):
+        with (
+            patch.object(worker._cmd, "start_process", side_effect=_start_process),
+            patch.object(worker, "_wait_for_run_id", return_value=None),
+            patch("orx.dashboard.worker.local.tempfile.mkstemp", side_effect=_mkstemp),
+        ):
             job = RunJob(
                 run_id="placeholder",
                 task="Test task",
@@ -211,14 +227,13 @@ class TestLocalWorker:
         assert cfg_data["stages"]["plan"]["model"] == "gpt-4o"
 
     def test_temp_config_engine_defaults_from_repo_config(
-        self, mock_config: MockConfig, repo_root: Path, tmp_path: Path
+        self, mock_config: DashboardConfig, repo_root: Path, tmp_path: Path
     ) -> None:
         """Temp config should inherit engine.type from repo's orx.yaml when omitted."""
         import os
 
         import yaml
 
-        from orx.dashboard.worker import local as local_mod
         from orx.dashboard.worker.local import LocalWorker, RunJob
 
         (repo_root / "runs").mkdir(exist_ok=True)
@@ -228,27 +243,35 @@ class TestLocalWorker:
         recorded: dict[str, object] = {}
         temp_config_path = tmp_path / "orx_dashboard_test_inherit.yaml"
 
-        def _mkstemp(*, suffix, prefix):  # noqa: ANN001
+        def _mkstemp(*, suffix: str, prefix: str) -> tuple[int, str]:
             path = str(temp_config_path)
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             _ = (suffix, prefix)
             return fd, path
 
-        def _start_process(cmd, *, cwd, env, start_new_session):  # noqa: ANN001
-            recorded["cmd"] = cmd
+        def _start_process(
+            command: list[str],
+            *,
+            cwd: Path | None = None,
+            stdout_path: Path | None = None,
+            stderr_path: Path | None = None,
+            env: dict[str, str] | None = None,
+            start_new_session: bool = True,
+        ) -> subprocess.Popen[bytes]:
+            recorded["cmd"] = command
             _ = (cwd, env, start_new_session)
-            proc = MagicMock()
-            proc.pid = 12347
-            proc.poll.return_value = None
-            proc.returncode = None
-            return proc
+            _ = (stdout_path, stderr_path)
+            proc_mock = MagicMock()
+            proc_mock.pid = 12347
+            proc_mock.poll.return_value = None
+            proc_mock.returncode = None
+            return cast(subprocess.Popen[bytes], proc_mock)
 
-        worker._cmd.start_process = _start_process  # type: ignore[method-assign]
-        worker._wait_for_run_id = (  # type: ignore[method-assign]
-            lambda *_args, **_kwargs: None
-        )
-
-        with patch.object(local_mod.tempfile, "mkstemp", side_effect=_mkstemp):
+        with (
+            patch.object(worker._cmd, "start_process", side_effect=_start_process),
+            patch.object(worker, "_wait_for_run_id", return_value=None),
+            patch("orx.dashboard.worker.local.tempfile.mkstemp", side_effect=_mkstemp),
+        ):
             job = RunJob(
                 run_id="placeholder",
                 task="Test task",
@@ -266,7 +289,7 @@ class TestLocalWorker:
         cfg_data = yaml.safe_load(temp_config_path.read_text())
         assert cfg_data["engine"]["type"] == "gemini"
 
-    def test_empty_task_raises_error(self, mock_config: MockConfig) -> None:
+    def test_empty_task_raises_error(self, mock_config: DashboardConfig) -> None:
         """Test that empty task raises ValueError."""
         from orx.dashboard.worker.local import LocalWorker
 
@@ -275,7 +298,7 @@ class TestLocalWorker:
             worker.start_run("   ")
 
     def test_worker_stops_gracefully(
-        self, mock_config: MockConfig, repo_root: Path
+        self, mock_config: DashboardConfig, repo_root: Path
     ) -> None:
         """Test that worker stops gracefully even with pending work."""
         from orx.dashboard.worker.local import LocalWorker
@@ -293,7 +316,7 @@ class TestLocalWorker:
         assert worker._thread is None or not worker._thread.is_alive()
 
     def test_cleanup_completed_removes_finished_jobs(
-        self, mock_config: MockConfig
+        self, mock_config: DashboardConfig
     ) -> None:
         """Ensure finished jobs are removed from active list."""
         from orx.dashboard.worker.local import LocalWorker, RunJob
@@ -315,7 +338,9 @@ class TestLocalWorker:
         with worker._lock:
             assert "test" not in worker._active_jobs
 
-    def test_cancel_run_by_pid_from_state(self, mock_config: MockConfig) -> None:
+    def test_cancel_run_by_pid_from_state(
+        self, mock_config: DashboardConfig
+    ) -> None:
         """Cancel should fall back to pid from state.json when job not tracked."""
         from orx.dashboard.worker.local import LocalWorker
 

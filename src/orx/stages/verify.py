@@ -85,7 +85,9 @@ class VerifyStage(BaseStage):
             pytest_failed=pytest_failed,
         )
 
-    def get_evidence(self, ctx: StageContext, verify_result: VerifyResult) -> dict:
+    def get_evidence(
+        self, ctx: StageContext, verify_result: VerifyResult
+    ) -> dict[str, str]:
         """Build evidence dict from verification results.
 
         Args:
@@ -95,9 +97,9 @@ class VerifyStage(BaseStage):
         Returns:
             Evidence dictionary for fix prompts.
         """
-        evidence: dict = {
-            "ruff_failed": verify_result.ruff_failed,
-            "pytest_failed": verify_result.pytest_failed,
+        evidence: dict[str, str] = {
+            "ruff_failed": str(verify_result.ruff_failed).lower(),
+            "pytest_failed": str(verify_result.pytest_failed).lower(),
         }
 
         # Get log tails
