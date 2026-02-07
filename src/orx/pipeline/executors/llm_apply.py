@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -69,13 +70,39 @@ class LLMApplyNodeExecutor:
             # Get timeout
             timeout = node.config.timeout_seconds or exec_ctx.timeout_seconds
 
+            corr_ids = None
+            started = time.perf_counter()
+            if exec_ctx.observability:
+                corr_ids = exec_ctx.observability.llm_request(
+                    stage=node.id,
+                    prompt_path=prompt_path,
+                    item_id=item_id,
+                    attempt=iteration,
+                    model=exec_ctx.model_selector.model
+                    if exec_ctx.model_selector
+                    else None,
+                    executor=exec_ctx.executor.name,
+                )
+
             # Call LLM
             result = exec_ctx.executor.run_apply(
                 cwd=exec_ctx.workspace.worktree_path,
                 prompt_path=prompt_path,
                 logs=logs,
                 timeout=timeout,
+                model_selector=exec_ctx.model_selector,
             )
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            if exec_ctx.observability:
+                exec_ctx.observability.llm_response(
+                    stage=node.id,
+                    result=result,
+                    out_path=None,
+                    item_id=item_id,
+                    attempt=iteration,
+                    correlation_ids=corr_ids,
+                    duration_ms=duration_ms,
+                )
 
             if result.failed:
                 log.error("LLM apply failed", error=result.error_message)
@@ -95,6 +122,13 @@ class LLMApplyNodeExecutor:
             patch_diff = ""
             if exec_ctx.paths.patch_diff.exists():
                 patch_diff = exec_ctx.paths.patch_diff.read_text()
+                if exec_ctx.observability:
+                    exec_ctx.observability.fs_patch(
+                        stage=node.id,
+                        patch_path=exec_ctx.paths.patch_diff,
+                        item_id=item_id,
+                        attempt=int(iteration),
+                    )
 
             # Build outputs
             outputs: dict[str, Any] = {}
@@ -164,26 +198,39 @@ class LLMApplyNodeExecutor:
         def get_context_value(key: str, default: str = "") -> str:
             """Get value from context or artifact store."""
             if key in context:
+                return str(context[key])
+            if exec_ctx.store.exists(key):
+                return str(exec_ctx.store.get(key))
+            return default
+
+        def get_store_value(key: str) -> Any:
+            """Get raw object from context or artifact store."""
+            if key in context:
                 return context[key]
             if exec_ctx.store.exists(key):
                 return exec_ctx.store.get(key)
-            return default
+            return None
 
         # Task
         task = get_context_value("task")
-        template_ctx["task"] = compact_text(task, max_lines=40)
+        task_summary = compact_text(task, max_lines=40)
+        template_ctx["task"] = task_summary
+        template_ctx["task_summary"] = task_summary
 
         # Spec
         spec = get_context_value("spec")
         if hasattr(spec, "model_dump"):
             spec = str(spec)
-        template_ctx["spec"] = extract_spec_highlights(spec, max_lines=120)
+        spec_highlights = extract_spec_highlights(spec, max_lines=120)
+        template_ctx["spec"] = spec_highlights
+        template_ctx["spec_highlights"] = spec_highlights
 
         # Work item context
         if item:
             template_ctx["item_id"] = item.id
             template_ctx["item_title"] = item.title
             template_ctx["item_objective"] = item.objective
+            template_ctx["item_notes"] = item.notes
             template_ctx["acceptance"] = item.acceptance
             template_ctx["files_hint"] = item.files_hint
 
@@ -210,5 +257,18 @@ class LLMApplyNodeExecutor:
         agents = get_context_value("agents_context")
         if agents:
             template_ctx["agents_context"] = agents
+
+        verify_errors = get_store_value("verify_errors")
+        if isinstance(verify_errors, dict):
+            error_logs = str(verify_errors.get("error_logs", "")).strip()
+            if error_logs:
+                template_ctx["error_logs"] = error_logs
+            fix_attempt = verify_errors.get("fix_attempt")
+            if isinstance(fix_attempt, int):
+                template_ctx["fix_attempt"] = fix_attempt
+
+        error_logs = get_context_value("error_logs").strip()
+        if error_logs:
+            template_ctx["error_logs"] = error_logs
 
         return template_ctx

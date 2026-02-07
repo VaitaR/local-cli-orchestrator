@@ -1,0 +1,37 @@
+<div class="tab-content">
+    {% if fs_events %}
+    <section class="card">
+        <div class="card-header"><h3>🗂️ FS Patches</h3></div>
+        <div class="card-body">
+            <table class="metrics-table">
+                <thead>
+                    <tr>
+                        <th>Step</th>
+                        <th>Stage</th>
+                        <th>Item</th>
+                        <th>Patch</th>
+                        <th>Checksums</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for event in fs_events %}
+                    {% set payload = event.payload or {} %}
+                    <tr>
+                        <td>{{ event.step_id }}</td>
+                        <td>{{ payload.stage or '-' }}</td>
+                        <td>{{ payload.item_id or '-' }}</td>
+                        <td><code>{{ payload.patch_path or '-' }}</code></td>
+                        <td>
+                            <small>before={{ payload.before_checksum or '-' }}</small><br/>
+                            <small>after={{ payload.after_checksum or '-' }}</small>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+    {% else %}
+    <div class="empty-state"><p>No filesystem patch events.</p></div>
+    {% endif %}
+</div>

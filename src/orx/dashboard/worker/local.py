@@ -32,9 +32,9 @@ class RunJob:
     repo_path: str | None = None
     base_branch: str | None = None
     pipeline: str | None = None
-    pipeline_override: dict | None = None
-    config_overrides: dict = field(default_factory=dict)
-    process: subprocess.Popen | None = None
+    pipeline_override: dict[str, Any] | None = None
+    config_overrides: dict[str, Any] = field(default_factory=dict)
+    process: subprocess.Popen[bytes] | None = None
     started_at: float | None = None
 
 
@@ -98,8 +98,8 @@ class LocalWorker:
         repo_path: str | None = None,
         base_branch: str | None = None,
         pipeline: str | None = None,
-        pipeline_override: dict | None = None,
-        config_overrides: dict | None = None,
+        pipeline_override: dict[str, Any] | None = None,
+        config_overrides: dict[str, Any] | None = None,
     ) -> str:
         """Queue a new run.
 

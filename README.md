@@ -12,11 +12,16 @@
 - **Fix loops**: Automatic retry with failure evidence and token tracking
 - **Resume support**: Continue interrupted runs from checkpoint
 - **Web Dashboard**: Local FastAPI + HTMX UI with real-time monitoring
-- **Metrics & Observability**: Token usage tracking, stage timings, quality analysis
+- **Observability v2 (hard-cutover)**: Canonical `observability/events.jsonl` with LLM/process/fs/tty traces
 - **Self-improvement**: Automatic updates to AGENTS.md and ARCHITECTURE.md after successful runs
-- **Full auditability**: All artifacts, logs, prompts, and metrics persisted under `runs/<id>/`
+- **Full auditability**: All artifacts, logs, prompts, and observability bundles persisted under `runs/<id>/`
 
 ## Installation
+
+### Python Support
+
+- Supported: Python 3.11, 3.12
+- Not supported: Python 3.13+
 
 ```bash
 pip install -e ".[dev]"
@@ -33,6 +38,11 @@ orx init
 
 # Run a task
 orx run "Add a function add(a,b) that returns the sum"
+# Equivalent explicit form (pipeline engine is production default)
+orx run --pipeline standard "Add a function add(a,b) that returns the sum"
+
+# Legacy FSM path (migration/debug only)
+orx run --legacy-fsm "Add a function add(a,b) that returns the sum"
 
 # Or from a file
 orx run @task.md
@@ -148,6 +158,19 @@ runs/<run_id>/
     patch.diff        # Final diff (produced by git)
     review.md         # Code review
     pr_body.md        # PR description
+  observability/
+    events.jsonl      # Canonical v2 timeline
+    metadata.json
+    tty/
+      session.cast
+    llm/
+      request_*.txt
+      response_*.txt
+    patches/
+      *.diff
+    exports/
+      redacted/
+        events.redacted.jsonl
   logs/
     agent_*.log       # Agent stdout/stderr
     ruff.log          # Gate logs
@@ -175,8 +198,21 @@ make run
 - IDE-style artifacts explorer with syntax highlighting
 - Token usage and tool call metrics
 - Stage timeline with success/failure indicators
+- Dedicated traces for LLM / proc / fs / tty from observability v2 events
 - Log tailing with search and filtering
 - Start/cancel runs from UI
+
+## Observability Commands
+
+```bash
+# Validate observability contract for a run
+orx observability validate --run-id <run_id>
+
+# Export redacted events
+orx observability export --run-id <run_id> --mode redacted
+```
+
+Legacy `orx metrics ...` commands are not supported after v2 cutover.
 
 ## Development
 
@@ -208,20 +244,20 @@ Dashboard (FastAPI + HTMX)  ←→  CLI (Typer)
     ┌────────────────────────────────┼────────────────────────────────┐
     │                                │                                │
     ▼                                ▼                                ▼
-StateManager                    ContextPack                    MetricsCollector
-(state.json)                    (artifacts)                    (stages.jsonl)
+StateManager                    ContextPack                    Observability Runtime
+(state.json)                    (artifacts)                    (events.jsonl)
                                      │
                                      ▼
                             WorkspaceGitWorktree
                                      │
                                      ▼
                                   Stages
-        ├── PlanStage           → Executor (text mode) → Metrics
-        ├── SpecStage           → Executor (text mode) → Metrics
-        ├── DecomposeStage      → Executor (text mode) → Metrics
-        ├── ImplementStage      → Executor (apply mode) → Metrics
-        ├── VerifyStage         → Gates (ruff, pytest) → Metrics
-        ├── ReviewStage         → Executor (text mode) → Metrics
+        ├── PlanStage           → Executor (text mode) → Observability v2
+        ├── SpecStage           → Executor (text mode) → Observability v2
+        ├── DecomposeStage      → Executor (text mode) → Observability v2
+        ├── ImplementStage      → Executor (apply mode) → Observability v2
+        ├── VerifyStage         → Gates (ruff, pytest) → Observability v2
+        ├── ReviewStage         → Executor (text mode) → Observability v2
         ├── ShipStage           → Git (commit, push, PR)
         └── KnowledgeUpdateStage → Self-improvement (AGENTS.md)
                                                              │

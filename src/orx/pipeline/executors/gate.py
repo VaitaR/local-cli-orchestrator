@@ -72,6 +72,16 @@ class GateNodeExecutor:
                 "returncode": result.returncode,
             }
             metrics["gates"].append(gate_metric)
+            if exec_ctx.observability:
+                exec_ctx.observability.gate_approval(
+                    gate=gate.name,
+                    status="approved" if result.ok else "rejected",
+                    details={
+                        "node": node.id,
+                        "duration_ms": duration_ms,
+                        "returncode": result.returncode,
+                    },
+                )
 
             if result.failed:
                 # Try auto-fix for ruff
@@ -91,6 +101,12 @@ class GateNodeExecutor:
                             log.info("Gate passed after auto-fix", gate=gate.name)
                             gate_metric["passed"] = True
                             gate_metric["auto_fixed"] = True
+                            if exec_ctx.observability:
+                                exec_ctx.observability.gate_approval(
+                                    gate=f"{gate.name}_retry",
+                                    status="approved",
+                                    details={"node": node.id},
+                                )
                             continue
                         else:
                             log.warning(

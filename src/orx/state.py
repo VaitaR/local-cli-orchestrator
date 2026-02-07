@@ -114,6 +114,9 @@ class RunState:
     current_iteration: int = 0
     baseline_sha: str | None = None
     pid: int | None = None
+    step_counter: int = 0
+    tty_segment_index: int = 0
+    observability_session_id: str | None = None
     stage_statuses: dict[str, StageStatus] = field(default_factory=dict)
     last_failure_evidence: dict[str, str] = field(default_factory=dict)
     created_at: str = field(default_factory=lambda: datetime.now(tz=UTC).isoformat())
@@ -128,6 +131,9 @@ class RunState:
             "current_iteration": self.current_iteration,
             "baseline_sha": self.baseline_sha,
             "pid": self.pid,
+            "step_counter": self.step_counter,
+            "tty_segment_index": self.tty_segment_index,
+            "observability_session_id": self.observability_session_id,
             "stage_statuses": {k: v.to_dict() for k, v in self.stage_statuses.items()},
             "last_failure_evidence": self.last_failure_evidence,
             "created_at": self.created_at,
@@ -148,6 +154,9 @@ class RunState:
             current_iteration=data.get("current_iteration", 0),
             baseline_sha=data.get("baseline_sha"),
             pid=data.get("pid"),
+            step_counter=data.get("step_counter", 0),
+            tty_segment_index=data.get("tty_segment_index", 0),
+            observability_session_id=data.get("observability_session_id"),
             stage_statuses=stage_statuses,
             last_failure_evidence=data.get("last_failure_evidence", {}),
             created_at=data.get("created_at", datetime.now(tz=UTC).isoformat()),
@@ -352,6 +361,27 @@ class StateManager:
             evidence: Dict of evidence name to content/path.
         """
         self.state.last_failure_evidence = evidence
+        self.save()
+
+    def next_step_id(self) -> int:
+        """Increment and persist the observability step counter."""
+        self.state.step_counter += 1
+        self.save()
+        return self.state.step_counter
+
+    def get_step_counter(self) -> int:
+        """Return the current observability step counter value."""
+        return self.state.step_counter
+
+    def next_tty_segment_index(self) -> int:
+        """Increment and persist tty segment index."""
+        self.state.tty_segment_index += 1
+        self.save()
+        return self.state.tty_segment_index
+
+    def set_observability_session_id(self, session_id: str | None) -> None:
+        """Persist current observability runtime session id."""
+        self.state.observability_session_id = session_id
         self.save()
 
     def clear_failure_evidence(self) -> None:

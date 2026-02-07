@@ -1,0 +1,34 @@
+<div class="tab-content">
+    {% if proc_events %}
+    <section class="card">
+        <div class="card-header"><h3>⚙️ Process Trace</h3></div>
+        <div class="card-body">
+            <table class="metrics-table">
+                <thead>
+                    <tr>
+                        <th>Step</th>
+                        <th>Type</th>
+                        <th>Command</th>
+                        <th>Return</th>
+                        <th>Duration</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for event in proc_events %}
+                    {% set payload = event.payload or {} %}
+                    <tr>
+                        <td>{{ event.step_id }}</td>
+                        <td>{{ event.event_type }}</td>
+                        <td><code>{{ payload.cmd | join(' ') if payload.cmd else payload.command_id }}</code></td>
+                        <td>{{ payload.returncode if payload.returncode is not none else '-' }}</td>
+                        <td>{{ payload.duration_ms if payload.duration_ms is not none else '-' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+    {% else %}
+    <div class="empty-state"><p>No process events.</p></div>
+    {% endif %}
+</div>

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import importlib
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 import structlog
 
@@ -71,7 +71,9 @@ class CustomNodeExecutor:
             log.error("Custom node failed", error=str(e))
             return NodeResult(success=False, error=str(e))
 
-    def _import_callable(self, path: str) -> Callable:
+    def _import_callable(
+        self, path: str
+    ) -> Callable[[NodeDefinition, dict[str, Any], ExecutionContext], NodeResult]:
         """Import a callable from a dotted path.
 
         Args:
@@ -90,7 +92,14 @@ class CustomNodeExecutor:
             module_path, func_name = path.rsplit(".", 1)
 
         module = importlib.import_module(module_path)
-        return getattr(module, func_name)
+        func = getattr(module, func_name)
+        if not callable(func):
+            msg = f"Imported object is not callable: {path}"
+            raise TypeError(msg)
+        return cast(
+            Callable[[NodeDefinition, dict[str, Any], ExecutionContext], NodeResult],
+            func,
+        )
 
     def _get_builtin_handler(
         self, node_id: str
@@ -152,12 +161,13 @@ def ship_node(
         commit_msg = f"feat: orx implementation [{run_id}]"
 
         if exec_ctx.config.git.auto_commit:
-            exec_ctx.workspace.commit(commit_msg)
+            exec_ctx.workspace.commit_all(commit_msg)
             log.info("Changes committed")
 
             # Push if configured
             if exec_ctx.config.git.auto_push:
-                exec_ctx.workspace.push()
+                branch_name = f"orx/{exec_ctx.paths.run_id}"
+                exec_ctx.workspace.push(exec_ctx.config.git.remote, branch_name)
                 log.info("Changes pushed")
 
         # Save PR body
@@ -235,30 +245,35 @@ def knowledge_update_node(
 
     # Knowledge update is non-fatal
     try:
-        from orx.stages.base import StageContext
-        from orx.stages.knowledge import KnowledgeUpdateStage
+        from orx.config import KnowledgeConfig
+        from orx.context.pack import ContextPack
+        from orx.knowledge.evidence import EvidenceCollector
+        from orx.knowledge.updater import KnowledgeUpdater
 
-        # Build minimal stage context
-        stage_ctx = StageContext(
+        knowledge_cfg_raw = exec_ctx.config.model_dump().get("knowledge", {})
+        knowledge_cfg = KnowledgeConfig.model_validate(knowledge_cfg_raw)
+        if not knowledge_cfg.enabled or knowledge_cfg.mode == "off":
+            return NodeResult(success=True, outputs={"knowledge_update": "skipped"})
+
+        repo_root = exec_ctx.workspace.worktree_path.parent.parent
+        pack = ContextPack(exec_ctx.paths)
+        collector = EvidenceCollector(
             paths=exec_ctx.paths,
-            pack=exec_ctx.store,  # ArtifactStore has compatible interface
-            state=None,  # type: ignore
-            workspace=exec_ctx.workspace,
-            executor=exec_ctx.executor,
-            gates=exec_ctx.gates,
-            renderer=exec_ctx.renderer,
-            config=exec_ctx.config.model_dump(),
+            pack=pack,
+            repo_root=repo_root,
         )
+        evidence = collector.collect()
 
-        stage = KnowledgeUpdateStage()
-        result = stage.execute(stage_ctx)
+        updater = KnowledgeUpdater(
+            config=knowledge_cfg,
+            paths=exec_ctx.paths,
+            executor=exec_ctx.executor,
+            repo_root=repo_root,
+        )
+        result = updater.run(evidence)
 
-        if result.success:
-            return NodeResult(success=True)
-        else:
-            # Non-fatal - log but don't fail
-            log.warning("Knowledge update failed (non-fatal)", error=result.message)
-            return NodeResult(success=True)
+        status = "updated" if (result.agents_updated or result.arch_updated) else "noop"
+        return NodeResult(success=True, outputs={"knowledge_update": status})
 
     except Exception as e:
         log.warning("Knowledge update failed (non-fatal)", error=str(e))

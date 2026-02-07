@@ -205,7 +205,7 @@ How would you like to proceed with this file? I can help you modify the template
 
         class SimpleBacklog(BaseModel):
             run_id: str = Field(..., min_length=1)
-            items: list[dict] = Field(default_factory=list)
+            items: list[dict[str, str]] = Field(default_factory=list)
 
         content = """
 run_id: "test_123"

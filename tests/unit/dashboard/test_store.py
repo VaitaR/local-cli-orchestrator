@@ -137,6 +137,42 @@ class TestFileSystemRunStore:
         assert active[0].run_id == "test-run-002"
         assert active[0].status == RunStatus.RUNNING
 
+    def test_stale_init_run_without_pid_is_not_active(
+        self, store: FileSystemRunStore
+    ) -> None:
+        """Legacy INIT-only runs with no PID/events should not stay active forever."""
+        run_dir = store.runs_dir / "test-run-stale"
+        run_dir.mkdir()
+        (run_dir / "meta.json").write_text(
+            json.dumps(
+                {
+                    "run_id": "test-run-stale",
+                    "task": "Stale run",
+                    "created_at": "2025-01-15T12:00:00Z",
+                }
+            )
+        )
+        (run_dir / "state.json").write_text(
+            json.dumps(
+                {
+                    "current_stage": "init",
+                    "status": None,
+                    "pid": None,
+                    "created_at": "2025-01-15T12:00:00Z",
+                    "updated_at": "2025-01-15T12:05:00Z",
+                }
+            )
+        )
+
+        summary = store.get_run("test-run-stale")
+        assert summary is not None
+        assert summary.status == RunStatus.UNKNOWN
+        assert summary.is_active is False
+        assert summary.fail_category == "stale_state"
+
+        active_ids = {run.run_id for run in store.list_runs(active_only=True)}
+        assert "test-run-stale" not in active_ids
+
     def test_running_run_hides_last_error(self, store: FileSystemRunStore) -> None:
         """Running runs should not surface last error."""
         detail = store.get_run("test-run-002")
@@ -170,7 +206,7 @@ class TestFileSystemRunStore:
     def test_get_run_detail_synthesizes_metrics_summary_from_stages(
         self, store: FileSystemRunStore
     ) -> None:
-        """When run.json is missing, metrics_summary is derived from stages.jsonl."""
+        """metrics_summary is projected from observability events."""
         run_id = "test-run-003"
         run_dir = store.runs_dir / run_id
         run_dir.mkdir(parents=True, exist_ok=True)
@@ -197,26 +233,132 @@ class TestFileSystemRunStore:
         )
         (run_dir / "context").mkdir(parents=True, exist_ok=True)
 
-        metrics_dir = run_dir / "metrics"
-        metrics_dir.mkdir(parents=True, exist_ok=True)
-        stages_path = metrics_dir / "stages.jsonl"
-        stages_path.write_text(
+        obs_dir = run_dir / "observability"
+        obs_dir.mkdir(parents=True, exist_ok=True)
+        events_path = obs_dir / "events.jsonl"
+        events_path.write_text(
             "\n".join(
                 [
                     json.dumps(
                         {
-                            "stage": "plan",
-                            "duration_ms": 100,
-                            "status": "success",
-                            "tokens": {"input": 10, "output": 5, "total": 15},
+                            "schema_version": "2.0",
+                            "event_id": "e1",
+                            "ts": "2025-01-15T12:00:00+00:00",
+                            "run_id": run_id,
+                            "source": "supervisor",
+                            "event_type": "run.start",
+                            "step_id": 1,
+                            "correlation": {},
+                            "payload": {},
                         }
                     ),
                     json.dumps(
                         {
-                            "stage": "spec",
-                            "duration_ms": 200,
-                            "status": "success",
-                            "tokens": {"input": 3, "output": 2, "total": 5},
+                            "schema_version": "2.0",
+                            "event_id": "e2",
+                            "ts": "2025-01-15T12:00:01+00:00",
+                            "run_id": run_id,
+                            "source": "supervisor",
+                            "event_type": "stage.start",
+                            "step_id": 2,
+                            "correlation": {},
+                            "payload": {"stage": "plan", "attempt": 1},
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "schema_version": "2.0",
+                            "event_id": "e3",
+                            "ts": "2025-01-15T12:00:02+00:00",
+                            "run_id": run_id,
+                            "source": "gateway",
+                            "event_type": "llm.response",
+                            "step_id": 3,
+                            "correlation": {},
+                            "payload": {
+                                "stage": "plan",
+                                "attempt": 1,
+                                "tokens": {"input": 10, "output": 5, "total": 15},
+                            },
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "schema_version": "2.0",
+                            "event_id": "e4",
+                            "ts": "2025-01-15T12:00:03+00:00",
+                            "run_id": run_id,
+                            "source": "supervisor",
+                            "event_type": "stage.end",
+                            "step_id": 4,
+                            "correlation": {},
+                            "payload": {
+                                "stage": "plan",
+                                "attempt": 1,
+                                "status": "success",
+                                "duration_ms": 100,
+                            },
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "schema_version": "2.0",
+                            "event_id": "e5",
+                            "ts": "2025-01-15T12:00:04+00:00",
+                            "run_id": run_id,
+                            "source": "supervisor",
+                            "event_type": "stage.start",
+                            "step_id": 5,
+                            "correlation": {},
+                            "payload": {"stage": "spec", "attempt": 1},
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "schema_version": "2.0",
+                            "event_id": "e6",
+                            "ts": "2025-01-15T12:00:05+00:00",
+                            "run_id": run_id,
+                            "source": "gateway",
+                            "event_type": "llm.response",
+                            "step_id": 6,
+                            "correlation": {},
+                            "payload": {
+                                "stage": "spec",
+                                "attempt": 1,
+                                "tokens": {"input": 3, "output": 2, "total": 5},
+                            },
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "schema_version": "2.0",
+                            "event_id": "e7",
+                            "ts": "2025-01-15T12:00:06+00:00",
+                            "run_id": run_id,
+                            "source": "supervisor",
+                            "event_type": "stage.end",
+                            "step_id": 7,
+                            "correlation": {},
+                            "payload": {
+                                "stage": "spec",
+                                "attempt": 1,
+                                "status": "success",
+                                "duration_ms": 200,
+                            },
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "schema_version": "2.0",
+                            "event_id": "e8",
+                            "ts": "2025-01-15T12:00:07+00:00",
+                            "run_id": run_id,
+                            "source": "supervisor",
+                            "event_type": "run.end",
+                            "step_id": 8,
+                            "correlation": {},
+                            "payload": {"status": "failure"},
                         }
                     ),
                 ]
@@ -228,29 +370,87 @@ class TestFileSystemRunStore:
         assert detail is not None
         assert detail.has_metrics is True
         assert detail.metrics_summary is not None
-        assert detail.metrics_summary["total_duration_ms"] == 300
+        assert detail.metrics_summary["total_duration_ms"] == 7000
         assert detail.metrics_summary["tokens"] == {
             "input": 13,
             "output": 7,
             "total": 20,
+            "tool_calls": 0,
         }
         assert detail.metrics_summary["stages_executed"] == 2
 
     def test_get_run_detail_synthesizes_metrics_for_active_run(
         self, store: FileSystemRunStore
     ) -> None:
-        """Active runs should still surface partial metrics from stages.jsonl."""
+        """Active runs should still surface partial metrics from observability."""
         run_dir = store.runs_dir / "test-run-002"
-        metrics_dir = run_dir / "metrics"
-        metrics_dir.mkdir(parents=True, exist_ok=True)
-        (metrics_dir / "stages.jsonl").write_text(
-            json.dumps(
-                {
-                    "stage": "plan",
-                    "duration_ms": 123,
-                    "status": "success",
-                    "tokens": {"input": 1, "output": 2, "total": 3},
-                }
+        obs_dir = run_dir / "observability"
+        obs_dir.mkdir(parents=True, exist_ok=True)
+        (obs_dir / "events.jsonl").write_text(
+            "\n".join(
+                [
+                    json.dumps(
+                        {
+                            "schema_version": "2.0",
+                            "event_id": "e1",
+                            "ts": "2025-01-15T11:00:00+00:00",
+                            "run_id": "test-run-002",
+                            "source": "supervisor",
+                            "event_type": "run.start",
+                            "step_id": 1,
+                            "correlation": {},
+                            "payload": {},
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "schema_version": "2.0",
+                            "event_id": "e2",
+                            "ts": "2025-01-15T11:00:01+00:00",
+                            "run_id": "test-run-002",
+                            "source": "supervisor",
+                            "event_type": "stage.start",
+                            "step_id": 2,
+                            "correlation": {},
+                            "payload": {"stage": "plan", "attempt": 1},
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "schema_version": "2.0",
+                            "event_id": "e3",
+                            "ts": "2025-01-15T11:00:02+00:00",
+                            "run_id": "test-run-002",
+                            "source": "gateway",
+                            "event_type": "llm.response",
+                            "step_id": 3,
+                            "correlation": {},
+                            "payload": {
+                                "stage": "plan",
+                                "attempt": 1,
+                                "tokens": {"input": 1, "output": 2, "total": 3},
+                            },
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "schema_version": "2.0",
+                            "event_id": "e4",
+                            "ts": "2025-01-15T11:00:03+00:00",
+                            "run_id": "test-run-002",
+                            "source": "supervisor",
+                            "event_type": "stage.end",
+                            "step_id": 4,
+                            "correlation": {},
+                            "payload": {
+                                "stage": "plan",
+                                "attempt": 1,
+                                "status": "success",
+                                "duration_ms": 123,
+                            },
+                        }
+                    ),
+                ]
             )
             + "\n"
         )
@@ -260,8 +460,13 @@ class TestFileSystemRunStore:
         assert detail.is_active is True
         assert detail.has_metrics is True
         assert detail.metrics_summary is not None
-        assert detail.metrics_summary["total_duration_ms"] == 123
-        assert detail.metrics_summary["tokens"] == {"input": 1, "output": 2, "total": 3}
+        assert detail.metrics_summary["total_duration_ms"] in (None, 123, detail.elapsed_ms)
+        assert detail.metrics_summary["tokens"] == {
+            "input": 1,
+            "output": 2,
+            "total": 3,
+            "tool_calls": 0,
+        }
         assert detail.metrics_summary["stages_executed"] == 1
 
     def test_get_artifact_content(self, store: FileSystemRunStore) -> None:

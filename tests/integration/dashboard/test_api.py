@@ -4,11 +4,13 @@ import json
 from collections.abc import Generator
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 from fastapi.testclient import TestClient
 
 from orx.dashboard.server import create_app
+from orx.executors.models import get_default_model
 
 
 @pytest.fixture
@@ -62,26 +64,125 @@ def runs_root(tmp_path: Path) -> Path:
     logs.mkdir()
     (logs / "run.log").write_text("INFO Starting\nINFO Done\n")
 
-    # Add stage metrics but omit aggregated run.json to exercise handler fallbacks.
-    metrics = run1 / "metrics"
-    metrics.mkdir()
-    (metrics / "stages.jsonl").write_text(
+    observability1 = run1 / "observability"
+    observability1.mkdir()
+    (observability1 / "events.jsonl").write_text(
         "\n".join(
             [
                 json.dumps(
                     {
-                        "stage": "plan",
-                        "duration_ms": 100,
-                        "status": "success",
-                        "tokens": {"input": 2, "output": 3, "total": 5},
+                        "schema_version": "2.0",
+                        "event_id": "e1",
+                        "ts": "2025-01-15T10:00:00+00:00",
+                        "run_id": "test-run-001",
+                        "source": "supervisor",
+                        "event_type": "run.start",
+                        "step_id": 1,
+                        "correlation": {},
+                        "payload": {},
                     }
                 ),
                 json.dumps(
                     {
-                        "stage": "implement",
-                        "duration_ms": 200,
-                        "status": "success",
-                        "tokens": {"input": 1, "output": 4, "total": 5},
+                        "schema_version": "2.0",
+                        "event_id": "e2",
+                        "ts": "2025-01-15T10:00:01+00:00",
+                        "run_id": "test-run-001",
+                        "source": "supervisor",
+                        "event_type": "stage.start",
+                        "step_id": 2,
+                        "correlation": {},
+                        "payload": {"stage": "plan", "attempt": 1},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "schema_version": "2.0",
+                        "event_id": "e3",
+                        "ts": "2025-01-15T10:00:02+00:00",
+                        "run_id": "test-run-001",
+                        "source": "gateway",
+                        "event_type": "llm.response",
+                        "step_id": 3,
+                        "correlation": {},
+                        "payload": {
+                            "stage": "plan",
+                            "attempt": 1,
+                            "tokens": {"input": 2, "output": 3, "total": 5},
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "schema_version": "2.0",
+                        "event_id": "e4",
+                        "ts": "2025-01-15T10:00:03+00:00",
+                        "run_id": "test-run-001",
+                        "source": "supervisor",
+                        "event_type": "stage.end",
+                        "step_id": 4,
+                        "correlation": {},
+                        "payload": {"stage": "plan", "attempt": 1, "status": "success"},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "schema_version": "2.0",
+                        "event_id": "e5",
+                        "ts": "2025-01-15T10:00:04+00:00",
+                        "run_id": "test-run-001",
+                        "source": "supervisor",
+                        "event_type": "stage.start",
+                        "step_id": 5,
+                        "correlation": {},
+                        "payload": {"stage": "implement", "attempt": 1},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "schema_version": "2.0",
+                        "event_id": "e6",
+                        "ts": "2025-01-15T10:00:05+00:00",
+                        "run_id": "test-run-001",
+                        "source": "gateway",
+                        "event_type": "llm.response",
+                        "step_id": 6,
+                        "correlation": {},
+                        "payload": {
+                            "stage": "implement",
+                            "attempt": 1,
+                            "tokens": {"input": 1, "output": 4, "total": 5},
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "schema_version": "2.0",
+                        "event_id": "e7",
+                        "ts": "2025-01-15T10:00:06+00:00",
+                        "run_id": "test-run-001",
+                        "source": "supervisor",
+                        "event_type": "stage.end",
+                        "step_id": 7,
+                        "correlation": {},
+                        "payload": {
+                            "stage": "implement",
+                            "attempt": 1,
+                            "status": "success",
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "schema_version": "2.0",
+                        "event_id": "e8",
+                        "ts": "2025-01-15T10:30:00+00:00",
+                        "run_id": "test-run-001",
+                        "source": "supervisor",
+                        "event_type": "run.end",
+                        "step_id": 8,
+                        "correlation": {},
+                        "payload": {"status": "success"},
                     }
                 ),
             ]
@@ -115,6 +216,41 @@ def runs_root(tmp_path: Path) -> Path:
                 },
             }
         )
+    )
+    observability2 = run2 / "observability"
+    observability2.mkdir()
+    (observability2 / "events.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "schema_version": "2.0",
+                        "event_id": "e1",
+                        "ts": now.isoformat(),
+                        "run_id": "test-run-002",
+                        "source": "supervisor",
+                        "event_type": "run.start",
+                        "step_id": 1,
+                        "correlation": {},
+                        "payload": {},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "schema_version": "2.0",
+                        "event_id": "e2",
+                        "ts": now.isoformat(),
+                        "run_id": "test-run-002",
+                        "source": "supervisor",
+                        "event_type": "stage.start",
+                        "step_id": 2,
+                        "correlation": {},
+                        "payload": {"stage": "implement", "attempt": 1},
+                    }
+                ),
+            ]
+        )
+        + "\n"
     )
     logs2 = run2 / "logs"
     logs2.mkdir()
@@ -237,7 +373,7 @@ class TestPartialEndpoints:
     ) -> None:
         response = client.get("/partials/run-tab/test-run-001?tab=metrics")
         assert response.status_code == 200
-        assert "Token Usage" in response.text
+        assert "Tokens" in response.text
         assert "Stage Breakdown" in response.text
         assert "plan" in response.text
 
@@ -260,7 +396,8 @@ class TestPartialEndpoints:
 
     def test_active_runs_shows_running_run(self, client: TestClient) -> None:
         """Ensure active runs partial renders a running run."""
-        runs_dir = client.app.state.store.runs_dir
+        app = cast(Any, client.app)
+        runs_dir = app.state.store.runs_dir
         run_id = "running-run-001"
         run_dir = runs_dir / run_id
         run_dir.mkdir()
@@ -296,7 +433,8 @@ class TestPartialEndpoints:
 
     def test_start_run_form_defaults_repo_path(self, client: TestClient) -> None:
         """Ensure start run form defaults repo path based on runs root."""
-        runs_root = client.app.state.config.runs_root
+        app = cast(Any, client.app)
+        runs_root = app.state.config.runs_root
         response = client.get("/partials/start-run-form")
         assert response.status_code == 200
         assert str(runs_root.parent) in response.text
@@ -317,9 +455,10 @@ class TestAPIEndpoints:
 
         # Verify gemini engine data
         gemini = next(e for e in data["engines"] if e["value"] == "gemini")
+        gemini_default = get_default_model("gemini")
         assert gemini["label"] == "Gemini"
-        assert "gemini-2.0-flash" in gemini["available_models"]
-        assert gemini["stage_models"]["plan"] == "gemini-2.0-flash"
+        assert gemini_default in gemini["available_models"]
+        assert gemini["stage_models"]["plan"] == gemini_default
 
         # Verify stages
         assert any(s["value"] == "plan" for s in data["stages"])
@@ -346,11 +485,12 @@ class TestAPIEndpoints:
         assert data["default_engine"] == "gemini"
 
         gemini = next(e for e in data["engines"] if e["value"] == "gemini")
+        gemini_default = get_default_model("gemini")
         # available_models is omitted in the YAML and should fall back to defaults
-        assert "gemini-2.0-flash" in gemini["available_models"]
+        assert gemini_default in gemini["available_models"]
         # stage_models is partial in the YAML: keep explicit override, fill others
         assert gemini["stage_models"]["plan"] == "gemini-1.5-pro"
-        assert gemini["stage_models"]["spec"] == "gemini-2.0-flash"
+        assert gemini["stage_models"]["spec"] == gemini_default
 
     def test_get_run_status(self, client: TestClient) -> None:
         """Test getting run status via API."""
@@ -383,7 +523,8 @@ class TestAPIEndpoints:
         self, client: TestClient
     ) -> None:
         """Runs that look active but lack pid can't be cancelled by the dashboard."""
-        runs_dir = client.app.state.store.runs_dir
+        app = cast(Any, client.app)
+        runs_dir = app.state.store.runs_dir
         run_id = "running-no-pid-001"
         run_dir = runs_dir / run_id
         run_dir.mkdir()

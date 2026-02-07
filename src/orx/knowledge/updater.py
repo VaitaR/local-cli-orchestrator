@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import structlog
 
 from orx.config import KnowledgeConfig
-from orx.executors.base import Executor
+from orx.executors.base import Executor, LogPaths
 from orx.knowledge.evidence import EvidencePack
 from orx.knowledge.guardrails import ChangeStats, KnowledgeGuardrails
 from orx.paths import RunPaths
@@ -135,7 +136,7 @@ class KnowledgeUpdater:
 
         return result
 
-    def _update_agents(self, evidence: EvidencePack) -> dict:
+    def _update_agents(self, evidence: EvidencePack) -> dict[str, Any]:
         """Update AGENTS.md.
 
         Args:
@@ -177,17 +178,8 @@ class KnowledgeUpdater:
             problems_section=problems_section,
         )
 
-        # Save prompt
-        prompt_path = self.paths.prompts / "knowledge_agents.md"
-        prompt_path.write_text(prompt)
-
-        # Run executor
-        exec_result = self.executor.run_text(
-            prompt=prompt,
-            log_path=self.paths.log_path("knowledge_agents"),
-        )
-
-        if not exec_result.success or not exec_result.output:
+        generated = self._run_text_prompt("knowledge_agents", prompt)
+        if not generated:
             log.warning("Executor failed or returned empty output")
             return {"updated": False, "reason": "Executor failed"}
 
@@ -195,7 +187,7 @@ class KnowledgeUpdater:
         new_content = self.guardrails.replace_marker_content(
             current_content,
             "agents",
-            exec_result.output,
+            generated,
         )
 
         # Validate limits
@@ -223,10 +215,10 @@ class KnowledgeUpdater:
             "updated": self.config.mode == "auto",
             "stats": stats,
             "patch": patch,
-            "new_content": exec_result.output,
+            "new_content": generated,
         }
 
-    def _update_architecture(self, evidence: EvidencePack) -> dict:
+    def _update_architecture(self, evidence: EvidencePack) -> dict[str, Any]:
         """Update ARCHITECTURE.md with gatekeeping.
 
         Args:
@@ -283,17 +275,8 @@ class KnowledgeUpdater:
             problems_section=problems_section,
         )
 
-        # Save prompt
-        prompt_path = self.paths.prompts / "knowledge_arch.md"
-        prompt_path.write_text(prompt)
-
-        # Run executor
-        exec_result = self.executor.run_text(
-            prompt=prompt,
-            log_path=self.paths.log_path("knowledge_arch"),
-        )
-
-        if not exec_result.success or not exec_result.output:
+        output = self._run_text_prompt("knowledge_arch", prompt)
+        if not output:
             log.warning("Executor failed or returned empty output")
             return {
                 "updated": False,
@@ -302,7 +285,6 @@ class KnowledgeUpdater:
             }
 
         # Parse gatekeeping decision from output
-        output = exec_result.output
         gatekeeping = self._parse_gatekeeping_decision(output)
 
         if gatekeeping == "NO":
@@ -400,6 +382,39 @@ class KnowledgeUpdater:
 
         return "\n".join(lines[start_idx:])
 
+    def _run_text_prompt(self, prompt_name: str, prompt: str) -> str | None:
+        """Run a text prompt through the configured executor.
+
+        Writes prompt to archival path and worktree path, executes via run_text,
+        and returns generated content from out_path (or stdout fallback).
+        """
+        archived_prompt = self.paths.prompt_path(prompt_name)
+        archived_prompt.parent.mkdir(parents=True, exist_ok=True)
+        archived_prompt.write_text(prompt)
+
+        # Keep prompt accessible to sandboxed executors.
+        prompt_path = self.paths.copy_prompt_to_worktree(prompt_name)
+
+        stdout_path, stderr_path = self.paths.agent_log_paths(prompt_name)
+        out_path = self.paths.artifacts_dir / f"{prompt_name}.output.md"
+        logs = LogPaths(stdout=stdout_path, stderr=stderr_path)
+
+        result = self.executor.run_text(
+            cwd=self.paths.worktree_path,
+            prompt_path=prompt_path,
+            out_path=out_path,
+            logs=logs,
+        )
+
+        if result.failed:
+            return None
+
+        if out_path.exists():
+            return out_path.read_text()
+
+        stdout = result.read_stdout().strip()
+        return stdout if stdout else None
+
     def _generate_diff(self, old: str, new: str, filename: str) -> str:
         """Generate a unified diff between old and new content.
 
@@ -425,7 +440,7 @@ class KnowledgeUpdater:
 
         return "".join(diff)
 
-    def _format_agents_report(self, result: dict) -> str:
+    def _format_agents_report(self, result: dict[str, Any]) -> str:
         """Format AGENTS.md update report section.
 
         Args:
@@ -451,7 +466,7 @@ class KnowledgeUpdater:
 
         return "\n".join(lines)
 
-    def _format_arch_report(self, result: dict) -> str:
+    def _format_arch_report(self, result: dict[str, Any]) -> str:
         """Format ARCHITECTURE.md update report section.
 
         Args:
@@ -487,7 +502,7 @@ class KnowledgeUpdater:
             result: KnowledgeUpdateResult to save.
         """
         # Save report
-        report_path = self.paths.artifacts / "knowledge_update_report.md"
+        report_path = self.paths.artifacts_dir / "knowledge_update_report.md"
         report_path.write_text(result.report)
 
         # Save combined patch
@@ -498,5 +513,5 @@ class KnowledgeUpdater:
             combined_patch += "\n" + result.arch_patch
 
         if combined_patch:
-            patch_path = self.paths.artifacts / "knowledge.patch.diff"
+            patch_path = self.paths.artifacts_dir / "knowledge.patch.diff"
             patch_path.write_text(combined_patch)

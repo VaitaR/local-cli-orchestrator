@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import importlib
+from typing import Any
+
 import structlog
 
 logger = structlog.get_logger()
 
 # Global tokenizer cache
-_TOKENIZER_CACHE: dict[str, object] = {}
+_TOKENIZER_CACHE: dict[str, Any] = {}
 
 
 def estimate_tokens(text: str, model: str | None = None) -> int:
@@ -24,7 +27,7 @@ def estimate_tokens(text: str, model: str | None = None) -> int:
         return 0
 
     try:
-        import tiktoken
+        tiktoken = importlib.import_module("tiktoken")
     except ImportError:
         logger.warning("tiktoken not installed, using rough character estimate")
         # Rough fallback: ~4 characters per token
@@ -68,7 +71,7 @@ def estimate_tokens(text: str, model: str | None = None) -> int:
     tokenizer = _TOKENIZER_CACHE[cache_key]
 
     try:
-        tokens = tokenizer.encode(text)  # type: ignore[union-attr]
+        tokens = tokenizer.encode(text)
         return len(tokens)
     except Exception as e:
         logger.warning("Failed to encode text with tiktoken", error=str(e))

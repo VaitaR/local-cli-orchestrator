@@ -1,0 +1,28 @@
+id: smoke_quick
+name: Smoke Quick Pipeline
+description: Fast smoke pipeline for Claude Code executor
+version: "1.0"
+builtin: false
+default_context: []
+nodes:
+  - id: implement
+    type: llm_apply
+    template: implement_smoke.md
+    inputs:
+      - task
+    outputs:
+      - patch_diff
+    description: Apply a tiny, deterministic edit
+    config:
+      timeout_seconds: 120
+  - id: review
+    type: llm_text
+    template: review_smoke.md
+    inputs:
+      - task
+      - patch_diff
+    outputs:
+      - review
+    description: Produce a short smoke review
+    config:
+      timeout_seconds: 60

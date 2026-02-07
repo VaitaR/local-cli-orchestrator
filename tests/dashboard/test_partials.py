@@ -6,6 +6,8 @@ model, executor, and token data for the metrics display.
 
 from __future__ import annotations
 
+from typing import Any
+
 from orx.dashboard.handlers.partials import _build_metrics_context
 
 
@@ -152,7 +154,7 @@ class TestBuildMetricsContextTokenDataExtraction:
 
     def test_skips_non_dict_tokens_in_stages(self) -> None:
         """Test that non-dict tokens in stage_metrics are skipped."""
-        stage_metrics = [
+        stage_metrics: list[dict[str, Any]] = [
             {
                 "tokens": {"input": 100, "output": 50, "total": 150},
                 "duration_ms": 1000,

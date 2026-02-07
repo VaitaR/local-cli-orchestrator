@@ -5,6 +5,7 @@ import json
 # Add src to path
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -15,7 +16,7 @@ from orx.dashboard.store.models import RunStatus
 
 
 @pytest.fixture
-def temp_runs_dir(tmp_path):
+def temp_runs_dir(tmp_path: Path) -> Path:
     """Create temporary runs directory."""
     runs_dir = tmp_path / "runs"
     runs_dir.mkdir()
@@ -23,13 +24,18 @@ def temp_runs_dir(tmp_path):
 
 
 @pytest.fixture
-def store(temp_runs_dir):
+def store(temp_runs_dir: Path) -> FileSystemRunStore:
     """Create FileSystemRunStore instance."""
     # Use direct Path mode for testing
     return FileSystemRunStore(temp_runs_dir)
 
 
-def create_run(runs_dir: Path, run_id: str, current_stage: str, stage_statuses: dict):
+def create_run(
+    runs_dir: Path,
+    run_id: str,
+    current_stage: str,
+    stage_statuses: dict[str, dict[str, Any]],
+) -> None:
     """Helper to create a test run."""
     import os
 
@@ -69,8 +75,88 @@ def create_run(runs_dir: Path, run_id: str, current_stage: str, stage_statuses: 
     logs = run_dir / "logs"
     logs.mkdir(exist_ok=True)
 
+    obs_dir = run_dir / "observability"
+    obs_dir.mkdir(exist_ok=True)
+    events: list[dict[str, Any]] = []
+    step = 1
+    events.append(
+        {
+            "schema_version": "2.0",
+            "event_id": f"e{step}",
+            "ts": "2026-01-08T10:00:00+00:00",
+            "run_id": run_id,
+            "source": "supervisor",
+            "event_type": "run.start",
+            "step_id": step,
+            "correlation": {},
+            "payload": {},
+        }
+    )
+    step += 1
 
-def test_stage_progress_plan_running(store, temp_runs_dir):
+    for stage_name, stage_data in stage_statuses.items():
+        status = str(stage_data.get("status", "unknown"))
+        events.append(
+            {
+                "schema_version": "2.0",
+                "event_id": f"e{step}",
+                "ts": "2026-01-08T10:00:00+00:00",
+                "run_id": run_id,
+                "source": "supervisor",
+                "event_type": "stage.start",
+                "step_id": step,
+                "correlation": {},
+                "payload": {"stage": stage_name, "attempt": 1},
+            }
+        )
+        step += 1
+        if status in {"completed", "success", "failed", "failure"}:
+            mapped = "success" if status in {"completed", "success"} else "failure"
+            events.append(
+                {
+                    "schema_version": "2.0",
+                    "event_id": f"e{step}",
+                    "ts": "2026-01-08T10:00:00+00:00",
+                    "run_id": run_id,
+                    "source": "supervisor",
+                    "event_type": "stage.end",
+                    "step_id": step,
+                    "correlation": {},
+                    "payload": {
+                        "stage": stage_name,
+                        "attempt": 1,
+                        "status": mapped,
+                        "message": stage_data.get("error"),
+                    },
+                }
+            )
+            step += 1
+
+    if current_stage in {"done", "failed"}:
+        events.append(
+            {
+                "schema_version": "2.0",
+                "event_id": f"e{step}",
+                "ts": "2026-01-08T10:00:00+00:00",
+                "run_id": run_id,
+                "source": "supervisor",
+                "event_type": "run.end",
+                "step_id": step,
+                "correlation": {},
+                "payload": {
+                    "status": "success" if current_stage == "done" else "failure",
+                },
+            }
+        )
+
+    (obs_dir / "events.jsonl").write_text(
+        "\n".join(json.dumps(event) for event in events) + "\n"
+    )
+
+
+def test_stage_progress_plan_running(
+    store: FileSystemRunStore, temp_runs_dir: Path
+) -> None:
     """Test that plan running shows correct status."""
     run_id = "test_plan_running"
     create_run(
@@ -88,7 +174,9 @@ def test_stage_progress_plan_running(store, temp_runs_dir):
     assert run.stage_statuses["plan"] == "running"
 
 
-def test_stage_progress_spec_running_after_plan(store, temp_runs_dir):
+def test_stage_progress_spec_running_after_plan(
+    store: FileSystemRunStore, temp_runs_dir: Path
+) -> None:
     """Test that spec running after plan completed shows correct status."""
     run_id = "test_spec_running"
     create_run(
@@ -105,11 +193,13 @@ def test_stage_progress_spec_running_after_plan(store, temp_runs_dir):
     assert run is not None
     assert run.status == RunStatus.RUNNING
     assert run.current_stage == "spec"
-    assert run.stage_statuses["plan"] == "completed"
+    assert run.stage_statuses["plan"] == "success"
     assert run.stage_statuses["spec"] == "running"
 
 
-def test_stage_progress_multiple_stages_completed(store, temp_runs_dir):
+def test_stage_progress_multiple_stages_completed(
+    store: FileSystemRunStore, temp_runs_dir: Path
+) -> None:
     """Test multiple stages completed with implement running."""
     run_id = "test_multi_stages"
     create_run(
@@ -128,9 +218,9 @@ def test_stage_progress_multiple_stages_completed(store, temp_runs_dir):
     assert run is not None
     assert run.status == RunStatus.RUNNING
     assert run.current_stage == "implement"
-    assert run.stage_statuses["plan"] == "completed"
-    assert run.stage_statuses["spec"] == "completed"
-    assert run.stage_statuses["decompose"] == "completed"
+    assert run.stage_statuses["plan"] == "success"
+    assert run.stage_statuses["spec"] == "success"
+    assert run.stage_statuses["decompose"] == "success"
     assert run.stage_statuses["implement"] == "running"
 
 
@@ -151,8 +241,8 @@ def test_stage_progress_stage_failed(store, temp_runs_dir):
     assert run is not None
     assert run.status == RunStatus.FAIL
     assert run.current_stage == "spec"
-    assert run.stage_statuses["plan"] == "completed"
-    assert run.stage_statuses["spec"] == "failed"
+    assert run.stage_statuses["plan"] == "success"
+    assert run.stage_statuses["spec"] == "failure"
 
 
 def test_stage_progress_run_completed(store, temp_runs_dir):
@@ -176,7 +266,7 @@ def test_stage_progress_run_completed(store, temp_runs_dir):
     assert run is not None
     assert run.status == RunStatus.SUCCESS
     assert run.current_stage == "done"
-    assert all(status == "completed" for status in run.stage_statuses.values())
+    assert all(status == "success" for status in run.stage_statuses.values())
 
 
 def test_stage_progress_is_active(store, temp_runs_dir):

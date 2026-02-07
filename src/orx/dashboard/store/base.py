@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
     from orx.dashboard.store.models import (
@@ -128,7 +128,7 @@ class Runner(Protocol):
         *,
         repo_path: str | None = None,
         base_branch: str | None = None,
-        config_overrides: dict | None = None,
+        config_overrides: dict[str, Any] | None = None,
     ) -> str:
         """Start a new run.
 
@@ -191,7 +191,7 @@ class MetricsProvider(Protocol):
     Provides access to run metrics and stage metrics.
     """
 
-    def get_run_metrics(self, run_id: str) -> dict | None:
+    def get_run_metrics(self, run_id: str) -> dict[str, Any] | None:
         """Get aggregated run metrics.
 
         Args:
@@ -202,7 +202,7 @@ class MetricsProvider(Protocol):
         """
         ...
 
-    def get_stage_metrics(self, run_id: str) -> list[dict]:
+    def get_stage_metrics(self, run_id: str) -> list[dict[str, Any]]:
         """Get per-stage metrics.
 
         Args:

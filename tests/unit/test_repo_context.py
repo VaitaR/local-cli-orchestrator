@@ -386,7 +386,7 @@ class MockGate:
         command: str,
         args: list[str] | None = None,
         required: bool = True,
-    ):
+    ) -> None:
         self._name = name
         self.command = command
         self.args = args or []
@@ -395,6 +395,11 @@ class MockGate:
     @property
     def name(self) -> str:
         return self._name
+
+    def run(self, *, cwd: Path, log_path: Path):  # noqa: ANN201, ARG002
+        from orx.gates.base import GateResult
+
+        return GateResult(ok=True, returncode=0, log_path=log_path, message="")
 
 
 class TestVerifyCommands:

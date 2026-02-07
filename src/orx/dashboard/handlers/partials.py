@@ -174,6 +174,10 @@ def _build_metrics_context(
         has_model_key = "model" in stage_metric
         has_executor_key = "executor" in stage_metric
 
+        status = str(stage_metric.get("status", "unknown"))
+        if status in {"failure", "failed"}:
+            status = "fail"
+
         # Use run-level fallback model when both 'model' and 'executor' keys are
         # missing from the stage metric. NOTE: be careful — blindly backfilling
         # here will show a model badge for stages that never used an LLM
@@ -200,13 +204,13 @@ def _build_metrics_context(
         tokens_total = None
         tokens_in = None
         tokens_out = None
-        tool_calls = None
+        stage_tool_calls: Any = None
 
         if isinstance(stage_tokens, dict):
             tokens_total = stage_tokens.get("total")
             tokens_in = stage_tokens.get("input")
             tokens_out = stage_tokens.get("output")
-            tool_calls = stage_tokens.get("tool_calls")
+            stage_tool_calls = stage_tokens.get("tool_calls")
 
         stages.append(
             {
@@ -214,11 +218,11 @@ def _build_metrics_context(
                 "item_id": stage_metric.get("item_id"),
                 "attempt": stage_metric.get("attempt", 1),
                 "duration": float(stage_metric.get("duration_ms") or 0) / 1000.0,
-                "status": stage_metric.get("status", "unknown"),
+                "status": status,
                 "tokens": tokens_total,
                 "tokens_in": tokens_in,
                 "tokens_out": tokens_out,
-                "tool_calls": tool_calls,
+                "tool_calls": stage_tool_calls,
                 "model": model,
                 "executor": executor,
                 "fallback_applied": fallback_applied,
@@ -258,7 +262,7 @@ def _build_metrics_context(
 
 
 @router.get("/active-runs", response_class=HTMLResponse)
-async def active_runs(request: Request):
+async def active_runs(request: Request) -> Any:
     """Render active runs table (polled every 3s)."""
     templates = request.app.state.templates
     store = request.app.state.store
@@ -277,7 +281,7 @@ async def active_runs(request: Request):
 
 
 @router.get("/recent-runs", response_class=HTMLResponse)
-async def recent_runs(request: Request, limit: int = Query(20, le=100)):
+async def recent_runs(request: Request, limit: int = Query(20, le=100)) -> Any:
     """Render recent runs table."""
     templates = request.app.state.templates
     store = request.app.state.store
@@ -293,7 +297,7 @@ async def recent_runs(request: Request, limit: int = Query(20, le=100)):
 
 
 @router.get("/start-run-form", response_class=HTMLResponse)
-async def start_run_form(request: Request):
+async def start_run_form(request: Request) -> Any:
     """Render the start run form."""
     templates = request.app.state.templates
     config = request.app.state.config
@@ -308,7 +312,7 @@ async def start_run_form(request: Request):
 
 
 @router.get("/run-header/{run_id}", response_class=HTMLResponse)
-async def run_header(request: Request, run_id: str):
+async def run_header(request: Request, run_id: str) -> Any:
     """Render run header (polled while running)."""
     templates = request.app.state.templates
     store = request.app.state.store
@@ -332,8 +336,11 @@ async def run_header(request: Request, run_id: str):
 async def run_tab(
     request: Request,
     run_id: str,
-    tab: str = Query("overview", pattern="^(overview|artifacts|diff|logs|metrics)$"),
-):
+    tab: str = Query(
+        "overview",
+        pattern="^(overview|artifacts|diff|logs|metrics|timeline|llm|proc|fs|tty)$",
+    ),
+) -> Any:
     """Render a tab content for run detail page."""
     templates = request.app.state.templates
     store = request.app.state.store
@@ -367,6 +374,20 @@ async def run_tab(
             fallback_duration_ms=run.elapsed_ms or 0,
             fallback_model=run.engine,
         )
+    elif tab in {"timeline", "llm", "proc", "fs", "tty"}:
+        groups = cast(dict[str, list[dict[str, Any]]], store.get_timeline_groups(run_id))
+        if tab == "timeline":
+            context["timeline"] = cast(
+                list[dict[str, Any]], store.get_observability_events(run_id)
+            )
+        elif tab == "llm":
+            context["llm_events"] = groups.get("llm", [])
+        elif tab == "proc":
+            context["proc_events"] = groups.get("proc", [])
+        elif tab == "fs":
+            context["fs_events"] = groups.get("fs", [])
+        elif tab == "tty":
+            context["tty_events"] = groups.get("tty", [])
 
     return templates.TemplateResponse(template_name, context)
 
@@ -376,7 +397,7 @@ async def artifact_preview(
     request: Request,
     run_id: str,
     path: str = Query(..., description="Relative path to artifact"),
-):
+) -> Any:
     """Render artifact content preview with syntax highlighting."""
     templates = request.app.state.templates
     store = request.app.state.store
@@ -440,7 +461,7 @@ async def artifact_preview(
 
 
 @router.get("/diff/{run_id}", response_class=HTMLResponse)
-async def diff_view(request: Request, run_id: str):
+async def diff_view(request: Request, run_id: str) -> Any:
     """Render diff content."""
     templates = request.app.state.templates
     store = request.app.state.store

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +17,7 @@ if TYPE_CHECKING:
     from orx.executors.base import Executor
     from orx.gates.base import Gate
     from orx.metrics.events import EventLogger
+    from orx.observability.runtime import RunObservability
     from orx.paths import RunPaths
     from orx.prompts.renderer import PromptRenderer
     from orx.state import StateManager
@@ -68,6 +70,7 @@ class StageContext:
     timeout_seconds: int | None = None
     model_selector: ModelSelector | None = None
     events: EventLogger | None = None
+    observability: RunObservability | None = None
 
 
 @runtime_checkable
@@ -247,6 +250,15 @@ class TextOutputStage(BaseStage):
                     mode="text",
                     prompt=str(prompt_path),
                 )
+            corr_ids = None
+            started = time.perf_counter()
+            if ctx.observability:
+                corr_ids = ctx.observability.llm_request(
+                    stage=self.name,
+                    prompt_path=prompt_path,
+                    model=ctx.model_selector.model if ctx.model_selector else None,
+                    executor=ctx.executor.name,
+                )
 
             result = ctx.executor.run_text(
                 cwd=ctx.workspace.worktree_path,
@@ -263,6 +275,15 @@ class TextOutputStage(BaseStage):
                     mode="text",
                     returncode=result.returncode,
                     success=not result.failed,
+                )
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            if ctx.observability:
+                ctx.observability.llm_response(
+                    stage=self.name,
+                    result=result,
+                    out_path=out_path,
+                    correlation_ids=corr_ids,
+                    duration_ms=duration_ms,
                 )
 
             if result.failed:
@@ -354,6 +375,17 @@ class ApplyStage(BaseStage):
                     iteration=iteration,
                     prompt=str(prompt_path),
                 )
+            corr_ids = None
+            started = time.perf_counter()
+            if ctx.observability:
+                corr_ids = ctx.observability.llm_request(
+                    stage=self.name,
+                    prompt_path=prompt_path,
+                    item_id=item.id,
+                    attempt=iteration,
+                    model=ctx.model_selector.model if ctx.model_selector else None,
+                    executor=ctx.executor.name,
+                )
 
             result = ctx.executor.run_apply(
                 cwd=ctx.workspace.worktree_path,
@@ -371,6 +403,17 @@ class ApplyStage(BaseStage):
                     iteration=iteration,
                     returncode=result.returncode,
                     success=not result.failed,
+                )
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            if ctx.observability:
+                ctx.observability.llm_response(
+                    stage=self.name,
+                    result=result,
+                    out_path=None,
+                    item_id=item.id,
+                    attempt=iteration,
+                    correlation_ids=corr_ids,
+                    duration_ms=duration_ms,
                 )
 
             if result.failed:

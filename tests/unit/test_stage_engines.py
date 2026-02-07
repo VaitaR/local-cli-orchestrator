@@ -79,12 +79,15 @@ stages:
 
     # Get context for plan stage
     plan_ctx = runner._get_stage_context("plan")
+    assert plan_ctx.model_selector is not None
     assert plan_ctx.model_selector.model == "plan-model"
 
     # Get context for implement stage
     impl_ctx = runner._get_stage_context("implement")
+    assert impl_ctx.model_selector is not None
     assert impl_ctx.model_selector.model == "implement-model"
 
     # Get context for stage without override
     review_ctx = runner._get_stage_context("review")
+    assert review_ctx.model_selector is not None
     assert review_ctx.model_selector.model is None  # Falls back to default

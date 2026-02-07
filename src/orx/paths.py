@@ -78,9 +78,54 @@ class RunPaths:
         return self.run_dir / "metrics"
 
     @property
+    def observability_dir(self) -> Path:
+        """Directory for observability v2 bundle files."""
+        return self.run_dir / "observability"
+
+    @property
+    def observability_tty_dir(self) -> Path:
+        """Directory for TTY capture files."""
+        return self.observability_dir / "tty"
+
+    @property
+    def observability_llm_dir(self) -> Path:
+        """Directory for materialized LLM request/response payloads."""
+        return self.observability_dir / "llm"
+
+    @property
+    def observability_patches_dir(self) -> Path:
+        """Directory for patch snapshots and checksums."""
+        return self.observability_dir / "patches"
+
+    @property
+    def observability_exports_dir(self) -> Path:
+        """Directory for exported observability bundles."""
+        return self.observability_dir / "exports"
+
+    @property
+    def observability_redacted_dir(self) -> Path:
+        """Directory for redacted export files."""
+        return self.observability_exports_dir / "redacted"
+
+    @property
+    def observability_metadata_json(self) -> Path:
+        """Path to observability metadata JSON."""
+        return self.observability_dir / "metadata.json"
+
+    @property
+    def observability_events_jsonl(self) -> Path:
+        """Path to observability v2 timeline."""
+        return self.observability_dir / "events.jsonl"
+
+    @property
+    def observability_redacted_events_jsonl(self) -> Path:
+        """Path to redacted exported timeline."""
+        return self.observability_redacted_dir / "events.redacted.jsonl"
+
+    @property
     def events_jsonl(self) -> Path:
-        """Path to the events.jsonl timeline."""
-        return self.run_dir / "events.jsonl"
+        """Path alias for canonical observability v2 timeline."""
+        return self.observability_events_jsonl
 
     @property
     def worktrees_dir(self) -> Path:
@@ -266,6 +311,11 @@ class RunPaths:
         self.artifacts_dir.mkdir(parents=True, exist_ok=True)
         self.logs_dir.mkdir(parents=True, exist_ok=True)
         self.metrics_dir.mkdir(parents=True, exist_ok=True)
+        self.observability_dir.mkdir(parents=True, exist_ok=True)
+        self.observability_tty_dir.mkdir(parents=True, exist_ok=True)
+        self.observability_llm_dir.mkdir(parents=True, exist_ok=True)
+        self.observability_patches_dir.mkdir(parents=True, exist_ok=True)
+        self.observability_redacted_dir.mkdir(parents=True, exist_ok=True)
         self.worktrees_dir.mkdir(parents=True, exist_ok=True)
         self._created = True
 
@@ -284,6 +334,11 @@ class RunPaths:
                 self.artifacts_dir,
                 self.metrics_dir,
                 self.logs_dir,
+                self.observability_dir,
+                self.observability_tty_dir,
+                self.observability_llm_dir,
+                self.observability_patches_dir,
+                self.observability_redacted_dir,
             ]
         )
 

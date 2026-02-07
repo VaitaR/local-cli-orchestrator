@@ -133,10 +133,10 @@ class TestStateManager:
         mgr = StateManager(run_paths)
         mgr.initialize()
 
-        assert mgr.current_stage == Stage.INIT
+        assert mgr.state.current_stage == Stage.INIT
 
         mgr.transition_to(Stage.PLAN)
-        assert mgr.current_stage == Stage.PLAN
+        assert mgr.load().current_stage == Stage.PLAN
 
         # Check stage status was created
         assert "plan" in mgr.state.stage_statuses
@@ -214,7 +214,7 @@ class TestStateManager:
         mgr = StateManager(run_paths)
         mgr.initialize()
 
-        evidence = {"ruff_log": "error details", "diff_empty": True}
+        evidence = {"ruff_log": "error details", "diff_empty": "true"}
         mgr.set_failure_evidence(evidence)
 
         assert mgr.state.last_failure_evidence == evidence

@@ -240,12 +240,12 @@ class ExecResult:
 
             # Alternative format in extra
             if "tokens" in self.extra:
-                tokens = self.extra["tokens"]
-                if isinstance(tokens, dict):
+                token_stats = self.extra["tokens"]
+                if isinstance(token_stats, dict):
                     return {
-                        "input": tokens.get("input", 0),
-                        "output": tokens.get("output", 0),
-                        "total": tokens.get("total", 0),
+                        "input": int(token_stats.get("input", 0)),
+                        "output": int(token_stats.get("output", 0)),
+                        "total": int(token_stats.get("total", 0)),
                     }
 
         # Try parsing stdout for token info (Codex JSON format)
@@ -322,13 +322,13 @@ class ExecResult:
         if self.invocation and self.invocation.model_info:
             model = self.invocation.model_info.get("model")
             if model:
-                return model
+                return str(model)
 
         # Check extra dict
         if self.extra:
             model = self.extra.get("model") or self.extra.get("model_id")
             if model:
-                return model
+                return str(model)
 
         return None
 

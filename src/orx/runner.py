@@ -6,16 +6,17 @@ import json
 import os
 import signal
 import time
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import structlog
 
 from orx.config import EngineConfig, EngineType, ModelSelector, OrxConfig
-from orx.context.backlog import Backlog, WorkItem
+from orx.context.backlog import Backlog, WorkItem, WorkItemStatus
 from orx.context.pack import ContextPack
 from orx.context.repo_context import RepoContextBuilder
 from orx.exceptions import GuardrailError
@@ -31,10 +32,12 @@ from orx.gates.pytest import PytestGate
 from orx.gates.ruff import RuffGate
 from orx.infra.command import CommandRunner
 from orx.metrics.collector import MetricsCollector
-from orx.metrics.events import EventLogger
 from orx.metrics.schema import FailureCategory, StageStatus
 from orx.metrics.writer import MetricsWriter, append_to_index
+from orx.observability.correlation import StepCounter
+from orx.observability.runtime import RunObservability
 from orx.paths import RunPaths
+from orx.pipeline.constants import DEFAULT_PIPELINE_ID
 from orx.prompts.renderer import PromptRenderer
 from orx.stages.base import StageContext, StageResult
 from orx.stages.decompose import DecomposeStage
@@ -53,7 +56,7 @@ logger = structlog.get_logger()
 
 
 @contextmanager
-def _termination_signals():
+def _termination_signals() -> Iterator[None]:
     """Convert SIGTERM/SIGINT into KeyboardInterrupt for graceful cleanup."""
     old_term = signal.getsignal(signal.SIGTERM)
     old_int = signal.getsignal(signal.SIGINT)
@@ -216,6 +219,7 @@ class Runner:
         base_dir: Path,
         run_id: str | None = None,
         dry_run: bool = False,
+        default_pipeline_id: str | None = None,
     ) -> None:
         """Initialize the runner.
 
@@ -224,10 +228,12 @@ class Runner:
             base_dir: Base directory for the project.
             run_id: Optional run ID (for resume).
             dry_run: If True, don't execute commands.
+            default_pipeline_id: Default pipeline for `run()` when none is passed.
         """
         self.config = config
         self.base_dir = base_dir
         self.dry_run = dry_run
+        self.default_pipeline_id = default_pipeline_id
 
         # Create or load paths
         if run_id:
@@ -289,7 +295,7 @@ class Runner:
             base_branch=config.git.base_branch,
         )
         self.metrics_writer = MetricsWriter(self.paths)
-        self.events = EventLogger(self.paths.events_jsonl)
+        self.observability: RunObservability | None = None
 
     def _create_executor(self, engine_config: EngineConfig | None = None) -> Executor:
         """Create an executor from engine config."""
@@ -389,6 +395,55 @@ class Runner:
 
         return gates
 
+    def _init_observability(self) -> None:
+        """Initialize observability runtime for this run."""
+        obs_cfg = self.config.observability
+        if not obs_cfg.enabled:
+            self.observability = None
+            return
+
+        step_counter = StepCounter(
+            start_at=self.state.get_step_counter(),
+            persist=self._persist_step_counter,
+        )
+        self.observability = RunObservability(
+            paths=self.paths,
+            step_counter=step_counter,
+            max_payload_kb=obs_cfg.storage.max_event_payload_kb,
+            tty_enabled=obs_cfg.capture.tty and obs_cfg.tty.enabled,
+            network_mode=obs_cfg.network.mode,
+        )
+
+        if obs_cfg.capture.process:
+            self.cmd.add_observer(self.observability.make_command_observer())
+
+        session_id = self.observability.start(
+            engine=self.config.engine.type.value,
+            base_branch=self.config.git.base_branch,
+        )
+        self.state.set_observability_session_id(session_id)
+
+    def _persist_step_counter(self, value: int) -> None:
+        """Persist step counter into state.json."""
+        self.state.state.step_counter = value
+        self.state.save()
+
+    def _finish_observability(self, *, status: str, error: str | None = None) -> None:
+        """Finalize observability runtime and metadata."""
+        if self.observability is None:
+            return
+        self.observability.finish(status=status, error=error)
+
+    def _refresh_patch_diff(self) -> None:
+        """Always refresh final patch.diff using git diff."""
+        try:
+            if self.workspace.exists():
+                self.workspace.diff_to(self.paths.patch_diff)
+        except Exception as exc:
+            logger.warning("Failed to refresh patch.diff", error=str(exc))
+            if self.observability:
+                self.observability.warning("patch_diff_capture_failed", detail=str(exc))
+
     def _get_stage_context(self, stage: str | None = None) -> StageContext:
         """Build the stage context.
 
@@ -439,7 +494,7 @@ class Runner:
             config=self.config.model_dump(),
             timeout_seconds=timeout_seconds,
             model_selector=model_selector,
-            events=self.events,
+            observability=self.observability,
         )
 
     def _collect_versions(self) -> dict[str, str]:
@@ -591,28 +646,39 @@ class Runner:
             # Non-fatal: log warning and continue
             log.warning("Failed to build repo context pack", error=str(e))
 
-    def run(self, task: str | Path, pipeline_id: str | None = None) -> bool:
+    def run(
+        self,
+        task: str | Path,
+        pipeline_id: str | None = None,
+        *,
+        use_default_pipeline: bool = True,
+    ) -> bool:
         """Run the full orchestration.
 
         Args:
             task: Task description or path to task file.
-            pipeline_id: Optional pipeline ID. If None, uses legacy FSM.
-                        Use "standard", "fast_fix", "plan_only" for builtin pipelines.
+            pipeline_id: Optional pipeline ID override.
+            use_default_pipeline: Whether to use configured default pipeline
+                when `pipeline_id` is not provided. Set to False to force legacy FSM.
 
         Returns:
             True if run completed successfully.
         """
         log = logger.bind(run_id=self.paths.run_id)
         log.info("Starting run")
-        if self.events:
-            self.events.log("run_start", run_id=self.paths.run_id)
 
         # Handle task content
         task_content = task.read_text() if isinstance(task, Path) else task
 
-        # If pipeline specified, use pipeline runner
-        if pipeline_id:
-            return self._run_with_pipeline(task_content, pipeline_id)
+        effective_pipeline_id = (
+            pipeline_id
+            if pipeline_id is not None
+            else (self.default_pipeline_id if use_default_pipeline else None)
+        )
+
+        # If pipeline specified/effective, use pipeline runner.
+        if effective_pipeline_id:
+            return self._run_with_pipeline(task_content, effective_pipeline_id)
 
         state_initialized = False
 
@@ -622,6 +688,9 @@ class Runner:
                 self.state.initialize()
                 state_initialized = True
                 self.state.set_pid(os.getpid())
+                self._init_observability()
+                if self.observability:
+                    self.observability.run_start()
 
                 # Write task (task_content already resolved above)
                 self.pack.write_task(task_content)
@@ -648,24 +717,23 @@ class Runner:
                 success = self._execute_stages()
                 if state_initialized:
                     self.state.set_pid(None)
-                if self.events:
-                    self.events.log(
-                        "run_end",
-                        run_id=self.paths.run_id,
-                        status="success" if success else "failure",
+                self._refresh_patch_diff()
+                if self.observability:
+                    self.observability.run_end(
+                        status="success" if success else "failure"
+                    )
+                    self._finish_observability(
+                        status="success" if success else "failure"
                     )
                 return success
 
         except BaseException as e:
             msg = "Cancelled" if isinstance(e, KeyboardInterrupt) else str(e)
             log.error("Run failed", error=msg)
-            if self.events:
-                self.events.log(
-                    "run_end",
-                    run_id=self.paths.run_id,
-                    status="failure",
-                    error=msg,
-                )
+            self._refresh_patch_diff()
+            if self.observability:
+                self.observability.run_end(status="failure", error=msg)
+                self._finish_observability(status="failure", error=msg)
             if state_initialized:
                 self.state.mark_stage_failed(msg)
                 self.state.set_pid(None)
@@ -692,6 +760,9 @@ class Runner:
                 # Initialize state
                 self.state.initialize()
                 self.state.set_pid(os.getpid())
+                self._init_observability()
+                if self.observability:
+                    self.observability.run_start()
 
                 # Create workspace
                 base_branch = self.config.git.base_branch
@@ -719,6 +790,8 @@ class Runner:
                     state=self.state,
                     router=self.model_router,
                     metrics_writer=self.metrics_writer,
+                    observability=self.observability,
+                    cmd=self.cmd,
                 )
 
                 # Run pipeline
@@ -728,12 +801,10 @@ class Runner:
 
                 if result.success:
                     self._save_meta(success=True)
-                    if self.events:
-                        self.events.log(
-                            "run_end",
-                            run_id=self.paths.run_id,
-                            status="success",
-                        )
+                    self._refresh_patch_diff()
+                    if self.observability:
+                        self.observability.run_end(status="success")
+                        self._finish_observability(status="success")
                     log.info(
                         "Pipeline completed successfully",
                         completed_nodes=result.completed_nodes,
@@ -741,12 +812,13 @@ class Runner:
                     )
                 else:
                     self._save_meta(success=False)
-                    if self.events:
-                        self.events.log(
-                            "run_end",
-                            run_id=self.paths.run_id,
-                            status="failure",
-                            error=result.error,
+                    self._refresh_patch_diff()
+                    if self.observability:
+                        self.observability.run_end(
+                            status="failure", error=result.error
+                        )
+                        self._finish_observability(
+                            status="failure", error=result.error
                         )
                     log.error("Pipeline failed", error=result.error)
 
@@ -755,13 +827,10 @@ class Runner:
         except BaseException as e:
             msg = "Cancelled" if isinstance(e, KeyboardInterrupt) else str(e)
             log.error("Pipeline run failed", error=msg)
-            if self.events:
-                self.events.log(
-                    "run_end",
-                    run_id=self.paths.run_id,
-                    status="failure",
-                    error=msg,
-                )
+            self._refresh_patch_diff()
+            if self.observability:
+                self.observability.run_end(status="failure", error=msg)
+                self._finish_observability(status="failure", error=msg)
             self.state.mark_stage_failed(msg)
             self.state.set_pid(None)
             self._save_meta(success=False)
@@ -775,8 +844,6 @@ class Runner:
         """
         log = logger.bind(run_id=self.paths.run_id)
         log.info("Resuming run")
-        if self.events:
-            self.events.log("run_resume", run_id=self.paths.run_id)
 
         state_loaded = False
 
@@ -786,6 +853,9 @@ class Runner:
                 self.state.load()
                 state_loaded = True
                 self.state.set_pid(os.getpid())
+                self._init_observability()
+                if self.observability:
+                    self.observability.run_start()
 
                 if not self.state.is_resumable():
                     log.warning("Run is not resumable")
@@ -808,24 +878,23 @@ class Runner:
                 success = self._execute_stages()
                 if state_loaded:
                     self.state.set_pid(None)
-                if self.events:
-                    self.events.log(
-                        "run_end",
-                        run_id=self.paths.run_id,
-                        status="success" if success else "failure",
+                self._refresh_patch_diff()
+                if self.observability:
+                    self.observability.run_end(
+                        status="success" if success else "failure"
+                    )
+                    self._finish_observability(
+                        status="success" if success else "failure"
                     )
                 return success
 
         except BaseException as e:
             msg = "Cancelled" if isinstance(e, KeyboardInterrupt) else str(e)
             log.error("Resume failed", error=msg)
-            if self.events:
-                self.events.log(
-                    "run_end",
-                    run_id=self.paths.run_id,
-                    status="failure",
-                    error=msg,
-                )
+            self._refresh_patch_diff()
+            if self.observability:
+                self.observability.run_end(status="failure", error=msg)
+                self._finish_observability(status="failure", error=msg)
             if state_loaded:
                 self.state.mark_stage_failed(msg)
                 self.state.set_pid(None)
@@ -1012,7 +1081,7 @@ class Runner:
             acceptance=["Review comments addressed", "Tests pass"],
             # Include feedback in description or notes
             notes=f"Review Feedback:\n\n{feedback}",
-            status="todo",
+            status=WorkItemStatus.TODO,
             files_hint=[],
         )
 
@@ -1022,7 +1091,7 @@ class Runner:
     def _run_stage_with_metrics(
         self,
         stage_name: str,
-        run_fn: Any,
+        run_fn: Callable[[StageContext], StageResult],
     ) -> StageResult:
         """Run a stage with metrics collection.
 
@@ -1035,9 +1104,13 @@ class Runner:
         """
         ctx = self._get_stage_context(stage_name)
         original_model = ctx.model_selector.model if ctx.model_selector else None
-
-        if self.events:
-            self.events.log("stage_start", stage=stage_name)
+        stage_started = time.perf_counter()
+        if self.observability:
+            self.observability.stage_start(
+                stage=stage_name,
+                executor=ctx.executor.name,
+                model=ctx.model_selector.model if ctx.model_selector else None,
+            )
 
         with self.metrics.stage(stage_name) as timer:
             # Record model selection
@@ -1053,7 +1126,8 @@ class Runner:
             timer.start_llm(
                 model=ctx.model_selector.model if ctx.model_selector else None
             )
-            result = run_fn(ctx)
+            with self.cmd.command_context(stage=stage_name):
+                result: StageResult = run_fn(ctx)
             # If stage failed, attempt model fallback and a single retry.
             fallback_applied = False
             if result and not result.success:
@@ -1074,8 +1148,6 @@ class Runner:
                     # Check if this is a transient error (429, capacity, timeout)
                     # These should be retried with backoff before trying fallback
                     if synthetic.is_transient_error():
-                        import time
-
                         retry_after = synthetic.get_retry_after_seconds() or 30
                         # Cap backoff at 120 seconds for stage retry
                         backoff_seconds = min(retry_after, 120)
@@ -1091,7 +1163,8 @@ class Runner:
                             if ctx.model_selector
                             else None
                         )
-                        result = run_fn(ctx)
+                        with self.cmd.command_context(stage=stage_name):
+                            result = run_fn(ctx)
                         if result and result.success:
                             # Transient retry succeeded, skip fallback
                             fallback_applied = False
@@ -1099,8 +1172,9 @@ class Runner:
 
                     # Try model fallback if still failing
                     if result and not result.success:
+                        current_selector = ctx.model_selector or ModelSelector()
                         new_selector, applied = self.model_router.apply_fallback(
-                            stage_name, synthetic, ctx.model_selector
+                            stage_name, synthetic, current_selector
                         )
                         if applied:
                             logger.info(
@@ -1122,7 +1196,8 @@ class Runner:
                             ctx.model_selector = new_selector
                             # Retry the stage once
                             timer.start_llm(model=new_selector.model)
-                            result = run_fn(ctx)
+                            with self.cmd.command_context(stage=stage_name):
+                                result = run_fn(ctx)
                 except Exception as e:
                     logger.warning("Fallback attempt failed", error=str(e))
             timer.end_llm()
@@ -1145,13 +1220,12 @@ class Runner:
                     details=result.data or {},
                     recoverable=fallback_applied,
                 )
-
-        if self.events:
-            self.events.log(
-                "stage_end",
+        if self.observability:
+            self.observability.stage_end(
                 stage=stage_name,
                 status="success" if result.success else "failure",
                 message=result.message,
+                duration_ms=int((time.perf_counter() - stage_started) * 1000),
             )
 
         return result
@@ -1192,7 +1266,7 @@ class Runner:
             result: Stage result.
         """
         outputs: list[str | Path] = []
-        artifacts: dict[str, Path] = {}
+        artifacts: dict[str, Path | str] = {}
 
         # Stage-specific outputs
         if stage == "plan" and self.paths.plan_md.exists():
@@ -1298,9 +1372,9 @@ class Runner:
         """Run the implementation loop over all work items."""
         log = logger.bind(stage="implement_loop")
         log.info("Starting implementation loop")
-
-        if self.events:
-            self.events.log("stage_start", stage="implement_item")
+        loop_started = time.perf_counter()
+        if self.observability:
+            self.observability.stage_start(stage="implement_item")
 
         base_ctx = self._get_stage_context()
         implement_ctx = self._get_stage_context("implement")
@@ -1309,12 +1383,12 @@ class Runner:
 
         # Load backlog
         def _finish(result: StageResult) -> StageResult:
-            if self.events:
-                self.events.log(
-                    "stage_end",
+            if self.observability:
+                self.observability.stage_end(
                     stage="implement_item",
                     status="success" if result.success else "failure",
                     message=result.message,
+                    duration_ms=int((time.perf_counter() - loop_started) * 1000),
                 )
             return result
 
@@ -1337,12 +1411,6 @@ class Runner:
                 break
 
             log.info("Processing work item", item_id=item.id, title=item.title)
-            if self.events:
-                self.events.log(
-                    "item_start",
-                    item_id=item.id,
-                    title=item.title,
-                )
             self.state.set_current_item(item.id)
             item.mark_in_progress()
             backlog.save(self.paths.backlog_yaml)
@@ -1357,6 +1425,15 @@ class Runner:
                 # Choose stage name based on attempt
                 stage_name = "implement" if attempt == 1 else "fix"
                 ctx = implement_ctx if attempt == 1 else fix_ctx
+                stage_started = time.perf_counter()
+                if self.observability:
+                    self.observability.stage_start(
+                        stage=stage_name,
+                        item_id=item.id,
+                        attempt=attempt,
+                        executor=ctx.executor.name,
+                        model=ctx.model_selector.model if ctx.model_selector else None,
+                    )
 
                 with self.metrics.stage(
                     stage_name, item_id=item.id, attempt=attempt
@@ -1374,14 +1451,26 @@ class Runner:
                     # Run implement or fix
                     timer.start_llm()
                     if attempt == 1:
-                        result = self.stages["implement"].execute_for_item(
-                            implement_ctx, item
-                        )
+                        implement_stage = cast(ImplementStage, self.stages["implement"])
+                        with self.cmd.command_context(
+                            stage=stage_name,
+                            item_id=item.id,
+                            attempt=str(attempt),
+                        ):
+                            result = implement_stage.execute_for_item(
+                                implement_ctx, item
+                            )
                     else:
                         evidence = self.state.state.last_failure_evidence
-                        result = self.stages["fix"].execute_fix(
-                            fix_ctx, item, attempt, evidence
-                        )  # type: ignore[attr-defined]
+                        fix_stage = cast(FixStage, self.stages["fix"])
+                        with self.cmd.command_context(
+                            stage=stage_name,
+                            item_id=item.id,
+                            attempt=str(attempt),
+                        ):
+                            result = fix_stage.execute_fix(
+                                fix_ctx, item, attempt, evidence
+                            )
                     timer.end_llm()
 
                     if not result.success:
@@ -1389,18 +1478,52 @@ class Runner:
                         self.metrics.record_failure(
                             FailureCategory.EXECUTOR_ERROR, result.message
                         )
+                        if self.observability:
+                            self.observability.stage_end(
+                                stage=stage_name,
+                                item_id=item.id,
+                                attempt=attempt,
+                                status="failure",
+                                message=result.message,
+                                duration_ms=int(
+                                    (time.perf_counter() - stage_started) * 1000
+                                ),
+                            )
                         continue
 
                     # Capture diff
-                    base_ctx.workspace.diff_to(base_ctx.paths.patch_diff)
+                    with self.cmd.command_context(
+                        stage=stage_name,
+                        item_id=item.id,
+                        attempt=str(attempt),
+                    ):
+                        base_ctx.workspace.diff_to(base_ctx.paths.patch_diff)
+                    if self.observability:
+                        self.observability.fs_patch(
+                            stage=stage_name,
+                            patch_path=base_ctx.paths.patch_diff,
+                            item_id=item.id,
+                            attempt=attempt,
+                        )
 
                     # Check for empty diff
                     if base_ctx.workspace.diff_empty():
                         log.warning("No changes produced")
-                        self.state.set_failure_evidence({"diff_empty": True})
+                        self.state.set_failure_evidence({"diff_empty": "true"})
                         self.metrics.record_failure(
                             FailureCategory.EMPTY_DIFF, "No changes produced"
                         )
+                        if self.observability:
+                            self.observability.stage_end(
+                                stage=stage_name,
+                                item_id=item.id,
+                                attempt=attempt,
+                                status="failure",
+                                message="No changes produced",
+                                duration_ms=int(
+                                    (time.perf_counter() - stage_started) * 1000
+                                ),
+                            )
                         continue
 
                     # Record diff stats
@@ -1418,6 +1541,17 @@ class Runner:
                         self.metrics.record_failure(
                             FailureCategory.GUARDRAIL_VIOLATION, str(e)
                         )
+                        if self.observability:
+                            self.observability.stage_end(
+                                stage=stage_name,
+                                item_id=item.id,
+                                attempt=attempt,
+                                status="failure",
+                                message=str(e),
+                                duration_ms=int(
+                                    (time.perf_counter() - stage_started) * 1000
+                                ),
+                            )
                         return _finish(StageResult(success=False, message=str(e)))
 
                     # Implementation attempt is considered successful if it produces a non-empty diff
@@ -1431,6 +1565,17 @@ class Runner:
                         attempt,
                         mode=verify_mode,
                     )
+                    if self.observability:
+                        self.observability.stage_end(
+                            stage=stage_name,
+                            item_id=item.id,
+                            attempt=attempt,
+                            status="success" if verify_result.success else "failure",
+                            message=None if verify_result.success else verify_result.message,
+                            duration_ms=int(
+                                (time.perf_counter() - stage_started) * 1000
+                            ),
+                        )
 
                 if verify_result.success:
                     log.info("Verification passed")
@@ -1454,12 +1599,6 @@ class Runner:
                     completed=backlog.done_count(),
                     failed=backlog.failed_count(),
                 )
-                if self.events:
-                    self.events.log(
-                        "item_end",
-                        item_id=item.id,
-                        status="success",
-                    )
             else:
                 log.error("Item failed after max attempts", item_id=item.id)
                 item.mark_failed(f"Failed after {max_attempts} attempts")
@@ -1468,12 +1607,6 @@ class Runner:
                     completed=backlog.done_count(),
                     failed=backlog.failed_count(),
                 )
-                if self.events:
-                    self.events.log(
-                        "item_end",
-                        item_id=item.id,
-                        status="failure",
-                    )
 
                 if self.config.run.stop_on_first_failure:
                     backlog.save(self.paths.backlog_yaml)
@@ -1522,14 +1655,13 @@ class Runner:
             StageResult from verification.
         """
         gates = ctx.gates if mode == "full" else self._build_fast_gates(ctx, item)
-
-        if self.events:
-            self.events.log(
-                "verify_start",
+        verify_started = time.perf_counter()
+        if self.observability:
+            self.observability.stage_start(
+                stage="verify",
                 item_id=item.id,
                 attempt=attempt,
-                mode=mode,
-                gate_count=len(gates),
+                executor="gate_runner",
             )
 
         with self.metrics.stage("verify", item_id=item.id, attempt=attempt) as timer:
@@ -1538,30 +1670,29 @@ class Runner:
             if not gates:
                 timer.end_verify()
                 self.metrics.record_success()
-                if self.events:
-                    self.events.log(
-                        "verify_end",
+                if self.observability:
+                    self.observability.stage_end(
+                        stage="verify",
                         item_id=item.id,
                         attempt=attempt,
-                        mode=mode,
                         status="success",
-                        skipped=True,
+                        message="No gates to run",
+                        duration_ms=int((time.perf_counter() - verify_started) * 1000),
                     )
                 return StageResult(success=True, message="No gates to run")
 
             # Run each gate and record metrics
             for gate in gates:
-                if self.events:
-                    self.events.log(
-                        "gate_start",
-                        item_id=item.id,
-                        attempt=attempt,
-                        mode=mode,
-                        gate=gate.name,
-                    )
                 gate_start = time.perf_counter()
                 log_path = ctx.paths.log_path(f"gate_{gate.name}_{item.id}_{attempt}")
-                result = gate.run(cwd=ctx.workspace.worktree_path, log_path=log_path)
+                with self.cmd.command_context(
+                    stage="verify",
+                    item_id=item.id,
+                    attempt=str(attempt),
+                    gate=gate.name,
+                    mode=mode,
+                ):
+                    result = gate.run(cwd=ctx.workspace.worktree_path, log_path=log_path)
                 gate_duration = int((time.perf_counter() - gate_start) * 1000)
 
                 if (
@@ -1583,10 +1714,17 @@ class Runner:
                             f"gate_{gate.name}_{item.id}_{attempt}_retry"
                         )
                         retry_start = time.perf_counter()
-                        result = gate.run(
-                            cwd=ctx.workspace.worktree_path,
-                            log_path=retry_log,
-                        )
+                        with self.cmd.command_context(
+                            stage="verify",
+                            item_id=item.id,
+                            attempt=str(attempt),
+                            gate=f"{gate.name}_retry",
+                            mode=mode,
+                        ):
+                            result = gate.run(
+                                cwd=ctx.workspace.worktree_path,
+                                log_path=retry_log,
+                            )
                         gate_duration += int((time.perf_counter() - retry_start) * 1000)
                         log_path = retry_log
 
@@ -1605,17 +1743,18 @@ class Runner:
                     tests_failed=tests_failed,
                     tests_total=tests_total,
                 )
-
-                if self.events:
-                    self.events.log(
-                        "gate_end",
+                if self.observability:
+                    self.observability.gate_approval(
+                        gate=gate.name,
+                        status="approved" if result.ok else "rejected",
                         item_id=item.id,
                         attempt=attempt,
-                        mode=mode,
-                        gate=gate.name,
-                        status="success" if result.ok else "failure",
-                        duration_ms=gate_duration,
-                        returncode=result.returncode,
+                        details={
+                            "mode": mode,
+                            "duration_ms": gate_duration,
+                            "returncode": result.returncode,
+                            "log_path": str(log_path),
+                        },
                     )
 
                 if result.failed:
@@ -1623,14 +1762,16 @@ class Runner:
                     self.metrics.record_failure(
                         FailureCategory.GATE_FAILURE, result.message
                     )
-                    if self.events:
-                        self.events.log(
-                            "verify_end",
+                    if self.observability:
+                        self.observability.stage_end(
+                            stage="verify",
                             item_id=item.id,
                             attempt=attempt,
-                            mode=mode,
                             status="failure",
-                            failed_gate=gate.name,
+                            message=f"Gate {gate.name} failed",
+                            duration_ms=int(
+                                (time.perf_counter() - verify_started) * 1000
+                            ),
                         )
                     evidence = self._build_gate_evidence(
                         ctx,
@@ -1645,13 +1786,13 @@ class Runner:
 
             timer.end_verify()
             self.metrics.record_success()
-            if self.events:
-                self.events.log(
-                    "verify_end",
+            if self.observability:
+                self.observability.stage_end(
+                    stage="verify",
                     item_id=item.id,
                     attempt=attempt,
-                    mode=mode,
                     status="success",
+                    duration_ms=int((time.perf_counter() - verify_started) * 1000),
                 )
             return StageResult(success=True, message="All gates passed")
 
@@ -1791,12 +1932,12 @@ class Runner:
                 not pytest_targets
                 and self.config.run.fast_verify_skip_pytest_if_no_targets
             ):
-                if self.events:
-                    self.events.log(
-                        "gate_skipped",
+                if self.observability:
+                    self.observability.gate_approval(
                         gate="pytest",
+                        status="skipped",
                         item_id=item.id,
-                        reason="no_targets",
+                        details={"reason": "no_targets"},
                     )
                 continue
 
@@ -1847,27 +1988,28 @@ class Runner:
             required=getattr(gate, "required", True),
         )
         log_path = ctx.paths.log_path(f"gate_ruff_fix_{item.id}_{attempt}")
-        if self.events:
-            self.events.log(
-                "gate_fix_start",
-                item_id=item.id,
-                attempt=attempt,
-                mode=mode,
-                gate="ruff",
-            )
         gate_start = time.perf_counter()
-        result = fix_gate.run(cwd=ctx.workspace.worktree_path, log_path=log_path)
+        with self.cmd.command_context(
+            stage="verify",
+            item_id=item.id,
+            attempt=str(attempt),
+            gate="ruff_fix",
+            mode=mode,
+        ):
+            result = fix_gate.run(cwd=ctx.workspace.worktree_path, log_path=log_path)
         gate_duration = int((time.perf_counter() - gate_start) * 1000)
-        if self.events:
-            self.events.log(
-                "gate_fix_end",
+        if self.observability:
+            self.observability.gate_approval(
+                gate="ruff_fix",
+                status="approved" if result.ok else "rejected",
                 item_id=item.id,
                 attempt=attempt,
-                mode=mode,
-                gate="ruff",
-                status="success" if result.ok else "failure",
-                duration_ms=gate_duration,
-                returncode=result.returncode,
+                details={
+                    "mode": mode,
+                    "duration_ms": gate_duration,
+                    "returncode": result.returncode,
+                    "log_path": str(log_path),
+                },
             )
         return result, gate_duration
 
@@ -1925,4 +2067,10 @@ def create_runner(
     # Apply overrides
     cfg.apply_overrides(engine=engine, model=model, base_branch=base_branch)
 
-    return Runner(cfg, base_dir=base_dir, run_id=run_id, dry_run=dry_run)
+    return Runner(
+        cfg,
+        base_dir=base_dir,
+        run_id=run_id,
+        dry_run=dry_run,
+        default_pipeline_id=DEFAULT_PIPELINE_ID,
+    )

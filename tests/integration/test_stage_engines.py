@@ -110,6 +110,7 @@ knowledge:
 
     # Get context to verify model selector
     ctx = runner2._get_stage_context("review")
+    assert ctx.model_selector is not None
     assert ctx.model_selector.model == "review-model"
 
     success = runner2.resume()

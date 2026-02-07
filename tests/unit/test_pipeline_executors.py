@@ -136,6 +136,7 @@ class TestGateNodeExecutor:
 
         result = executor.execute(node, {}, mock_exec_ctx)
         assert not result.success
+        assert result.error is not None
         assert "ruff" in result.error
 
     def test_no_gates_configured(self, mock_exec_ctx):
@@ -195,6 +196,7 @@ class TestCustomNodeExecutor:
 
         result = executor.execute(node, {}, mock_exec_ctx)
         assert not result.success
+        assert result.error is not None
         assert "callable_path" in result.error
 
     def test_ship_builtin_handler(self, mock_exec_ctx):
@@ -247,3 +249,67 @@ class TestNodeExecutorRegistry:
         for node_type in NodeType:
             assert node_type in executors, f"Missing executor for {node_type}"
             assert executors[node_type] is not None
+
+
+class TestLLMApplyNodeExecutorContext:
+    """Tests for template context building in LLM apply executor."""
+
+    @pytest.fixture
+    def exec_ctx(self):
+        """Create execution context with real artifact store."""
+        from orx.paths import RunPaths
+        from orx.pipeline.artifacts import ArtifactStore
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = RunPaths.create_new(Path(tmpdir))
+            store = ArtifactStore(paths)
+
+            workspace = MagicMock()
+            workspace.worktree_path = paths.run_dir
+
+            yield ExecutionContext(
+                config=MagicMock(),
+                paths=paths,
+                store=store,
+                workspace=workspace,
+                executor=MagicMock(),
+                gates=[],
+                renderer=MagicMock(),
+            )
+
+    def test_build_context_sets_implement_template_fields(self, exec_ctx):
+        """Implement prompt fields should always be present."""
+        from orx.context.backlog import WorkItem
+        from orx.pipeline.executors.llm_apply import LLMApplyNodeExecutor
+
+        exec_ctx.store.set("task", "Build a small feature", source_node="test")
+        exec_ctx.store.set(
+            "spec",
+            "## Acceptance Criteria\n- Works as expected\n- Has tests\n",
+            source_node="test",
+        )
+        exec_ctx.store.set(
+            "verify_errors",
+            {"error_logs": "pytest failed in tests/unit/test_x.py", "fix_attempt": 2},
+            source_node="verify",
+        )
+
+        item = WorkItem(
+            id="W001",
+            title="Implement feature",
+            objective="Add feature implementation",
+            acceptance=["Feature works"],
+            files_hint=["src/orx/example.py"],
+            notes="Prior attempt failed on pytest",
+        )
+
+        executor = LLMApplyNodeExecutor()
+        ctx = executor._build_template_context({}, exec_ctx, item)
+
+        assert "task_summary" in ctx
+        assert ctx["task_summary"] == ctx["task"]
+        assert "spec_highlights" in ctx
+        assert ctx["spec_highlights"] == ctx["spec"]
+        assert ctx["item_notes"] == "Prior attempt failed on pytest"
+        assert ctx["error_logs"] == "pytest failed in tests/unit/test_x.py"
+        assert ctx["fix_attempt"] == 2

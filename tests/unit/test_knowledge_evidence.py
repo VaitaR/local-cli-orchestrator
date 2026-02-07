@@ -1,7 +1,7 @@
 """Unit tests for knowledge evidence collection."""
 
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -64,7 +64,7 @@ class TestEvidenceCollector:
 
     def test_parse_changed_files_from_diff(self) -> None:
         """Test parsing changed files from git diff."""
-        patch = """diff --git a/src/app.py b/src/app.py
+        patch_text = """diff --git a/src/app.py b/src/app.py
 index 1234567..abcdefg 100644
 --- a/src/app.py
 +++ b/src/app.py
@@ -84,10 +84,8 @@ diff --git a/tests/test_app.py b/tests/test_app.py
             repo_root=Path("/tmp"),
         )
 
-        # Mock the _read_patch_diff to return our test patch
-        collector._read_patch_diff = lambda: patch
-
-        files = collector._parse_changed_files()
+        with patch.object(collector, "_read_patch_diff", return_value=patch_text):
+            files = collector._parse_changed_files()
 
         assert "src/app.py" in files
         assert "tests/test_app.py" in files
@@ -100,9 +98,8 @@ diff --git a/tests/test_app.py b/tests/test_app.py
             pack=MagicMock(),
             repo_root=Path("/tmp"),
         )
-        collector._read_patch_diff = lambda: ""
-
-        files = collector._parse_changed_files()
+        with patch.object(collector, "_read_patch_diff", return_value=""):
+            files = collector._parse_changed_files()
 
         assert files == []
 

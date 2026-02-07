@@ -59,20 +59,34 @@
     </tbody>
 </table>
 <script>
-    const activeEl = document.getElementById('worker-active');
-    if (activeEl) {
-        activeEl.textContent = '{{ runs|length }}';
-    }
-    // Poll worker stats
-    fetch('/api/worker/stats')
-        .then(r => r.json())
-        .then(data => {
-            const queueEl = document.getElementById('worker-queue');
-            if (queueEl && data.queue_size > 0) {
-                queueEl.textContent = `⏳ ${data.queue_size} queued`;
-            }
-        })
-        .catch(() => {});
+    (function () {
+        const activeEl = document.getElementById('worker-active');
+        const queueEl = document.getElementById('worker-queue');
+        const fallbackActive = {{ runs|length }};
+
+        if (activeEl) {
+            activeEl.textContent = String(fallbackActive);
+        }
+
+        fetch('/api/worker/stats')
+            .then(r => r.json())
+            .then(data => {
+                if (activeEl) {
+                    const activeCount = typeof data.active_count === 'number'
+                        ? data.active_count
+                        : fallbackActive;
+                    activeEl.textContent = String(activeCount);
+                }
+                if (queueEl) {
+                    if (typeof data.queue_size === 'number' && data.queue_size > 0) {
+                        queueEl.textContent = `⏳ ${data.queue_size} queued`;
+                    } else {
+                        queueEl.textContent = '';
+                    }
+                }
+            })
+            .catch(() => {});
+    })();
 </script>
 {% else %}
 <div class="empty-state">
@@ -83,24 +97,36 @@
     </div>
 </div>
 <script>
-    const activeElIdle = document.getElementById('worker-active');
-    if (activeElIdle) {
-        activeElIdle.textContent = '0';
-    }
-    // Poll worker stats even when idle
-    fetch('/api/worker/stats')
-        .then(r => r.json())
-        .then(data => {
-            const statusEl = document.getElementById('worker-status-idle');
-            if (statusEl) {
-                if (data.queue_size > 0) {
+    (function () {
+        const activeElIdle = document.getElementById('worker-active');
+        const statusEl = document.getElementById('worker-status-idle');
+
+        if (activeElIdle) {
+            activeElIdle.textContent = '0';
+        }
+
+        fetch('/api/worker/stats')
+            .then(r => r.json())
+            .then(data => {
+                if (activeElIdle) {
+                    const activeCount = typeof data.active_count === 'number'
+                        ? data.active_count
+                        : 0;
+                    activeElIdle.textContent = String(activeCount);
+                }
+                if (!statusEl) {
+                    return;
+                }
+                if (typeof data.queue_size === 'number' && data.queue_size > 0) {
                     statusEl.innerHTML = `⏳ <strong>${data.queue_size}</strong> run(s) queued`;
                 } else {
-                    statusEl.textContent = `Worker ready (max ${data.max_concurrency} concurrent)`;
+                    const maxConcurrency = typeof data.max_concurrency === 'number'
+                        ? data.max_concurrency
+                        : {{ max_concurrency|default(3) }};
+                    statusEl.textContent = `Worker ready (max ${maxConcurrency} concurrent)`;
                 }
-            }
-        })
-        .catch(() => {});
+            })
+            .catch(() => {});
+    })();
 </script>
 {% endif %}
-

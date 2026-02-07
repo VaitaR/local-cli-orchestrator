@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+from typing import cast
 
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
@@ -80,12 +81,12 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
 
     # Startup/shutdown events
     @app.on_event("startup")
-    async def startup():
+    async def startup() -> None:
         """Start background worker on app startup."""
         worker.start()
 
     @app.on_event("shutdown")
-    async def shutdown():
+    async def shutdown() -> None:
         """Stop background worker on app shutdown."""
         worker.stop()
 
@@ -101,7 +102,7 @@ def get_store(request: Request) -> FileSystemRunStore:
     Returns:
         FileSystemRunStore instance.
     """
-    return request.app.state.store
+    return cast(FileSystemRunStore, request.app.state.store)
 
 
 def get_worker(request: Request) -> LocalWorker:
@@ -113,7 +114,7 @@ def get_worker(request: Request) -> LocalWorker:
     Returns:
         LocalWorker instance.
     """
-    return request.app.state.worker
+    return cast(LocalWorker, request.app.state.worker)
 
 
 def get_templates(request: Request) -> Jinja2Templates:
@@ -125,7 +126,7 @@ def get_templates(request: Request) -> Jinja2Templates:
     Returns:
         Jinja2Templates instance.
     """
-    return request.app.state.templates
+    return cast(Jinja2Templates, request.app.state.templates)
 
 
 def get_config(request: Request) -> DashboardConfig:
@@ -137,4 +138,4 @@ def get_config(request: Request) -> DashboardConfig:
     Returns:
         DashboardConfig instance.
     """
-    return request.app.state.config
+    return cast(DashboardConfig, request.app.state.config)

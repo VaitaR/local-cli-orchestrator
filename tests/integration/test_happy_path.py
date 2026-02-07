@@ -17,6 +17,12 @@ from orx.runner import Runner
 from orx.state import Stage
 
 
+@pytest.fixture(autouse=True)
+def disable_global_pytest_plugins(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Avoid loading host-level pytest plugins in gate subprocesses."""
+    monkeypatch.setenv("PYTEST_DISABLE_PLUGIN_AUTOLOAD", "1")
+
+
 @pytest.fixture
 def happy_path_executor() -> FakeExecutor:
     """Create executor with happy path scenarios."""
@@ -171,7 +177,7 @@ def test_happy_path(
     # Check events timeline exists
     assert runner.paths.events_jsonl.exists()
     events = runner.paths.events_jsonl.read_text().splitlines()
-    assert any('"event": "run_start"' in line for line in events)
+    assert any('"event_type": "run.start"' in line for line in events)
 
     # Check metrics include implement attempts (regression for nested stage timer bug)
     metrics_writer = MetricsWriter(runner.paths)

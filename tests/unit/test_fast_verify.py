@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, cast
 
 from orx.config import EngineType, OrxConfig
 from orx.context.backlog import WorkItem
@@ -81,7 +82,7 @@ def test_collect_pytest_targets_skips_deleted_changed_files(
         def get_changed_files(self) -> list[str]:
             return self._changed
 
-    runner.workspace = StubWorkspace(["tests/test_missing.py", "tests/test_present.py"])
+    runner.workspace = cast(Any, StubWorkspace(["tests/test_missing.py", "tests/test_present.py"]))
 
     targets = runner._collect_pytest_targets(item, worktree)
     assert targets == ["tests/test_present.py"]

@@ -225,6 +225,8 @@
 
 <script>
 (function() {
+    const ENGINE_CONFIG_CACHE_KEY = 'orx_engine_config_v2';
+
     // Cache for engine config
     let engineConfig = null;
     
@@ -332,7 +334,7 @@
 
         // Try sessionStorage cache first to avoid repeated network calls
         try {
-            const cached = sessionStorage.getItem('orx_engine_config');
+            const cached = sessionStorage.getItem(ENGINE_CONFIG_CACHE_KEY);
             if (cached) {
                 engineConfig = JSON.parse(cached);
                 return engineConfig;
@@ -351,7 +353,7 @@
 
             // Cache into sessionStorage for the browser session
             try {
-                sessionStorage.setItem('orx_engine_config', JSON.stringify(engineConfig));
+                sessionStorage.setItem(ENGINE_CONFIG_CACHE_KEY, JSON.stringify(engineConfig));
             } catch (e) {
                 console.debug('Failed to write engine config to sessionStorage', e);
             }

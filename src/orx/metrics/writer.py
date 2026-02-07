@@ -193,7 +193,7 @@ class MetricsWriter:
         return RunMetrics.from_dict(data)
 
 
-def append_to_index(base_dir: Path, run_id: str, summary: dict) -> None:
+def append_to_index(base_dir: Path, run_id: str, summary: dict[str, object]) -> None:
     """Append a run summary to the global index file.
 
     Args:
@@ -211,7 +211,7 @@ def append_to_index(base_dir: Path, run_id: str, summary: dict) -> None:
         f.write(json.dumps(summary) + "\n")
 
 
-def read_index(base_dir: Path) -> list[dict]:
+def read_index(base_dir: Path) -> list[dict[str, object]]:
     """Read the global index file.
 
     Args:

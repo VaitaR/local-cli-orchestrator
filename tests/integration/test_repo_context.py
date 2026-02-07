@@ -150,7 +150,7 @@ class TestRepoContextIntegration:
         class MockGate:
             def __init__(
                 self, name: str, command: str, args: list[str], required: bool
-            ):
+            ) -> None:
                 self._name = name
                 self.command = command
                 self.args = args
@@ -159,6 +159,11 @@ class TestRepoContextIntegration:
             @property
             def name(self) -> str:
                 return self._name
+
+            def run(self, *, cwd: Path, log_path: Path):  # noqa: ANN201, ARG002
+                from orx.gates.base import GateResult
+
+                return GateResult(ok=True, returncode=0, log_path=log_path, message="")
 
         gates = [
             MockGate("ruff", "ruff", ["check", "."], True),
@@ -338,4 +343,6 @@ class TestRepoContextInRunner:
 
         # Verify original content preserved
         assert runner.pack.read_tooling_snapshot() == custom_content
-        assert "Custom" in runner.pack.read_project_map()
+        project_map = runner.pack.read_project_map()
+        assert project_map is not None
+        assert "Custom" in project_map

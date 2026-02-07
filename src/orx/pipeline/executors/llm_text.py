@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Any
 
@@ -57,6 +58,18 @@ class LLMTextNodeExecutor:
             # Get timeout
             timeout = node.config.timeout_seconds or exec_ctx.timeout_seconds
 
+            corr_ids = None
+            started = time.perf_counter()
+            if exec_ctx.observability:
+                corr_ids = exec_ctx.observability.llm_request(
+                    stage=node.id,
+                    prompt_path=prompt_path,
+                    model=exec_ctx.model_selector.model
+                    if exec_ctx.model_selector
+                    else None,
+                    executor=exec_ctx.executor.name,
+                )
+
             # Call LLM
             result = exec_ctx.executor.run_text(
                 cwd=exec_ctx.workspace.worktree_path,
@@ -64,7 +77,17 @@ class LLMTextNodeExecutor:
                 out_path=out_path,
                 logs=logs,
                 timeout=timeout,
+                model_selector=exec_ctx.model_selector,
             )
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            if exec_ctx.observability:
+                exec_ctx.observability.llm_response(
+                    stage=node.id,
+                    result=result,
+                    out_path=out_path,
+                    correlation_ids=corr_ids,
+                    duration_ms=duration_ms,
+                )
 
             if result.failed:
                 log.error("LLM execution failed", error=result.error_message)
@@ -103,7 +126,11 @@ class LLMTextNodeExecutor:
                 else:
                     outputs[output_key] = content
 
-            log.info("LLM text node completed", output_keys=list(outputs.keys()), metadata_keys=list(metadata.keys()))
+            log.info(
+                "LLM text node completed",
+                output_keys=list(outputs.keys()),
+                metadata_keys=list(metadata.keys()),
+            )
             return NodeResult(success=True, outputs=outputs, metadata=metadata)
 
         except Exception as e:
@@ -126,21 +153,24 @@ class LLMTextNodeExecutor:
         Returns:
             Path to rendered prompt file.
         """
+        if node.template is None:
+            msg = f"Node {node.id} has no template"
+            raise ValueError(msg)
+
         # Map context keys to template variables and enrich from store
         template_context = self._build_template_context(context, exec_ctx)
+        template_name = node.template.removesuffix(".md")
 
         # Render to prompts directory
-        prompt_path = exec_ctx.paths.prompt_path(node.template.replace(".md", ""))
+        prompt_path = exec_ctx.paths.prompt_path(template_name)
         exec_ctx.renderer.render_to_file(
-            node.template.replace(".md", ""),
+            template_name,
             prompt_path,
             **template_context,
         )
 
         # Copy to worktree for sandboxed executors
-        worktree_prompt = exec_ctx.paths.copy_prompt_to_worktree(
-            node.template.replace(".md", "")
-        )
+        worktree_prompt = exec_ctx.paths.copy_prompt_to_worktree(template_name)
 
         return worktree_prompt
 
@@ -183,6 +213,12 @@ class LLMTextNodeExecutor:
             elif exec_ctx.store.exists(ctx_key):
                 # If missing from provided context, fetch from artifact store
                 template_ctx[tmpl_key] = exec_ctx.store.get(ctx_key)
+
+        # Run identity is required by some templates (e.g. decompose -> backlog.yaml).
+        if "run_id" not in template_ctx:
+            template_ctx["run_id"] = exec_ctx.paths.run_id
+        if "max_items" not in template_ctx:
+            template_ctx["max_items"] = exec_ctx.config.run.max_backlog_items
 
         # Pass through any additional context
         for key, value in context.items():

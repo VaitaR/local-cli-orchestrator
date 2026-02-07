@@ -130,7 +130,7 @@ def client(runs_root: Path) -> TestClient:
     """Create a test client with configured runs directory."""
     from orx.dashboard.config import DashboardConfig
 
-    config = DashboardConfig(runs_dir=runs_root)
+    config = DashboardConfig(runs_root=runs_root)
     app = create_app(config)
     return TestClient(app)
 

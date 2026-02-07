@@ -482,6 +482,56 @@ class RunConfig(BaseModel):
     coalesce_backlog_items: bool = True
 
 
+class ObservabilityCaptureConfig(BaseModel):
+    """Capture switches for observability channels."""
+
+    process: bool = True
+    filesystem: bool = True
+    llm_full_context: bool = True
+    tty: bool = True
+
+
+class ObservabilityNetworkConfig(BaseModel):
+    """Network capture policy."""
+
+    mode: Literal["full_payload", "metadata_only"] = "full_payload"
+
+
+class ObservabilityPrivacyConfig(BaseModel):
+    """Privacy controls for observability data."""
+
+    mode: Literal["private_full"] = "private_full"
+    export_mode: Literal["redacted"] = "redacted"
+
+
+class ObservabilityStorageConfig(BaseModel):
+    """Storage and limits for observability bundles."""
+
+    local_only: bool = True
+    max_event_payload_kb: int = Field(default=512, ge=16, le=16384)
+    compress_large_artifacts: bool = True
+
+
+class ObservabilityTTYConfig(BaseModel):
+    """TTY recording settings."""
+
+    enabled: bool = True
+    filename: str = "session.cast"
+
+
+class ObservabilityConfig(BaseModel):
+    """Observability v2 configuration."""
+
+    enabled: bool = True
+    capture: ObservabilityCaptureConfig = Field(
+        default_factory=ObservabilityCaptureConfig
+    )
+    network: ObservabilityNetworkConfig = Field(default_factory=ObservabilityNetworkConfig)
+    privacy: ObservabilityPrivacyConfig = Field(default_factory=ObservabilityPrivacyConfig)
+    storage: ObservabilityStorageConfig = Field(default_factory=ObservabilityStorageConfig)
+    tty: ObservabilityTTYConfig = Field(default_factory=ObservabilityTTYConfig)
+
+
 class OrxConfig(BaseModel):
     """Complete orx configuration.
 
@@ -526,6 +576,7 @@ class OrxConfig(BaseModel):
     guardrails: GuardrailConfig = Field(default_factory=GuardrailConfig)
     run: RunConfig = Field(default_factory=RunConfig)
     knowledge: KnowledgeConfig = Field(default_factory=KnowledgeConfig)
+    observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
 
     @field_validator("gates")
     @classmethod
@@ -650,7 +701,7 @@ class OrxConfig(BaseModel):
         def merge_executor(name: str) -> None:
             exec_cfg: ExecutorConfig = getattr(self.executors, name)
             default_exec: ExecutorConfig = getattr(default_cfg.executors, name)
-            fields_set = getattr(exec_cfg, "model_fields_set", set())
+            fields_set: set[str] = set(getattr(exec_cfg, "model_fields_set", set()))
 
             if "available_models" not in fields_set:
                 exec_cfg.available_models = list(default_exec.available_models)

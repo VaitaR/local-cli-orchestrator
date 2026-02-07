@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, cast
 
+from orx.config import ModelSelector
 from orx.context.backlog import WorkItem
 from orx.context.pack import ContextPack
-from orx.executors.base import ExecResult, LogPaths
+from orx.executors.base import ExecResult, LogPaths, ResolvedInvocation
 from orx.paths import RunPaths
 from orx.prompts.renderer import PromptRenderer
 from orx.stages.base import StageContext
@@ -21,23 +23,24 @@ class StubWorkspace:
 
 class CapturingExecutor:
     def __init__(self) -> None:
-        self.last_kwargs: dict | None = None
+        self.last_kwargs: dict[str, Any] | None = None
 
     @property
     def name(self) -> str:
         return "stub"
 
-    def run_text(self, **kwargs):  # type: ignore[no-untyped-def]
+    def run_text(self, **kwargs: Any) -> ExecResult:
+        _ = kwargs
         raise NotImplementedError
 
-    def run_apply(  # type: ignore[no-untyped-def]
+    def run_apply(
         self,
         *,
         cwd: Path,
         prompt_path: Path,
         logs: LogPaths,
         timeout: int | None = None,
-        model_selector=None,
+        model_selector: ModelSelector | None = None,
     ) -> ExecResult:
         self.last_kwargs = {
             "cwd": cwd,
@@ -54,7 +57,8 @@ class CapturingExecutor:
             returncode=0, stdout_path=logs.stdout, stderr_path=logs.stderr
         )
 
-    def resolve_invocation(self, **kwargs):  # type: ignore[no-untyped-def]
+    def resolve_invocation(self, **kwargs: Any) -> ResolvedInvocation:
+        _ = kwargs
         raise NotImplementedError
 
 
@@ -73,8 +77,8 @@ def test_fix_stage_passes_timeout_and_model_selector(tmp_path: Path) -> None:
         paths=paths,
         pack=pack,
         state=state,
-        workspace=StubWorkspace(tmp_path),
-        executor=executor,
+        workspace=cast(Any, StubWorkspace(tmp_path)),
+        executor=cast(Any, executor),
         gates=[],
         renderer=PromptRenderer(),
         config={},

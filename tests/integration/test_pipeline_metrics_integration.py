@@ -1,22 +1,21 @@
-"""Integration test for custom pipeline metrics in dashboard."""
+"""Integration tests for dashboard stage/run metrics from observability v2 events."""
 
 from __future__ import annotations
 
 import json
 import tempfile
-from datetime import UTC, datetime
+from collections.abc import Generator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from orx.dashboard.store.filesystem import FileSystemRunStore
-from orx.metrics.schema import StageMetrics, StageStatus, TokenUsage
-from orx.metrics.writer import MetricsWriter
 from orx.paths import RunPaths
 
 
 @pytest.fixture
-def temp_runs_dir():
+def temp_runs_dir() -> Generator[Path, None, None]:
     """Create temporary runs directory."""
     with tempfile.TemporaryDirectory() as tmpdir:
         runs_dir = Path(tmpdir) / "runs"
@@ -25,86 +24,169 @@ def temp_runs_dir():
 
 
 @pytest.fixture
-def run_id():
+def run_id() -> str:
     """Test run ID."""
     return "test-custom-pipeline-run"
 
 
 @pytest.fixture
-def run_paths(temp_runs_dir, run_id):
+def run_paths(temp_runs_dir: Path, run_id: str) -> RunPaths:
     """Create run paths for testing."""
-    # RunPaths expects base_dir and run_id separately
     paths = RunPaths(base_dir=temp_runs_dir.parent, run_id=run_id)
     paths.create_directories()
     return paths
 
 
+def _event(
+    *,
+    run_id: str,
+    step_id: int,
+    ts: str,
+    event_type: str,
+    payload: dict[str, Any],
+    source: str = "supervisor",
+) -> dict[str, Any]:
+    return {
+        "schema_version": "2.0",
+        "event_id": f"e{step_id}",
+        "ts": ts,
+        "run_id": run_id,
+        "source": source,
+        "event_type": event_type,
+        "step_id": step_id,
+        "correlation": {},
+        "payload": payload,
+    }
+
+
+def _write_events(run_paths: RunPaths, events: list[dict[str, Any]]) -> None:
+    run_paths.observability_events_jsonl.parent.mkdir(parents=True, exist_ok=True)
+    run_paths.observability_events_jsonl.write_text(
+        "\n".join(json.dumps(event) for event in events) + "\n"
+    )
+
+
 class TestCustomPipelineMetrics:
-    """Tests for dashboard reading custom pipeline metrics."""
+    """Tests for dashboard reading custom pipeline observability metrics."""
 
-    def test_get_stage_metrics_custom_pipeline(self, run_paths):
-        """Test that get_stage_metrics reads stages.jsonl for custom pipelines."""
-        from orx.dashboard.store.filesystem import FileSystemRunStore
-
-        # Create custom pipeline stage metrics (non-standard stage names)
-        custom_stages = [
-            StageMetrics(
+    def test_get_stage_metrics_custom_pipeline(self, run_paths: RunPaths) -> None:
+        """Custom stage names should be projected from v2 stage events."""
+        events = [
+            _event(
                 run_id=run_paths.run_id,
-                stage="custom_analysis",
-                start_ts=datetime(2024, 1, 1, 10, 0, 0, tzinfo=UTC).isoformat(),
-                end_ts=datetime(2024, 1, 1, 10, 0, 5, tzinfo=UTC).isoformat(),
-                duration_ms=5000,
-                status=StageStatus.SUCCESS,
-                tokens=TokenUsage(input=1000, output=500, total=1500),
+                step_id=1,
+                ts="2024-01-01T10:00:00+00:00",
+                event_type="run.start",
+                payload={},
             ),
-            StageMetrics(
+            _event(
                 run_id=run_paths.run_id,
-                stage="data_processing",
-                start_ts=datetime(2024, 1, 1, 10, 0, 5, tzinfo=UTC).isoformat(),
-                end_ts=datetime(2024, 1, 1, 10, 0, 15, tzinfo=UTC).isoformat(),
-                duration_ms=10000,
-                status=StageStatus.SUCCESS,
-                tokens=TokenUsage(input=2000, output=1000, total=3000),
+                step_id=2,
+                ts="2024-01-01T10:00:00+00:00",
+                event_type="stage.start",
+                payload={"stage": "custom_analysis", "attempt": 1},
             ),
-            StageMetrics(
+            _event(
                 run_id=run_paths.run_id,
-                stage="custom_output",
-                start_ts=datetime(2024, 1, 1, 10, 0, 15, tzinfo=UTC).isoformat(),
-                end_ts=datetime(2024, 1, 1, 10, 0, 17, tzinfo=UTC).isoformat(),
-                duration_ms=2000,
-                status=StageStatus.FAIL,
-                failure_message="Custom stage failed",
+                step_id=3,
+                ts="2024-01-01T10:00:03+00:00",
+                event_type="llm.response",
+                source="gateway",
+                payload={
+                    "stage": "custom_analysis",
+                    "attempt": 1,
+                    "tokens": {"input": 1000, "output": 500, "total": 1500},
+                },
+            ),
+            _event(
+                run_id=run_paths.run_id,
+                step_id=4,
+                ts="2024-01-01T10:00:05+00:00",
+                event_type="stage.end",
+                payload={
+                    "stage": "custom_analysis",
+                    "attempt": 1,
+                    "status": "success",
+                },
+            ),
+            _event(
+                run_id=run_paths.run_id,
+                step_id=5,
+                ts="2024-01-01T10:00:05+00:00",
+                event_type="stage.start",
+                payload={"stage": "data_processing", "attempt": 1},
+            ),
+            _event(
+                run_id=run_paths.run_id,
+                step_id=6,
+                ts="2024-01-01T10:00:10+00:00",
+                event_type="llm.response",
+                source="gateway",
+                payload={
+                    "stage": "data_processing",
+                    "attempt": 1,
+                    "tokens": {"input": 2000, "output": 1000, "total": 3000},
+                },
+            ),
+            _event(
+                run_id=run_paths.run_id,
+                step_id=7,
+                ts="2024-01-01T10:00:15+00:00",
+                event_type="stage.end",
+                payload={
+                    "stage": "data_processing",
+                    "attempt": 1,
+                    "status": "success",
+                },
+            ),
+            _event(
+                run_id=run_paths.run_id,
+                step_id=8,
+                ts="2024-01-01T10:00:15+00:00",
+                event_type="stage.start",
+                payload={"stage": "custom_output", "attempt": 1},
+            ),
+            _event(
+                run_id=run_paths.run_id,
+                step_id=9,
+                ts="2024-01-01T10:00:17+00:00",
+                event_type="stage.end",
+                payload={
+                    "stage": "custom_output",
+                    "attempt": 1,
+                    "status": "failure",
+                    "message": "Custom stage failed",
+                },
+            ),
+            _event(
+                run_id=run_paths.run_id,
+                step_id=10,
+                ts="2024-01-01T10:00:17+00:00",
+                event_type="run.end",
+                payload={"status": "failure"},
             ),
         ]
+        _write_events(run_paths, events)
 
-        # Write metrics
-        writer = MetricsWriter(run_paths)
-        for stage_metric in custom_stages:
-            writer.write_stage(stage_metric)
-
-        # Read back through store
         store = FileSystemRunStore(run_paths.run_dir.parent)
         stage_metrics = store.get_stage_metrics(run_paths.run_id)
 
-        # Verify all custom stages are read
         assert len(stage_metrics) == 3
         assert stage_metrics[0]["stage"] == "custom_analysis"
         assert stage_metrics[1]["stage"] == "data_processing"
         assert stage_metrics[2]["stage"] == "custom_output"
 
-        # Verify metrics data
         assert stage_metrics[0]["duration_ms"] == 5000
         assert stage_metrics[0]["status"] == "success"
         assert stage_metrics[0]["tokens"]["total"] == 1500
 
-        assert stage_metrics[2]["status"] == "fail"
+        assert stage_metrics[2]["status"] == "failure"
         assert stage_metrics[2]["failure_message"] == "Custom stage failed"
 
-    def test_build_metrics_context_custom_stages(self):
-        """Test that _build_metrics_context renders any stage name dynamically."""
+    def test_build_metrics_context_custom_stages(self) -> None:
+        """_build_metrics_context should render arbitrary stage names."""
         from orx.dashboard.handlers.partials import _build_metrics_context
 
-        # Custom stage metrics (non-standard names)
         stage_metrics = [
             {
                 "stage": "extract_data",
@@ -128,10 +210,8 @@ class TestCustomPipelineMetrics:
             },
         ]
 
-        # Run metrics (empty - testing fallback behavior)
-        run_metrics = {}
+        run_metrics: dict[str, Any] = {}
 
-        # Build context
         context = _build_metrics_context(
             run_metrics=run_metrics,
             stage_metrics=stage_metrics,
@@ -139,17 +219,14 @@ class TestCustomPipelineMetrics:
             fallback_model="claude-3-opus",
         )
 
-        # Verify stages are rendered
         assert "stages" in context
         assert len(context["stages"]) == 3
 
-        # Check custom stage names are preserved
         stage_names = [s["name"] for s in context["stages"]]
         assert "extract_data" in stage_names
         assert "transform_results" in stage_names
         assert "load_to_db" in stage_names
 
-        # Verify metrics data
         extract_stage = next(
             s for s in context["stages"] if s["name"] == "extract_data"
         )
@@ -158,119 +235,124 @@ class TestCustomPipelineMetrics:
         assert extract_stage["tokens"] == 700
         assert extract_stage["model"] == "claude-3-opus"
 
-        # Verify failed stage
         load_stage = next(s for s in context["stages"] if s["name"] == "load_to_db")
         assert load_stage["status"] == "fail"
         assert load_stage["error"] == "Connection timeout"
 
-    def test_end_to_end_custom_pipeline_metrics(self, run_paths, run_id):
-        """Test end-to-end: custom pipeline run → stages.jsonl → dashboard displays metrics."""
-        # Create custom pipeline metrics
-        writer = MetricsWriter(run_paths)
-
-        custom_stages = [
-            StageMetrics(
+    def test_end_to_end_custom_pipeline_metrics(
+        self, run_paths: RunPaths, run_id: str
+    ) -> None:
+        """End-to-end projection should aggregate custom stages and token totals."""
+        events = [
+            _event(
                 run_id=run_id,
-                stage="etl_extract",
-                start_ts=datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC).isoformat(),
-                end_ts=datetime(2024, 1, 1, 12, 0, 3, tzinfo=UTC).isoformat(),
-                duration_ms=3000,
-                status=StageStatus.SUCCESS,
-                tokens=TokenUsage(input=1500, output=500, total=2000),
+                step_id=1,
+                ts="2024-01-01T12:00:00+00:00",
+                event_type="run.start",
+                payload={},
             ),
-            StageMetrics(
+            _event(
                 run_id=run_id,
-                stage="etl_transform",
-                start_ts=datetime(2024, 1, 1, 12, 0, 3, tzinfo=UTC).isoformat(),
-                end_ts=datetime(2024, 1, 1, 12, 0, 10, tzinfo=UTC).isoformat(),
-                duration_ms=7000,
-                status=StageStatus.SUCCESS,
-                tokens=TokenUsage(input=3000, output=2000, total=5000),
+                step_id=2,
+                ts="2024-01-01T12:00:00+00:00",
+                event_type="stage.start",
+                payload={"stage": "etl_extract", "attempt": 1},
             ),
-            StageMetrics(
+            _event(
                 run_id=run_id,
-                stage="etl_load",
-                start_ts=datetime(2024, 1, 1, 12, 0, 10, tzinfo=UTC).isoformat(),
-                end_ts=datetime(2024, 1, 1, 12, 0, 12, tzinfo=UTC).isoformat(),
-                duration_ms=2000,
-                status=StageStatus.SUCCESS,
-                tokens=TokenUsage(input=1000, output=500, total=1500),
+                step_id=3,
+                ts="2024-01-01T12:00:02+00:00",
+                event_type="llm.response",
+                source="gateway",
+                payload={
+                    "stage": "etl_extract",
+                    "attempt": 1,
+                    "tokens": {"input": 1500, "output": 500, "total": 2000},
+                },
+            ),
+            _event(
+                run_id=run_id,
+                step_id=4,
+                ts="2024-01-01T12:00:03+00:00",
+                event_type="stage.end",
+                payload={"stage": "etl_extract", "attempt": 1, "status": "success"},
+            ),
+            _event(
+                run_id=run_id,
+                step_id=5,
+                ts="2024-01-01T12:00:03+00:00",
+                event_type="stage.start",
+                payload={"stage": "etl_transform", "attempt": 1},
+            ),
+            _event(
+                run_id=run_id,
+                step_id=6,
+                ts="2024-01-01T12:00:09+00:00",
+                event_type="llm.response",
+                source="gateway",
+                payload={
+                    "stage": "etl_transform",
+                    "attempt": 1,
+                    "tokens": {"input": 3000, "output": 2000, "total": 5000},
+                },
+            ),
+            _event(
+                run_id=run_id,
+                step_id=7,
+                ts="2024-01-01T12:00:10+00:00",
+                event_type="stage.end",
+                payload={
+                    "stage": "etl_transform",
+                    "attempt": 1,
+                    "status": "success",
+                },
+            ),
+            _event(
+                run_id=run_id,
+                step_id=8,
+                ts="2024-01-01T12:00:10+00:00",
+                event_type="stage.start",
+                payload={"stage": "etl_load", "attempt": 1},
+            ),
+            _event(
+                run_id=run_id,
+                step_id=9,
+                ts="2024-01-01T12:00:11+00:00",
+                event_type="llm.response",
+                source="gateway",
+                payload={
+                    "stage": "etl_load",
+                    "attempt": 1,
+                    "tokens": {"input": 1000, "output": 500, "total": 1500},
+                },
+            ),
+            _event(
+                run_id=run_id,
+                step_id=10,
+                ts="2024-01-01T12:00:12+00:00",
+                event_type="stage.end",
+                payload={"stage": "etl_load", "attempt": 1, "status": "success"},
+            ),
+            _event(
+                run_id=run_id,
+                step_id=11,
+                ts="2024-01-01T12:00:12+00:00",
+                event_type="run.end",
+                payload={"status": "success"},
             ),
         ]
+        _write_events(run_paths, events)
 
-        for stage_metric in custom_stages:
-            writer.write_stage(stage_metric)
-
-        # Create minimal run.json for summary display
-        run_json = run_paths.run_dir / "metrics" / "run.json"
-        run_json.parent.mkdir(parents=True, exist_ok=True)
-        run_json.write_text(
-            json.dumps(
-                {
-                    "run_id": run_id,
-                    "start_ts": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC).isoformat(),
-                    "final_status": "success",
-                    "total_duration_ms": 12000,
-                    "stages_executed": 3,
-                    "tokens": {
-                        "input": 5500,
-                        "output": 3000,
-                        "total": 8500,
-                    },
-                }
-            )
-        )
-
-        # Create state.json for run detail
-        state_json = run_paths.run_dir / "state.json"
-        state_json.write_text(
-            json.dumps(
-                {
-                    "current_stage": "done",
-                    "created_at": datetime(
-                        2024, 1, 1, 12, 0, 0, tzinfo=UTC
-                    ).isoformat(),
-                    "updated_at": datetime(
-                        2024, 1, 1, 12, 0, 12, tzinfo=UTC
-                    ).isoformat(),
-                    "stage_statuses": {
-                        "etl_extract": {"status": "success"},
-                        "etl_transform": {"status": "success"},
-                        "etl_load": {"status": "success"},
-                    },
-                }
-            )
-        )
-
-        # Create meta.json
-        meta_json = run_paths.run_dir / "meta.json"
-        meta_json.write_text(
-            json.dumps(
-                {
-                    "created_at": datetime(
-                        2024, 1, 1, 12, 0, 0, tzinfo=UTC
-                    ).isoformat(),
-                    "repo_path": "/tmp/test",
-                    "engine": "claude-3-opus",
-                }
-            )
-        )
-
-        # Verify through the store and metrics context builder
         from orx.dashboard.handlers.partials import _build_metrics_context
 
         store = FileSystemRunStore(run_paths.run_dir.parent)
-
-        # Get stage metrics from store
         stage_metrics = store.get_stage_metrics(run_id)
         assert len(stage_metrics) == 3
 
-        # Get run metrics from store
         run_metrics = store.get_run_metrics(run_id)
         assert run_metrics is not None
         assert run_metrics["stages_executed"] == 3
 
-        # Build metrics context (what the dashboard uses)
         context = _build_metrics_context(
             run_metrics=run_metrics,
             stage_metrics=stage_metrics,
@@ -278,90 +360,102 @@ class TestCustomPipelineMetrics:
             fallback_model="claude-3-opus",
         )
 
-        # Verify custom stage names are in the context
         stage_names = [s["name"] for s in context["stages"]]
         assert "etl_extract" in stage_names
         assert "etl_transform" in stage_names
         assert "etl_load" in stage_names
 
-        # Verify tokens are aggregated correctly
         assert context["tokens"]["total"] == 8500
-
-        # Verify duration
         assert context["duration"] == 12.0
 
-    def test_mixed_standard_and_custom_stages(self, run_paths):
-        """Test that both standard and custom stages are displayed correctly."""
-        from orx.dashboard.store.filesystem import FileSystemRunStore
-
-        # Mix of standard and custom stages
-        stages = [
-            StageMetrics(
+    def test_mixed_standard_and_custom_stages(self, run_paths: RunPaths) -> None:
+        """Standard and custom stage names should both be projected."""
+        events = [
+            _event(
                 run_id=run_paths.run_id,
-                stage="plan",  # Standard
-                start_ts=datetime(2024, 1, 1, 10, 0, 0, tzinfo=UTC).isoformat(),
-                end_ts=datetime(2024, 1, 1, 10, 0, 2, tzinfo=UTC).isoformat(),
-                duration_ms=2000,
-                status=StageStatus.SUCCESS,
+                step_id=1,
+                ts="2024-01-01T10:00:00+00:00",
+                event_type="run.start",
+                payload={},
             ),
-            StageMetrics(
+            _event(
                 run_id=run_paths.run_id,
-                stage="custom_preprocess",  # Custom
-                start_ts=datetime(2024, 1, 1, 10, 0, 2, tzinfo=UTC).isoformat(),
-                end_ts=datetime(2024, 1, 1, 10, 0, 5, tzinfo=UTC).isoformat(),
-                duration_ms=3000,
-                status=StageStatus.SUCCESS,
+                step_id=2,
+                ts="2024-01-01T10:00:00+00:00",
+                event_type="stage.start",
+                payload={"stage": "plan", "attempt": 1},
             ),
-            StageMetrics(
+            _event(
                 run_id=run_paths.run_id,
-                stage="implement",  # Standard
-                start_ts=datetime(2024, 1, 1, 10, 0, 5, tzinfo=UTC).isoformat(),
-                end_ts=datetime(2024, 1, 1, 10, 0, 15, tzinfo=UTC).isoformat(),
-                duration_ms=10000,
-                status=StageStatus.SUCCESS,
+                step_id=3,
+                ts="2024-01-01T10:00:02+00:00",
+                event_type="stage.end",
+                payload={"stage": "plan", "attempt": 1, "status": "success"},
+            ),
+            _event(
+                run_id=run_paths.run_id,
+                step_id=4,
+                ts="2024-01-01T10:00:02+00:00",
+                event_type="stage.start",
+                payload={"stage": "custom_preprocess", "attempt": 1},
+            ),
+            _event(
+                run_id=run_paths.run_id,
+                step_id=5,
+                ts="2024-01-01T10:00:05+00:00",
+                event_type="stage.end",
+                payload={
+                    "stage": "custom_preprocess",
+                    "attempt": 1,
+                    "status": "success",
+                },
+            ),
+            _event(
+                run_id=run_paths.run_id,
+                step_id=6,
+                ts="2024-01-01T10:00:05+00:00",
+                event_type="stage.start",
+                payload={"stage": "implement", "attempt": 1},
+            ),
+            _event(
+                run_id=run_paths.run_id,
+                step_id=7,
+                ts="2024-01-01T10:00:15+00:00",
+                event_type="stage.end",
+                payload={"stage": "implement", "attempt": 1, "status": "success"},
+            ),
+            _event(
+                run_id=run_paths.run_id,
+                step_id=8,
+                ts="2024-01-01T10:00:15+00:00",
+                event_type="run.end",
+                payload={"status": "success"},
             ),
         ]
+        _write_events(run_paths, events)
 
-        writer = MetricsWriter(run_paths)
-        for stage_metric in stages:
-            writer.write_stage(stage_metric)
-
-        # Read back
         store = FileSystemRunStore(run_paths.run_dir.parent)
         stage_metrics = store.get_stage_metrics(run_paths.run_id)
 
-        # Verify all stages are present
         assert len(stage_metrics) == 3
         stage_names = [s["stage"] for s in stage_metrics]
         assert "plan" in stage_names
         assert "custom_preprocess" in stage_names
         assert "implement" in stage_names
 
-    def test_empty_stages_jsonl(self, run_paths):
-        """Test that empty stages.jsonl is handled gracefully."""
-        from orx.dashboard.store.filesystem import FileSystemRunStore
+    def test_empty_events_jsonl(self, run_paths: RunPaths) -> None:
+        """Empty events.jsonl should be handled gracefully."""
+        run_paths.observability_events_jsonl.parent.mkdir(parents=True, exist_ok=True)
+        run_paths.observability_events_jsonl.write_text("")
 
-        # Create empty stages.jsonl
-        stages_jsonl = run_paths.run_dir / "metrics" / "stages.jsonl"
-        stages_jsonl.parent.mkdir(parents=True, exist_ok=True)
-        stages_jsonl.write_text("")
-
-        # Read back
         store = FileSystemRunStore(run_paths.run_dir.parent)
         stage_metrics = store.get_stage_metrics(run_paths.run_id)
 
-        # Should return empty list
         assert stage_metrics == []
 
-    def test_missing_stages_jsonl(self, run_paths):
-        """Test that missing stages.jsonl is handled gracefully."""
-        from orx.dashboard.store.filesystem import FileSystemRunStore
-
-        # Don't create stages.jsonl at all
-
-        # Read back
+    def test_missing_events_jsonl(self, run_paths: RunPaths) -> None:
+        """Missing events.jsonl should be handled gracefully."""
         store = FileSystemRunStore(run_paths.run_dir.parent)
         stage_metrics = store.get_stage_metrics(run_paths.run_id)
 
-        # Should return empty list
         assert stage_metrics == []

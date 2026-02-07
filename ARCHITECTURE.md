@@ -1,11 +1,11 @@
 # System Architecture
 
-> **Last Updated:** 2026-01-03  
-> **Status:** v0.3 - Self-Improving Orchestrator
+> **Last Updated:** 2026-02-06  
+> **Status:** v0.4 - Observability v2 Cutover
 
 ## Overview
 
-**orx** is a local, CLI-first orchestrator that coordinates AI coding agents (Codex CLI, Gemini CLI) through a sequential Finite State Machine (FSM). It manages git isolation, quality gates, fix-loops, and produces auditable artifacts.
+**orx** is a local, CLI-first orchestrator that coordinates AI coding agents (Codex CLI, Gemini CLI) through a pipeline engine (`pipeline/*`, `standard` by default). A legacy FSM flow remains available via `orx run --legacy-fsm`. It manages git isolation, quality gates, fix-loops, and produces auditable artifacts.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -15,8 +15,8 @@
                                 │
                                 ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                       Runner (FSM)                               │
-│   INIT → PLAN → SPEC → DECOMPOSE → IMPLEMENT → VERIFY → ...    │
+│              Runner (Pipeline Engine + Legacy FSM)              │
+│   standard/fast_fix/plan_only pipelines + legacy FSM fallback   │
 └─────────────────────────────────────────────────────────────────┘
           │              │              │              │
           ▼              ▼              ▼              ▼
@@ -49,9 +49,11 @@ Entry point for all user interactions. Built with Typer.
 | `init` | Initialize configuration |
 | `clean` | Remove run artifacts |
 
-### 2. Runner (Orchestration FSM)
+### 2. Runner (Orchestration Engine)
 
-Central orchestrator implementing a Finite State Machine with these stages:
+Production path uses `PipelineRunner` with built-in and custom pipelines. Legacy FSM is retained for migration/debug via `--legacy-fsm`.
+
+Legacy FSM stages:
 
 ```mermaid
 stateDiagram-v2
@@ -248,7 +250,7 @@ Gate Failure (ruff/pytest)
 
 | Layer | Technology |
 |-------|------------|
-| Language | Python 3.11+ |
+| Language | Python 3.11, 3.12 |
 | CLI Framework | Typer |
 | Configuration | Pydantic + YAML |
 | Templating | Jinja2 |
@@ -279,10 +281,10 @@ cli.py ────────────────────────�
          │                       paths.py
          │                           │
          ▼                           ▼
-    ┌─────────┐               ┌─────────────┐               ┌─────────┐
-    │executors│               │  context/   │               │metrics/ │
-    │  gates  │               │  workspace/ │               │         │
-    └─────────┘               └─────────────┘               └─────────┘
+    ┌─────────┐               ┌─────────────┐               ┌───────────────┐
+    │executors│               │  context/   │               │observability/ │
+    │  gates  │               │  workspace/ │               │               │
+    └─────────┘               └─────────────┘               └───────────────┘
          │                           │                           │
          └───────────┬───────────────┴───────────────────────────┘
                      ▼
@@ -296,7 +298,7 @@ cli.py ────────────────────────�
 - No cyclic imports
 - All subprocess calls via `CommandRunner`
 - All file writes via `ContextPack` or `RunPaths`
-- Metrics collection via `MetricsCollector`
+- Observability event capture via `src/orx/observability/*`
 
 ---
 
@@ -328,9 +330,19 @@ runs/<run_id>/
     │   ├── review.md
     │   └── pr_body.md
     │
-    ├── metrics/            # Stage and run metrics
-    │   ├── stages.jsonl    # Per-stage attempt records
-    │   └── run.json        # Aggregated run summary
+    ├── observability/      # Canonical v2 observability bundle
+    │   ├── events.jsonl    # Event envelope timeline
+    │   ├── metadata.json
+    │   ├── tty/
+    │   │   └── session.cast
+    │   ├── llm/
+    │   │   ├── request_<call_id>.txt
+    │   │   └── response_<call_id>.txt
+    │   ├── patches/
+    │   │   └── *.diff
+    │   └── exports/
+    │       └── redacted/
+    │           └── events.redacted.jsonl
     │
     └── logs/
         ├── agent_plan.stdout.log
@@ -498,7 +510,7 @@ Automatic updates to AGENTS.md and ARCHITECTURE.md after successful task complet
 ┌─────────────────────────────────────────────────────────────────┐
 │                    Knowledge Update Flow                         │
 │                                                                  │
-│  stages.jsonl ──► ProblemsCollector ──► ProblemsSummary         │
+│  observability/events.jsonl ─► ProblemsCollector ─► ProblemsSummary │
 │       │                                       │                  │
 │       ▼                                       ▼                  │
 │  EvidenceCollector ──────────────────► EvidencePack             │
@@ -517,7 +529,7 @@ Automatic updates to AGENTS.md and ARCHITECTURE.md after successful task complet
 ```
 
 **Key Features:**
-- **Problem-driven learning**: Extracts problems from stages.jsonl (gate failures, parse errors, timeouts)
+- **Problem-driven learning**: Extracts problems from observability events (looping, gate failures, context bloat, premature edits)
 - **Marker-scoped updates**: Only content within `<!-- ORX:START/END -->` markers is modified
 - **Architecture gatekeeping**: Only updates ARCHITECTURE.md if changes affect structure
 - **Guardrails**: Max lines changed, deletion limits, allowlist files
@@ -525,11 +537,11 @@ Automatic updates to AGENTS.md and ARCHITECTURE.md after successful task complet
 
 **Problem Collection:**
 ```python
-# Problems extracted from metrics include:
-- Gate failures (ruff, pytest) with error output
-- Parse errors (invalid YAML/JSON)
-- Timeouts and empty diffs
-- Fix iterations and their triggers
+# Problems extracted from observability events include:
+- Looping command patterns without progress
+- Repeated tool/process failures
+- Context bloat across llm.request payloads
+- Premature edits and instruction drift
 ```
 
 **Module Structure:**
@@ -541,73 +553,33 @@ src/orx/knowledge/
 └── updater.py       # Coordinates AGENTS.md + ARCHITECTURE.md updates
 ```
 
-### 9. Metrics & Monitoring (v0.4)
+### 9. Observability v2 (Hard Cutover)
 
-Comprehensive observability for data-driven improvements. Tracks stage-level and run-level metrics.
+Observability is now event-first and contract-driven. The canonical source is:
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    Metrics Data Flow                             │
-│                                                                  │
-│  Stage Start ──► MetricsCollector ──► StageTimer                │
-│       │                │                  │                      │
-│       │                ▼                  ▼                      │
-│       │         Record: model,      LLM timing,                 │
-│       │         gates, quality      verify timing               │
-│       │                │                  │                      │
-│  Stage End ◄───────────┴──────────────────┘                     │
-│       │                                                          │
-│       ▼                                                          │
-│  MetricsWriter ──► stages.jsonl (append)                        │
-│       │                                                          │
-│  Run End                                                         │
-│       │                                                          │
-│       ▼                                                          │
-│  MetricsWriter ──► run.json (aggregate)                         │
-│       │          ──► index.jsonl (global)                       │
-└─────────────────────────────────────────────────────────────────┘
-```
+- `runs/<run_id>/observability/events.jsonl`
+- `runs/<run_id>/observability/metadata.json`
 
-**Metrics Collected:**
+Legacy formats are not supported by dashboard or knowledge modules:
 
-| Metric Type | Data Captured |
-|-------------|---------------|
-| **Stage** | Duration (total, LLM, verify), attempt #, status, failure category |
-| **Tokens** | Input/output counts, total usage, tool call counts (per stage + aggregate) |
-| **Gate** | Name, passed, duration, error count, test counts |
-| **Quality** | Spec score, plan score, diff hygiene, pack relevance |
-| **Run** | Total duration, stage breakdown, fix attempts, gate pass/fail |
+- `runs/<run_id>/events.jsonl` with `event=...`
+- `runs/<run_id>/metrics/run.json`
+- `runs/<run_id>/metrics/stages.jsonl`
 
-**Token Estimation:**
-- Uses `tiktoken` library with model-specific encodings (gpt-4, gpt-3.5-turbo, etc.)
-- Fallback to character-based estimation (~4 chars per token) when tiktoken unavailable
-- Cached tokenizers per model to avoid repeated initialization
-- Tool call counts extracted from executor `extra` metadata
+Current capture channels:
 
-**File Structure:**
-```
-runs/<run_id>/metrics/
-    ├── stages.jsonl    # One line per stage attempt (JSONL)
-    └── run.json        # Aggregated run summary (JSON)
+- LLM request/response tracing (`llm.request`, `llm.response`)
+- Process execution tracing (`proc.exec.start`, `proc.exec.end`) via `CommandRunner`
+- Filesystem patch snapshots (`fs.patch`)
+- TTY segments (`tty.segment.start`, `tty.segment.end`)
+- Gate decisions (`gate.approval`)
 
-~/.orx/metrics/
-    └── aggregate.json  # Cross-run analysis
-```
+Validation/export commands:
 
-**CLI Commands:**
 ```bash
-orx metrics rebuild              # Rebuild aggregate from all runs
-orx metrics report               # Human-readable summary
-orx metrics report --json        # JSON output
-orx metrics show <run_id>        # Run-level metrics
-orx metrics show <run_id> -s     # Per-stage metrics
+orx observability validate --run-id <id>
+orx observability export --run-id <id> --mode redacted
 ```
-
-**Quality Analysis:**
-- `analyze_spec_quality()`: Scores spec by AC, file hints, schema
-- `analyze_plan_quality()`: Scores plan by overview, steps, risks
-- `analyze_diff_hygiene()`: Checks file count and LOC against limits
-- `analyze_pack_relevance()`: Ratio of pack files actually modified
 
 
 

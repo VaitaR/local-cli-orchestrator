@@ -1,35 +1,39 @@
+from __future__ import annotations
+
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from orx.runner import Runner, Stage
+from orx.runner import Runner
 from orx.stages.base import StageResult
+from orx.state import Stage
 
 
 class MockState:
-    def __init__(self):
+    def __init__(self) -> None:
         self.current_stage = Stage.PLAN
 
-    def transition_to(self, stage):
+    def transition_to(self, stage: Stage) -> None:
         self.current_stage = stage
 
-    def mark_stage_completed(self, stage=None):
-        pass
+    def mark_stage_completed(self, stage: Stage | None = None) -> None:
+        _ = stage
 
-    def mark_stage_failed(self, msg):
-        pass
+    def mark_stage_failed(self, msg: str) -> None:
+        _ = msg
 
 
 class MockPaths:
-    def __init__(self):
+    def __init__(self) -> None:
         self.run_id = "test_run"
         self.backlog_yaml = MagicMock()
 
 
 @pytest.fixture
-def mock_runner():
+def mock_runner() -> Any:
     with patch("orx.runner.Runner.__init__", return_value=None):
-        runner = Runner(None, base_dir=None)
+        runner: Any = object.__new__(Runner)
         runner.state = MockState()
         runner.paths = MockPaths()
         runner.events = MagicMock()
@@ -52,7 +56,7 @@ def mock_runner():
         return runner
 
 
-def test_runner_review_loop(mock_runner):
+def test_runner_review_loop(mock_runner: Any) -> None:
     # Setup - first pass review fails, second pass review passes
 
     # Mock stage execution results
@@ -60,7 +64,7 @@ def test_runner_review_loop(mock_runner):
 
     # We need to control the side effects of _run_stage_with_metrics based on calls
 
-    def side_effect(stage_name, _run_fn):
+    def side_effect(stage_name: str, _run_fn: Any) -> StageResult:
         if stage_name == "review":
             # Use a mutable counter on the mock to track review attempts
             if not hasattr(mock_runner, "review_attempts"):
