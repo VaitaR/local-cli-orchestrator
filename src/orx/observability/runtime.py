@@ -13,13 +13,22 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from orx.executors.base import ExecResult
-from orx.observability.correlation import CorrelationIds, StepCounter, new_correlation, new_id
+from orx.observability.correlation import (
+    CorrelationIds,
+    StepCounter,
+    new_correlation,
+    new_id,
+)
 from orx.observability.schema import Correlation, ObsEvent
 from orx.observability.tty import TTYRecorder
 from orx.observability.writer import EventWriter, MetadataWriter
 
 if TYPE_CHECKING:
-    from orx.infra.command import CommandExecutionEnd, CommandExecutionStart, CommandObserver
+    from orx.infra.command import (
+        CommandExecutionEnd,
+        CommandExecutionStart,
+        CommandObserver,
+    )
     from orx.paths import RunPaths
 
 logger = structlog.get_logger()
@@ -46,6 +55,10 @@ class _RuntimeCommandObserver:
             span_id=corr.span_id,
             ts=event.ts,
         )
+        self._runtime.tty_note(
+            f"$ {' '.join(event.command)}"
+            + (f"  # cwd={event.cwd}" if event.cwd else "")
+        )
         self._runtime.emit(
             source="os",
             event_type="proc.exec.start",
@@ -67,6 +80,9 @@ class _RuntimeCommandObserver:
         correlation = Correlation()
         if pending:
             correlation = Correlation(call_id=pending.call_id, span_id=pending.span_id)
+        self._runtime.tty_note(
+            f"rc={event.returncode} ({event.duration_ms}ms) $ {' '.join(event.command)}"
+        )
 
         self._runtime.emit(
             source="os",
@@ -93,6 +109,7 @@ class RunObservability:
         step_counter: StepCounter,
         max_payload_kb: int = 512,
         tty_enabled: bool = True,
+        network_mode: str = "full_payload",
     ) -> None:
         self.paths = paths
         self.run_id = paths.run_id
@@ -102,6 +119,7 @@ class RunObservability:
         self._metadata = MetadataWriter(paths.observability_metadata_json)
         self._tty_enabled = tty_enabled
         self._tty = TTYRecorder(paths.observability_tty_dir / "session.cast")
+        self._network_mode = network_mode
         self._session_id: str | None = None
         self._run_started = False
         self._patch_checksums: dict[str, str] = {}
@@ -138,21 +156,26 @@ class RunObservability:
                 payload={
                     "segment": 1,
                     "path": str(self._tty.output_path),
-                    "mode": "passive",
+                    "mode": self._tty.capture_mode,
                 },
             )
             if reason:
                 self.warning("tty_unavailable", detail=reason)
-        self.warning("network_capture_not_implemented", detail="network payload capture is disabled")
+        self.emit(
+            source="network",
+            event_type="network.capture.config",
+            payload={"mode": self._network_mode, "strategy": "llm-correlated-metadata"},
+        )
         return self._session_id
 
     def finish(self, *, status: str, error: str | None = None) -> None:
         """Finalize session metadata and close tty segment."""
-        self.emit(
-            source="tty",
-            event_type="tty.segment.end",
-            payload={"segment": 1, "path": str(self._tty.output_path)},
-        )
+        if self._tty_enabled:
+            self.emit(
+                source="tty",
+                event_type="tty.segment.end",
+                payload={"segment": 1, "path": str(self._tty.output_path)},
+            )
         existing = self._metadata.read()
         existing.update(
             {
@@ -193,10 +216,12 @@ class RunObservability:
         if self._run_started:
             return
         self._run_started = True
+        self.tty_note(f"run.start run_id={self.run_id}")
         self.emit(source="supervisor", event_type="run.start", payload={"run_id": self.run_id})
 
     def run_end(self, *, status: str, error: str | None = None) -> None:
         """Emit run.end event."""
+        self.tty_note(f"run.end status={status}")
         self.emit(
             source="supervisor",
             event_type="run.end",
@@ -213,6 +238,10 @@ class RunObservability:
         model: str | None = None,
     ) -> None:
         """Emit stage.start event."""
+        self.tty_note(
+            f"stage.start {stage} attempt={attempt}"
+            + (f" item={item_id}" if item_id else "")
+        )
         self.emit(
             source="supervisor",
             event_type="stage.start",
@@ -236,6 +265,10 @@ class RunObservability:
         duration_ms: int | None = None,
     ) -> None:
         """Emit stage.end event."""
+        self.tty_note(
+            f"stage.end {stage} status={status} attempt={attempt}"
+            + (f" item={item_id}" if item_id else "")
+        )
         self.emit(
             source="supervisor",
             event_type="stage.end",
@@ -257,6 +290,7 @@ class RunObservability:
         item_id: str | None = None,
         attempt: int = 1,
         model: str | None = None,
+        executor: str | None = None,
     ) -> CorrelationIds:
         """Capture and emit llm.request event."""
         started = time.perf_counter()
@@ -277,6 +311,22 @@ class RunObservability:
                 "chars": len(content),
                 "duration_ms": int((time.perf_counter() - started) * 1000),
             },
+        )
+        self.emit(
+            source="network",
+            event_type="network.request",
+            correlation=Correlation(call_id=corr.call_id, span_id=corr.span_id),
+            payload=self._network_request_payload(
+                stage=stage,
+                item_id=item_id,
+                attempt=attempt,
+                model=model,
+                executor=executor,
+                request_file=request_file,
+            ),
+        )
+        self.tty_note(
+            f"llm.request stage={stage} model={model or '-'} executor={executor or '-'}"
         )
         return corr
 
@@ -302,6 +352,11 @@ class RunObservability:
         response_file = self._write_llm_blob(prefix="response", call_id=corr.call_id, content=content)
         tokens = result.get_token_usage() or {"input": 0, "output": 0, "total": 0}
         tokens["tool_calls"] = result.get_tool_calls()
+        extra = result.extra if isinstance(result.extra, dict) else {}
+        resolved_executor = self._resolve_executor_name(result=result)
+        cost_usd = extra.get("cost_usd")
+        if cost_usd is None:
+            cost_usd = extra.get("total_cost_usd")
 
         payload = {
             "stage": stage,
@@ -315,6 +370,14 @@ class RunObservability:
             "model": result.get_model_used(),
             "response_path": str(response_file),
             "chars": len(content),
+            "executor": resolved_executor,
+            "cost_usd": cost_usd,
+            "total_cost_usd": extra.get("total_cost_usd"),
+            "duration_api_ms": extra.get("duration_api_ms"),
+            "num_turns": extra.get("num_turns"),
+            "session_id": extra.get("session_id"),
+            "result_type": extra.get("type"),
+            "result_subtype": extra.get("subtype"),
         }
 
         self.emit(
@@ -322,6 +385,30 @@ class RunObservability:
             event_type="llm.response",
             payload=payload,
             correlation=Correlation(call_id=corr.call_id, span_id=corr.span_id, parent_id=corr.parent_id),
+        )
+        self.emit(
+            source="network",
+            event_type="network.response",
+            correlation=Correlation(
+                call_id=corr.call_id,
+                span_id=corr.span_id,
+                parent_id=corr.parent_id,
+            ),
+            payload=self._network_response_payload(
+                stage=stage,
+                item_id=item_id,
+                attempt=attempt,
+                model=result.get_model_used(),
+                executor=resolved_executor,
+                response_file=response_file,
+                result=result,
+                duration_ms=duration_ms,
+            ),
+        )
+        self.tty_note(
+            f"llm.response stage={stage} rc={result.returncode} "
+            f"dur_ms={duration_ms if duration_ms is not None else '-'} "
+            f"model={result.get_model_used() or '-'}"
         )
 
     def fs_patch(
@@ -388,6 +475,12 @@ class RunObservability:
             payload={"code": code, "detail": detail},
         )
 
+    def tty_note(self, message: str) -> None:
+        """Append one synthetic TTY note frame (best effort)."""
+        if not self._tty_enabled:
+            return
+        self._tty.note(message)
+
     def _write_llm_blob(self, *, prefix: str, call_id: str, content: str) -> Path:
         """Materialize llm request/response payload content to file."""
         path = self.paths.observability_llm_dir / f"{prefix}_{call_id}.txt"
@@ -413,3 +506,96 @@ class RunObservability:
             max_payload_bytes=self.max_payload_bytes,
         )
         return truncated
+
+    def _resolve_executor_name(self, *, result: ExecResult) -> str | None:
+        invocation = result.invocation
+        if invocation and invocation.model_info:
+            executor = invocation.model_info.get("executor")
+            if isinstance(executor, str) and executor:
+                return executor
+        return None
+
+    def _infer_network_destination(
+        self, *, executor: str | None, model: str | None
+    ) -> tuple[str | None, str | None]:
+        if executor:
+            mapping = {
+                "codex": ("openai", "api.openai.com"),
+                "gemini": ("google", "generativelanguage.googleapis.com"),
+                "claude_code": ("anthropic", "api.anthropic.com"),
+                "copilot": ("github", "api.githubcopilot.com"),
+                "cursor": ("cursor", "api.cursor.com"),
+            }
+            if executor in mapping:
+                return mapping[executor]
+
+        model_lower = (model or "").lower()
+        if "gpt" in model_lower or "o1" in model_lower or "o3" in model_lower:
+            return ("openai", "api.openai.com")
+        if "gemini" in model_lower:
+            return ("google", "generativelanguage.googleapis.com")
+        if "claude" in model_lower or "haiku" in model_lower or "sonnet" in model_lower:
+            return ("anthropic", "api.anthropic.com")
+        return (None, None)
+
+    def _network_request_payload(
+        self,
+        *,
+        stage: str,
+        item_id: str | None,
+        attempt: int,
+        model: str | None,
+        executor: str | None,
+        request_file: Path,
+    ) -> dict[str, Any]:
+        provider, host = self._infer_network_destination(executor=executor, model=model)
+        payload: dict[str, Any] = {
+            "stage": stage,
+            "item_id": item_id,
+            "attempt": attempt,
+            "executor": executor,
+            "model": model,
+            "provider": provider,
+            "destination_host": host,
+            "mode": self._network_mode,
+        }
+        if self._network_mode == "full_payload":
+            payload["request_path"] = str(request_file)
+        return payload
+
+    def _network_response_payload(
+        self,
+        *,
+        stage: str,
+        item_id: str | None,
+        attempt: int,
+        model: str | None,
+        executor: str | None,
+        response_file: Path,
+        result: ExecResult,
+        duration_ms: int | None,
+    ) -> dict[str, Any]:
+        provider, host = self._infer_network_destination(executor=executor, model=model)
+        extra = result.extra if isinstance(result.extra, dict) else {}
+        payload: dict[str, Any] = {
+            "stage": stage,
+            "item_id": item_id,
+            "attempt": attempt,
+            "executor": executor,
+            "model": model,
+            "provider": provider,
+            "destination_host": host,
+            "mode": self._network_mode,
+            "returncode": result.returncode,
+            "duration_ms": duration_ms,
+            "duration_api_ms": extra.get("duration_api_ms"),
+            "cost_usd": extra.get("cost_usd")
+            if extra.get("cost_usd") is not None
+            else extra.get("total_cost_usd"),
+            "total_cost_usd": extra.get("total_cost_usd"),
+            "num_turns": extra.get("num_turns"),
+            "session_id": extra.get("session_id"),
+        }
+        if self._network_mode == "full_payload":
+            payload["response_path"] = str(response_file)
+        return payload

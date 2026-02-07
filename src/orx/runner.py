@@ -411,6 +411,7 @@ class Runner:
             step_counter=step_counter,
             max_payload_kb=obs_cfg.storage.max_event_payload_kb,
             tty_enabled=obs_cfg.capture.tty and obs_cfg.tty.enabled,
+            network_mode=obs_cfg.network.mode,
         )
 
         if obs_cfg.capture.process:

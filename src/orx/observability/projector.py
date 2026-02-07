@@ -37,6 +37,30 @@ def load_events(path: Path) -> list[dict[str, Any]]:
     return EventWriter(path).read_all()
 
 
+def _payload_dict(event: dict[str, Any]) -> dict[str, Any]:
+    raw = event.get("payload")
+    if isinstance(raw, dict):
+        return raw
+    return {}
+
+
+def _dict_or_empty(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _to_int(value: Any, default: int = 0) -> int:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return default
+    return default
+
+
 def project_run(events: list[dict[str, Any]]) -> ProjectedRun:
     """Project run-level and stage-level metrics from events."""
     run_start_ts: str | None = None
@@ -52,18 +76,19 @@ def project_run(events: list[dict[str, Any]]) -> ProjectedRun:
 
     for event in events:
         event_type = str(event.get("event_type") or "")
-        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        payload = _payload_dict(event)
 
         if event_type == "run.start":
             run_start_ts = str(event.get("ts") or run_start_ts)
             run_status = "running"
         elif event_type == "run.end":
             run_end_ts = str(event.get("ts") or run_end_ts)
-            run_status = str(payload.get("status") or "success")
+            status_raw = payload.get("status")
+            run_status = str(status_raw) if status_raw else "success"
         elif event_type == "stage.start":
             stage = str(payload.get("stage") or "unknown")
             item_id = payload.get("item_id")
-            attempt = int(payload.get("attempt") or 1)
+            attempt = _to_int(payload.get("attempt"), default=1)
             key = (stage, item_id if isinstance(item_id, str) else None, attempt)
             current_stage = stage
             stage_entries.append(
@@ -86,12 +111,13 @@ def project_run(events: list[dict[str, Any]]) -> ProjectedRun:
         elif event_type == "stage.end":
             stage = str(payload.get("stage") or "unknown")
             item_id = payload.get("item_id")
-            attempt = int(payload.get("attempt") or 1)
+            attempt = _to_int(payload.get("attempt"), default=1)
             key = (stage, item_id if isinstance(item_id, str) else None, attempt)
             idx = open_stage_idx.get(key)
             if idx is not None:
                 stage_entries[idx]["end_ts"] = event.get("ts")
-                stage_entries[idx]["status"] = payload.get("status") or "success"
+                status_raw = payload.get("status")
+                stage_entries[idx]["status"] = str(status_raw) if status_raw else "success"
                 stage_entries[idx]["error"] = payload.get("message")
                 explicit_duration = payload.get("duration_ms")
                 if isinstance(explicit_duration, int):
@@ -104,18 +130,19 @@ def project_run(events: list[dict[str, Any]]) -> ProjectedRun:
                 stage_entries[idx]["tokens"] = stage_tokens.get(key, stage_entries[idx]["tokens"])
                 current_stage = None
         elif event_type == "llm.response":
-            stage = payload.get("stage")
-            if not isinstance(stage, str):
+            stage_raw = payload.get("stage")
+            if not isinstance(stage_raw, str):
                 continue
+            stage = stage_raw
             item_id = payload.get("item_id")
-            attempt = int(payload.get("attempt") or 1)
+            attempt = _to_int(payload.get("attempt"), default=1)
             key = (stage, item_id if isinstance(item_id, str) else None, attempt)
 
-            tokens = payload.get("tokens") if isinstance(payload.get("tokens"), dict) else {}
-            input_tokens = int(tokens.get("input") or 0)
-            output_tokens = int(tokens.get("output") or 0)
-            total = int(tokens.get("total") or (input_tokens + output_tokens))
-            tool_calls = int(tokens.get("tool_calls") or 0)
+            tokens = _dict_or_empty(payload.get("tokens"))
+            input_tokens = _to_int(tokens.get("input"), default=0)
+            output_tokens = _to_int(tokens.get("output"), default=0)
+            total = _to_int(tokens.get("total"), default=(input_tokens + output_tokens))
+            tool_calls = _to_int(tokens.get("tool_calls"), default=0)
 
             bucket = stage_tokens.setdefault(
                 key,
@@ -152,6 +179,7 @@ def project_timeline(events: list[dict[str, Any]]) -> dict[str, list[dict[str, A
     """Split events into grouped timeline buckets for dashboard rendering."""
     groups: dict[str, list[dict[str, Any]]] = {
         "llm": [],
+        "network": [],
         "proc": [],
         "fs": [],
         "tty": [],
@@ -163,6 +191,8 @@ def project_timeline(events: list[dict[str, Any]]) -> dict[str, list[dict[str, A
         event_type = str(event.get("event_type") or "")
         if event_type.startswith("llm."):
             groups["llm"].append(event)
+        elif event_type.startswith("network."):
+            groups["network"].append(event)
         elif event_type.startswith("proc."):
             groups["proc"].append(event)
         elif event_type.startswith("fs."):

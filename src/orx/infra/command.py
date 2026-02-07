@@ -301,7 +301,7 @@ class CommandRunner:
                 # If writing fails, ignore in dry-run
                 pass
 
-            result = CommandResult(
+            dry_result = CommandResult(
                 returncode=0,
                 stdout_path=stdout_path,
                 stderr_path=stderr_path,
@@ -313,12 +313,12 @@ class CommandRunner:
                 command_id=command_id,
                 command=command,
                 cwd=cwd,
-                returncode=result.returncode,
+                returncode=dry_result.returncode,
                 duration_ms=duration_ms,
                 stdout_path=stdout_path,
                 stderr_path=stderr_path,
             )
-            return result
+            return dry_result
 
         stdout_handle: IO[bytes] | int | None = None
         stderr_handle: IO[bytes] | int | None = None
@@ -356,7 +356,7 @@ class CommandRunner:
                 heartbeat_thread.start()
 
             try:
-                result = subprocess.run(
+                completed = subprocess.run(
                     command,
                     cwd=cwd,
                     stdout=stdout_handle,
@@ -371,19 +371,21 @@ class CommandRunner:
                     stop_heartbeat.set()
                     heartbeat_thread.join(timeout=1)
 
-            log.info("Command completed", returncode=result.returncode)
+            log.info("Command completed", returncode=completed.returncode)
 
-            if check and result.returncode != 0:
-                msg = f"Command failed with exit code {result.returncode}: {' '.join(command)}"
+            if check and completed.returncode != 0:
+                msg = (
+                    f"Command failed with exit code {completed.returncode}: {' '.join(command)}"
+                )
                 raise CommandError(
                     msg,
                     command=command,
-                    returncode=result.returncode,
+                    returncode=completed.returncode,
                     cwd=cwd,
                 )
 
             command_result = CommandResult(
-                returncode=result.returncode,
+                returncode=completed.returncode,
                 stdout_path=stdout_path,
                 stderr_path=stderr_path,
                 command=command,

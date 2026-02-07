@@ -67,6 +67,7 @@ class LLMTextNodeExecutor:
                     model=exec_ctx.model_selector.model
                     if exec_ctx.model_selector
                     else None,
+                    executor=exec_ctx.executor.name,
                 )
 
             # Call LLM
@@ -212,6 +213,12 @@ class LLMTextNodeExecutor:
             elif exec_ctx.store.exists(ctx_key):
                 # If missing from provided context, fetch from artifact store
                 template_ctx[tmpl_key] = exec_ctx.store.get(ctx_key)
+
+        # Run identity is required by some templates (e.g. decompose -> backlog.yaml).
+        if "run_id" not in template_ctx:
+            template_ctx["run_id"] = exec_ctx.paths.run_id
+        if "max_items" not in template_ctx:
+            template_ctx["max_items"] = exec_ctx.config.run.max_backlog_items
 
         # Pass through any additional context
         for key, value in context.items():

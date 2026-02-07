@@ -137,6 +137,42 @@ class TestFileSystemRunStore:
         assert active[0].run_id == "test-run-002"
         assert active[0].status == RunStatus.RUNNING
 
+    def test_stale_init_run_without_pid_is_not_active(
+        self, store: FileSystemRunStore
+    ) -> None:
+        """Legacy INIT-only runs with no PID/events should not stay active forever."""
+        run_dir = store.runs_dir / "test-run-stale"
+        run_dir.mkdir()
+        (run_dir / "meta.json").write_text(
+            json.dumps(
+                {
+                    "run_id": "test-run-stale",
+                    "task": "Stale run",
+                    "created_at": "2025-01-15T12:00:00Z",
+                }
+            )
+        )
+        (run_dir / "state.json").write_text(
+            json.dumps(
+                {
+                    "current_stage": "init",
+                    "status": None,
+                    "pid": None,
+                    "created_at": "2025-01-15T12:00:00Z",
+                    "updated_at": "2025-01-15T12:05:00Z",
+                }
+            )
+        )
+
+        summary = store.get_run("test-run-stale")
+        assert summary is not None
+        assert summary.status == RunStatus.UNKNOWN
+        assert summary.is_active is False
+        assert summary.fail_category == "stale_state"
+
+        active_ids = {run.run_id for run in store.list_runs(active_only=True)}
+        assert "test-run-stale" not in active_ids
+
     def test_running_run_hides_last_error(self, store: FileSystemRunStore) -> None:
         """Running runs should not surface last error."""
         detail = store.get_run("test-run-002")

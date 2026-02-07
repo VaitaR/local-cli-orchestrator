@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import shutil
+import threading
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -19,12 +21,18 @@ class TTYRecorder:
     def __init__(self, output_path: Path) -> None:
         self.output_path = output_path
         self.enabled = False
+        self.capture_mode = "synthetic"
         self.reason: str | None = None
+        self._start_monotonic: float | None = None
+        self._lock = threading.Lock()
 
     def start(self) -> tuple[bool, str | None]:
         """Initialize cast file and return `(enabled, reason_if_disabled)`."""
-        self.output_path.parent.mkdir(parents=True, exist_ok=True)
+        self._start_monotonic = time.perf_counter()
         asciinema_bin = shutil.which("asciinema")
+        self.capture_mode = (
+            "asciinema_passive" if asciinema_bin is not None else "synthetic"
+        )
 
         header = {
             "version": 2,
@@ -33,27 +41,32 @@ class TTYRecorder:
             "timestamp": int(datetime.now(tz=UTC).timestamp()),
             "env": {"SHELL": "orx", "TERM": "xterm-256color"},
             "title": "orx observability tty",
+            "capture_mode": self.capture_mode,
             "asciinema_available": bool(asciinema_bin),
         }
 
-        self.output_path.write_text(json.dumps(header) + "\n", encoding="utf-8")
-
-        self.enabled = True
-        if asciinema_bin is None:
-            self.reason = "asciinema_not_found"
-        else:
+        try:
+            self.output_path.parent.mkdir(parents=True, exist_ok=True)
+            self.output_path.write_text(json.dumps(header) + "\n", encoding="utf-8")
+            self.enabled = True
             self.reason = None
+        except OSError:
+            self.enabled = False
+            self.reason = "tty_output_init_failed"
         return self.enabled, self.reason
 
     def note(self, message: str) -> None:
         """Append a synthetic output frame to cast file."""
         if not self.output_path.exists():
             return
+        elapsed = 0.0
+        if self._start_monotonic is not None:
+            elapsed = max(0.0, time.perf_counter() - self._start_monotonic)
         frame = [
-            round(datetime.now(tz=UTC).timestamp(), 3),
+            round(elapsed, 3),
             "o",
             message.rstrip("\n") + "\n",
         ]
-        with self.output_path.open("a", encoding="utf-8") as handle:
+        with self._lock, self.output_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(frame, ensure_ascii=True))
             handle.write("\n")

@@ -1,4 +1,4 @@
-"""E2E smoke tests for Codex/Gemini engines."""
+"""Fast E2E smoke tests for Claude Code engine."""
 
 from __future__ import annotations
 
@@ -11,7 +11,9 @@ from pathlib import Path
 
 import pytest
 
-PROMPT = "This is just a test run, nothing needs to be fixed."
+SMOKE_PIPELINE_PATH = (
+    Path(__file__).resolve().parent / "pipelines" / "smoke_quick.yaml"
+)
 
 
 def _skip_if_no_llm() -> None:
@@ -19,40 +21,33 @@ def _skip_if_no_llm() -> None:
         pytest.skip("Set RUN_LLM_TESTS=1 to run LLM smoke tests")
 
 
-def _write_config(path: Path, *, engine: str, model: str) -> None:
-    codex_model = os.getenv("ORX_E2E_CODEX_MODEL") or "gpt-5.2"
-    gemini_model = os.getenv("ORX_E2E_GEMINI_MODEL") or "gemini-2.5-pro"
-    if engine == "codex":
-        codex_model = model
-    if engine == "gemini":
-        gemini_model = model
+def _write_config(path: Path, *, model: str) -> None:
+    claude_model = model or os.getenv("ORX_E2E_CLAUDE_MODEL") or "haiku"
 
     config = f"""version: "1.0"
 
 engine:
-  type: {engine}
-  timeout: 180
+  type: claude_code
+  timeout: 120
 
 executors:
-  codex:
+  claude_code:
     default:
-      model: {codex_model}
-  gemini:
-    default:
-      model: {gemini_model}
+      model: {claude_model}
 
 stages:
-  plan:
-    web_search: false
-  spec:
-    web_search: false
-  fix:
-    web_search: false
+  implement:
+    executor: claude_code
+    model: {claude_model}
+  review:
+    executor: claude_code
+    model: {claude_model}
 
 run:
   max_fix_attempts: 1
   stop_on_first_failure: true
   per_item_verify: fast
+  max_backlog_items: 1
 
 gates:
   - name: ruff
@@ -67,74 +62,85 @@ gates:
     path.write_text(config)
 
 
-def _run_orx(repo: Path, *, engine: str) -> tuple[int, str]:
+def _run_orx(repo: Path) -> tuple[int, str]:
     cmd = [
         os.environ.get("PYTHON", "python"),
         "-m",
         "orx.cli",
         "run",
-        PROMPT,
+        (
+            "Smoke mode: apply exactly one tiny non-breaking edit to src/__init__.py "
+            "and finish fast."
+        ),
         "--dir",
         str(repo),
         "--engine",
-        engine,
+        "claude_code",
+        "--pipeline",
+        str(SMOKE_PIPELINE_PATH),
     ]
     proc = subprocess.run(
         cmd,
         cwd=repo,
         capture_output=True,
         text=True,
-        timeout=900,
+        timeout=420,
     )
     output = f"{proc.stdout}\n{proc.stderr}"
     return proc.returncode, output
 
 
 def _extract_run_id(output: str) -> str:
-    match = re.search(r"Run ID:\\s+(\\S+)", output)
+    match = re.search(r"Run ID:\s+(\S+)", output)
     if not match:
         raise AssertionError(f"Run ID not found in output:\\n{output}")
     return match.group(1)
 
 
-@pytest.mark.parametrize(
-    ("engine", "binary", "model_env"),
-    [
-        ("codex", "codex", "ORX_E2E_CODEX_MODEL"),
-        ("gemini", "gemini", "ORX_E2E_GEMINI_MODEL"),
-    ],
-)
-def test_llm_engines_e2e(
-    tmp_git_repo: Path,
-    engine: str,
-    binary: str,
-    model_env: str,
-) -> None:
+def test_claude_code_fast_pipeline_smoke(tmp_git_repo: Path) -> None:
     _skip_if_no_llm()
 
-    if shutil.which(binary) is None:
-        pytest.skip(f"{binary} binary not found in PATH")
+    if shutil.which("claude") is None:
+        pytest.skip("claude binary not found in PATH")
 
-    if not os.getenv(model_env):
-        pytest.skip(f"Set {model_env} to run this smoke test")
+    if not SMOKE_PIPELINE_PATH.exists():
+        pytest.fail(f"Missing smoke pipeline: {SMOKE_PIPELINE_PATH}")
 
     config_path = tmp_git_repo / "orx.yaml"
-    _write_config(config_path, engine=engine, model=os.environ[model_env])
+    _write_config(config_path, model=os.getenv("ORX_E2E_CLAUDE_MODEL") or "haiku")
 
-    code, output = _run_orx(tmp_git_repo, engine=engine)
+    code, output = _run_orx(tmp_git_repo)
     run_id = _extract_run_id(output)
 
     state_path = tmp_git_repo / "runs" / run_id / "state.json"
     assert state_path.exists(), f"Missing state.json for {run_id}"
 
-    state = json.loads(state_path.read_text())
-    plan_status = state["stage_statuses"]["plan"]["status"]
-    assert plan_status != "failed", output
+    run_dir = state_path.parent
+    events_path = run_dir / "observability" / "events.jsonl"
+    assert events_path.exists(), f"Missing observability events for {run_id}"
+    events = [json.loads(line) for line in events_path.read_text().splitlines() if line]
 
-    # Expect either success or an empty-diff failure (no-op prompt).
-    current_stage = state["current_stage"]
-    if current_stage == "done":
-        return
+    implement_ends = [
+        event
+        for event in events
+        if event.get("event_type") == "stage.end"
+        and event.get("payload", {}).get("stage") == "implement"
+    ]
+    assert implement_ends, output
+    assert implement_ends[-1].get("payload", {}).get("status") == "success", output
 
-    assert current_stage == "failed", output
-    assert state.get("last_failure_evidence", {}).get("diff_empty") is True
+    review_ends = [
+        event
+        for event in events
+        if event.get("event_type") == "stage.end"
+        and event.get("payload", {}).get("stage") == "review"
+    ]
+    assert review_ends, output
+    assert review_ends[-1].get("payload", {}).get("status") == "success", output
+
+    run_end_events = [event for event in events if event.get("event_type") == "run.end"]
+    assert run_end_events, output
+    run_end_payload = run_end_events[-1].get("payload", {})
+    run_status = run_end_payload.get("status")
+    assert run_status == "success", output
+    assert code == 0, output

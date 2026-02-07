@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+from collections.abc import Generator
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +15,7 @@ from orx.paths import RunPaths
 
 
 @pytest.fixture
-def temp_runs_dir() -> Path:
+def temp_runs_dir() -> Generator[Path, None, None]:
     """Create temporary runs directory."""
     with tempfile.TemporaryDirectory() as tmpdir:
         runs_dir = Path(tmpdir) / "runs"

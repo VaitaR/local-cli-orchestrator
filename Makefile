@@ -12,7 +12,7 @@ help:
 	@echo "  make lint             Lint code with ruff and mypy"
 	@echo "  make test             Run unit tests"
 	@echo "  make test-integration Run integration tests"
-	@echo "  make smoke-llm        Run LLM smoke tests (requires RUN_LLM_TESTS=1)"
+	@echo "  make smoke-llm        Run Claude Code smoke tests (requires RUN_LLM_TESTS=1)"
 	@echo "  make clean            Remove build artifacts"
 
 check-python:

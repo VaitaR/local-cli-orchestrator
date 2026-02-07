@@ -21,10 +21,9 @@ class EventWriter:
         """Append one event entry to the timeline."""
         payload = event.to_dict()
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self._lock:
-            with self.path.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(payload, ensure_ascii=True))
-                handle.write("\n")
+        with self._lock, self.path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=True))
+            handle.write("\n")
 
     def read_all(self) -> list[dict[str, Any]]:
         """Read and parse all events from the timeline."""

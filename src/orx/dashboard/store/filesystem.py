@@ -163,6 +163,7 @@ class FileSystemRunStore:
         meta = self._read_json(run_dir / "meta.json") or {}
         state = self._read_json(run_dir / "state.json") or {}
         events, projected = self._load_projected_run(run_dir)
+        state_status = cast(str | None, state.get("status"))
 
         current_stage = state.get("current_stage")
         pid = state.get("pid")
@@ -231,12 +232,30 @@ class FileSystemRunStore:
                 status = RunStatus.UNKNOWN
         else:
             status = RunStatus.from_state(
-                state_status=cast(str | None, state.get("status")),
+                state_status=state_status,
                 stage=current_stage if isinstance(current_stage, str) else None,
             )
-            if status == RunStatus.RUNNING and pid_alive is False:
-                status = RunStatus.FAIL
+
+        if status == RunStatus.RUNNING and pid_alive is False:
+            status = RunStatus.FAIL
+            if fail_category is None:
                 fail_category = "process_exited"
+
+        # Legacy dashboard-triggered runs may have only an INIT stage with no PID,
+        # no explicit status, and no observability events. Treat them as stale so
+        # they don't stay forever in the "Active Runs" list.
+        if (
+            status == RunStatus.RUNNING
+            and not events
+            and state_status is None
+            and not isinstance(pid, int)
+            and isinstance(current_stage, str)
+            and current_stage not in {"done", "failed"}
+            and updated_at is not None
+        ):
+            status = RunStatus.UNKNOWN
+            if fail_category is None:
+                fail_category = "stale_state"
 
         if run_end_error:
             fail_category = run_end_error
@@ -666,7 +685,15 @@ class FileSystemRunStore:
         run_dir = self._runs_dir / run_id
         events_path = self._events_path(run_dir)
         if not events_path.exists():
-            return {"llm": [], "proc": [], "fs": [], "tty": [], "gate": [], "other": []}
+            return {
+                "llm": [],
+                "network": [],
+                "proc": [],
+                "fs": [],
+                "tty": [],
+                "gate": [],
+                "other": [],
+            }
         return project_timeline(load_events(events_path))
 
     def get_observability_events(self, run_id: str) -> list[dict[str, Any]]:

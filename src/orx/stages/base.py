@@ -257,6 +257,7 @@ class TextOutputStage(BaseStage):
                     stage=self.name,
                     prompt_path=prompt_path,
                     model=ctx.model_selector.model if ctx.model_selector else None,
+                    executor=ctx.executor.name,
                 )
 
             result = ctx.executor.run_text(
@@ -383,6 +384,7 @@ class ApplyStage(BaseStage):
                     item_id=item.id,
                     attempt=iteration,
                     model=ctx.model_selector.model if ctx.model_selector else None,
+                    executor=ctx.executor.name,
                 )
 
             result = ctx.executor.run_apply(

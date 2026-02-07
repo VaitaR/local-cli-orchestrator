@@ -81,6 +81,7 @@ class LLMApplyNodeExecutor:
                     model=exec_ctx.model_selector.model
                     if exec_ctx.model_selector
                     else None,
+                    executor=exec_ctx.executor.name,
                 )
 
             # Call LLM
@@ -202,21 +203,34 @@ class LLMApplyNodeExecutor:
                 return str(exec_ctx.store.get(key))
             return default
 
+        def get_store_value(key: str) -> Any:
+            """Get raw object from context or artifact store."""
+            if key in context:
+                return context[key]
+            if exec_ctx.store.exists(key):
+                return exec_ctx.store.get(key)
+            return None
+
         # Task
         task = get_context_value("task")
-        template_ctx["task"] = compact_text(task, max_lines=40)
+        task_summary = compact_text(task, max_lines=40)
+        template_ctx["task"] = task_summary
+        template_ctx["task_summary"] = task_summary
 
         # Spec
         spec = get_context_value("spec")
         if hasattr(spec, "model_dump"):
             spec = str(spec)
-        template_ctx["spec"] = extract_spec_highlights(spec, max_lines=120)
+        spec_highlights = extract_spec_highlights(spec, max_lines=120)
+        template_ctx["spec"] = spec_highlights
+        template_ctx["spec_highlights"] = spec_highlights
 
         # Work item context
         if item:
             template_ctx["item_id"] = item.id
             template_ctx["item_title"] = item.title
             template_ctx["item_objective"] = item.objective
+            template_ctx["item_notes"] = item.notes
             template_ctx["acceptance"] = item.acceptance
             template_ctx["files_hint"] = item.files_hint
 
@@ -243,5 +257,18 @@ class LLMApplyNodeExecutor:
         agents = get_context_value("agents_context")
         if agents:
             template_ctx["agents_context"] = agents
+
+        verify_errors = get_store_value("verify_errors")
+        if isinstance(verify_errors, dict):
+            error_logs = str(verify_errors.get("error_logs", "")).strip()
+            if error_logs:
+                template_ctx["error_logs"] = error_logs
+            fix_attempt = verify_errors.get("fix_attempt")
+            if isinstance(fix_attempt, int):
+                template_ctx["fix_attempt"] = fix_attempt
+
+        error_logs = get_context_value("error_logs").strip()
+        if error_logs:
+            template_ctx["error_logs"] = error_logs
 
         return template_ctx
