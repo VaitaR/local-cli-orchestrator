@@ -835,6 +835,20 @@ class Runner:
                 # Run pipeline
                 result = pipeline_runner.run(pipeline, task)
 
+                # Handle paused state (human-in-the-loop)
+                if result.paused:
+                    self._save_meta(success=True)
+                    self._refresh_patch_diff()
+                    if self.observability:
+                        self.observability.run_end(status="paused")
+                        self._finish_observability(status="paused")
+                    log.info(
+                        "Pipeline paused for human review",
+                        paused_after=result.paused_after_node,
+                    )
+                    # Return True — the run is not failed, just paused
+                    return True
+
                 self.state.set_pid(None)
 
                 if result.success:
@@ -899,6 +913,10 @@ class Runner:
                     log.warning("Run is not resumable")
                     return False
 
+                # Handle pipeline-based PAUSED state
+                if self.state.is_paused() and self.state.state.paused_after_node:
+                    return self._resume_paused_pipeline()
+
                 self._recover_running_text_stage()
 
                 # Restore workspace if needed
@@ -938,6 +956,120 @@ class Runner:
                 self.state.set_pid(None)
                 self._save_meta(success=False)
             raise
+
+    def _resume_paused_pipeline(self) -> bool:
+        """Resume a pipeline that was paused for human-in-the-loop.
+
+        Loads the pipeline and resumes execution from the node after
+        the one that triggered the pause.
+
+        Returns:
+            True if pipeline completed successfully.
+        """
+        from orx.pipeline import PipelineRegistry, PipelineRunner
+
+        paused_after = self.state.state.paused_after_node
+        log = logger.bind(run_id=self.paths.run_id, resume_after=paused_after)
+        log.info("Resuming paused pipeline")
+
+        # Clear paused state
+        self.state.state.paused_after_node = None
+        self.state.state.current_stage = Stage.INIT  # Will be updated by pipeline
+        self.state.save()
+
+        # Restore workspace if needed
+        if not self.workspace.exists():
+            base_branch = self.config.git.base_branch
+            self.workspace.create(base_branch)
+            if self.state.state.baseline_sha:
+                self.workspace.reset(self.state.state.baseline_sha)
+
+        # Rebuild repo context pack if missing
+        self._build_repo_context()
+
+        # Find the pipeline ID (use default)
+        pipeline_id = self.default_pipeline_id or "standard"
+
+        registry = PipelineRegistry.load()
+        pipeline = registry.get(pipeline_id)
+        if not pipeline:
+            log.error("Pipeline not found", pipeline_id=pipeline_id)
+            self.state.mark_stage_failed(f"Pipeline not found: {pipeline_id}")
+            return False
+
+        # Find the node after the paused one
+        resume_node_id: str | None = None
+        found_paused = False
+        for node in pipeline.nodes:
+            if found_paused:
+                resume_node_id = node.id
+                break
+            if node.id == paused_after:
+                found_paused = True
+
+        if not resume_node_id:
+            log.info("No nodes remaining after paused node, completing")
+            self.state.transition_to(Stage.DONE)
+            self.state.mark_stage_completed()
+            self._save_meta(success=True)
+            self.state.set_pid(None)
+            return True
+
+        # Read task
+        task = ""
+        if self.paths.task_md.exists():
+            task = self.paths.task_md.read_text()
+
+        pipeline_runner = PipelineRunner(
+            config=self.config,
+            paths=self.paths,
+            workspace=self.workspace,
+            executor=self.executor,
+            gates=self.gates,
+            renderer=self.renderer,
+            state=self.state,
+            router=self.model_router,
+            metrics_writer=self.metrics_writer,
+            observability=self.observability,
+            cmd=self.cmd,
+        )
+
+        result = pipeline_runner.run(pipeline, task, resume_from=resume_node_id)
+
+        # Handle another pause
+        if result.paused:
+            self._save_meta(success=True)
+            self._refresh_patch_diff()
+            if self.observability:
+                self.observability.run_end(status="paused")
+                self._finish_observability(status="paused")
+            log.info(
+                "Pipeline paused again for human review",
+                paused_after=result.paused_after_node,
+            )
+            return True
+
+        self.state.set_pid(None)
+
+        if result.success:
+            self.state.transition_to(Stage.DONE)
+            self.state.mark_stage_completed()
+            self._save_meta(success=True)
+            self._refresh_patch_diff()
+            if self.observability:
+                self.observability.run_end(status="success")
+                self._finish_observability(status="success")
+            log.info("Pipeline resumed and completed successfully")
+        else:
+            self.state.mark_stage_failed(result.error or "Pipeline failed")
+            self._save_meta(success=False)
+            self._refresh_patch_diff()
+            if self.observability:
+                self.observability.run_end(status="failure", error=result.error)
+                self._finish_observability(status="failure", error=result.error)
+            log.error("Pipeline failed after resume", error=result.error)
+
+        return result.success
 
     def _recover_running_text_stage(self) -> None:
         """Recover a text stage output if the run was interrupted after LLM output.

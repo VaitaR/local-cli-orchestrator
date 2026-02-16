@@ -63,6 +63,8 @@ class PipelineResult:
     total_duration_ms: int = 0
     review_changes_requested: bool = False  # True if review asked for changes
     fix_attempts: int = 0  # Number of times implement was retried after verify failure
+    paused: bool = False  # True if pipeline paused for human-in-the-loop
+    paused_after_node: str | None = None  # Node ID that completed before pause
 
     def __bool__(self) -> bool:
         """Return success status."""
@@ -286,6 +288,27 @@ class PipelineRunner:
                         node_log.info("Reproduction verification successful (test failed as expected)")
 
                 node_log.info("Node completed", duration_ms=node_duration_ms)
+
+                # Check if this node is interactive (human-in-the-loop)
+                if node.interactive:
+                    node_log.info(
+                        "Interactive node completed - pausing for human review",
+                        node_id=node.id,
+                    )
+                    if self.state:
+                        self.state.mark_paused(after_node=node.id)
+
+                    result.paused = True
+                    result.paused_after_node = node.id
+                    result.total_duration_ms = int(
+                        (time.perf_counter() - start_time) * 1000
+                    )
+                    log.info(
+                        "Pipeline paused for human-in-the-loop",
+                        paused_after=node.id,
+                        completed=len(result.completed_nodes),
+                    )
+                    return result
 
             else:
                 # Handle verify failures: try to retry implement with error feedback

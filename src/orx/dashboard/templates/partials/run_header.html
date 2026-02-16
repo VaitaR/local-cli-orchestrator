@@ -1,5 +1,5 @@
 <div id="run-header"
-     {% if run.is_active %}
+     {% if run.is_active or run.is_paused %}
      hx-get="/partials/run-header/{{ run.run_id }}"
      hx-trigger="every {{ poll_interval }}s"
      hx-swap="outerHTML"
@@ -12,6 +12,7 @@
             {% if run.status.value == 'running' %}⚡ {% endif %}
             {% if run.status.value == 'completed' %}✓ {% endif %}
             {% if run.status.value == 'failed' %}✕ {% endif %}
+            {% if run.status.value == 'paused' %}⏸ {% endif %}
             {{ run.status.value }}
         </span>
     </div>
@@ -68,6 +69,18 @@
     {% endif %}
     
     <div class="run-actions">
+        {% if run.can_resume %}
+        <div class="pause-banner" style="background: #fef3cd; border: 1px solid #ffc107; border-radius: 8px; padding: 12px 16px; margin-bottom: 12px;">
+            <strong>⏸ Pipeline Paused</strong> — Edit generated artifacts (plan, spec, etc.) via VS Code or the Artifacts tab, then resume.
+        </div>
+        <button class="btn btn-success"
+                hx-post="/api/runs/{{ run.run_id }}/resume"
+                hx-confirm="Resume this run from where it paused?"
+                hx-swap="none"
+                hx-on::after-request="setTimeout(() => htmx.trigger('#run-header', 'htmx:load'), 1000)">
+            ▶️ Resume Run
+        </button>
+        {% endif %}
         {% if run.can_cancel %}
         <button class="btn btn-danger"
                 hx-post="/api/runs/{{ run.run_id }}/cancel"
@@ -76,7 +89,7 @@
                 hx-on::after-request="setTimeout(() => htmx.trigger('#run-header', 'htmx:load'), 500)">
             🛑 Cancel Run
         </button>
-        {% elif not run.is_active %}
+        {% elif not run.is_active and not run.is_paused %}
         <button class="btn btn-primary"
                 hx-post="/api/runs/{{ run.run_id }}/restart"
                 hx-confirm="Restart this run with the same configuration?"

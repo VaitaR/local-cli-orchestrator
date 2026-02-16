@@ -241,11 +241,31 @@ def run(
         )
 
         if success:
-            typer.echo("")
-            typer.echo(
-                typer.style("Run completed successfully!", fg=typer.colors.GREEN)
-            )
-            typer.echo(f"Artifacts: {runner.paths.run_dir}")
+            # Check if the run paused (human-in-the-loop)
+            try:
+                runner.state.load()
+                if runner.state.is_paused():
+                    typer.echo("")
+                    typer.echo(
+                        typer.style(
+                            f"Run paused after node '{runner.state.state.paused_after_node}'. "
+                            "Edit artifacts and run 'orx resume' to continue.",
+                            fg=typer.colors.YELLOW,
+                        )
+                    )
+                    typer.echo(f"Artifacts: {runner.paths.run_dir}")
+                else:
+                    typer.echo("")
+                    typer.echo(
+                        typer.style("Run completed successfully!", fg=typer.colors.GREEN)
+                    )
+                    typer.echo(f"Artifacts: {runner.paths.run_dir}")
+            except Exception:
+                typer.echo("")
+                typer.echo(
+                    typer.style("Run completed successfully!", fg=typer.colors.GREEN)
+                )
+                typer.echo(f"Artifacts: {runner.paths.run_dir}")
         else:
             typer.echo("")
             typer.echo(typer.style("Run failed.", fg=typer.colors.RED))
@@ -324,17 +344,32 @@ def resume(
             dry_run=dry_run,
         )
 
+        state = runner.state.load()
         typer.echo(f"Resuming run: {run_id}")
-        typer.echo(f"Current stage: {runner.state.load().current_stage.value}")
+        typer.echo(f"Current stage: {state.current_stage.value}")
+        if state.paused_after_node:
+            typer.echo(f"Paused after node: {state.paused_after_node}")
         typer.echo("")
 
         success = runner.resume()
 
         if success:
-            typer.echo("")
-            typer.echo(
-                typer.style("Run completed successfully!", fg=typer.colors.GREEN)
-            )
+            # Check if the run paused again
+            runner.state.load()
+            if runner.state.is_paused():
+                typer.echo("")
+                typer.echo(
+                    typer.style(
+                        f"Run paused after node '{runner.state.state.paused_after_node}'. "
+                        "Edit artifacts and run 'orx resume' to continue.",
+                        fg=typer.colors.YELLOW,
+                    )
+                )
+            else:
+                typer.echo("")
+                typer.echo(
+                    typer.style("Run completed successfully!", fg=typer.colors.GREEN)
+                )
         else:
             typer.echo("")
             typer.echo(typer.style("Run failed.", fg=typer.colors.RED))

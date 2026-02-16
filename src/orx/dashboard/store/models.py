@@ -16,6 +16,7 @@ class RunStatus(str, Enum):
     SUCCESS = "success"
     FAIL = "fail"
     CANCELLED = "cancelled"
+    PAUSED = "paused"
     UNKNOWN = "unknown"
 
     @classmethod
@@ -33,7 +34,9 @@ class RunStatus(str, Enum):
             return cls.SUCCESS
         if stage in ("failed",):
             return cls.FAIL
-        if state_status == "running" or stage not in ("done", "failed", None):
+        if stage in ("paused",):
+            return cls.PAUSED
+        if state_status == "running" or stage not in ("done", "failed", "paused", None):
             return cls.RUNNING
         if state_status == "completed":
             return cls.SUCCESS
@@ -73,6 +76,16 @@ class RunSummary(BaseModel):
     def is_active(self) -> bool:
         """Check if run is currently active."""
         return self.status == RunStatus.RUNNING
+
+    @property
+    def is_paused(self) -> bool:
+        """Check if run is paused for human-in-the-loop."""
+        return self.status == RunStatus.PAUSED
+
+    @property
+    def can_resume(self) -> bool:
+        """True if the run can be resumed (paused state)."""
+        return self.is_paused
 
     @property
     def can_cancel(self) -> bool:
