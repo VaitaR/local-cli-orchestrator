@@ -270,6 +270,21 @@ class PipelineRunner:
                     result.review_changes_requested = True
                     break
 
+                # Handle reproduce stage validation (Fail-to-Pass)
+                if node.id == "reproduce":
+                    reproduce_verification = self._verify_reproduce_stage(node, context, exec_ctx)
+                    if not reproduce_verification.success:
+                        result.success = False
+                        result.failed_node = node.id
+                        result.error = reproduce_verification.error
+                        node_log.error(
+                            "Reproduction verification failed",
+                            error=reproduce_verification.error,
+                        )
+                        break
+                    else:
+                        node_log.info("Reproduction verification successful (test failed as expected)")
+
                 node_log.info("Node completed", duration_ms=node_duration_ms)
 
             else:
@@ -555,6 +570,88 @@ class PipelineRunner:
         max_attempts = self.config.run.max_fix_attempts
 
         return has_implement and result.fix_attempts < max_attempts
+
+    def _verify_reproduce_stage(
+        self,
+        node: NodeDefinition,
+        context: dict[str, Any],
+        exec_ctx: ExecutionContext,
+    ) -> NodeResult:
+        """Verify that the reproduction stage produced a failing test.
+
+        Args:
+            node: The reproduce node.
+            context: Input context.
+            exec_ctx: Execution context.
+
+        Returns:
+            NodeResult indicating success (test failed) or failure (test passed/missing).
+        """
+        # 1. Find the reproduction script
+        # We look for reproduce_issue.py or tests/test_reproduce_issue.py
+        # or verify what file was created.
+        worktree = self.workspace.worktree_path
+        candidates = [
+            worktree / "reproduce_issue.py",
+            worktree / "tests" / "test_reproduce_issue.py",
+        ]
+        
+        # Also check changed files in workspace if possible
+        try:
+            changed = self.workspace.get_changed_files()
+            for f in changed:
+                path = worktree / f
+                if path.name in ("reproduce_issue.py", "test_reproduce_issue.py") or (
+                    path.suffix == ".py" and "reproduce" in path.name
+                ):
+                    candidates.insert(0, path)
+        except Exception:
+            pass
+
+        target_file = None
+        for cand in candidates:
+            if cand.exists():
+                target_file = cand
+                break
+        
+        if not target_file:
+            return NodeResult(
+                success=False,
+                error="Reproduction script not found (expected reproduce_issue.py)",
+            )
+
+        # 2. Run the test
+        # Use pytest if it's a test file, or python if it's a script
+        cmd = ["pytest", str(target_file)] if "test" in target_file.name or "pytest" in context.get("repo_context", "") else ["python", str(target_file)]
+        
+        # We assume pytest for consistency if available, otherwise python
+        # Check if it's a pytest file
+        if target_file.name.startswith("test_") or target_file.name.endswith("_test.py"):
+            cmd = ["pytest", str(target_file)]
+        else:
+             # If it's a plain script, run with python
+             cmd = ["python3", str(target_file)]
+
+        logger.info("Running reproduction test", command=cmd)
+        
+        code, stdout, stderr = self.cmd.run_capture(cmd, cwd=worktree)
+        
+        # 3. Check exit code
+        # We EXPECT failure (code != 0)
+        if code == 0:
+            return NodeResult(
+                success=False,
+                error=f"Reproduction test {target_file.name} PASSED, but expected FAILURE (Fail-to-Pass)",
+            )
+        
+        # 4. Save failure output
+        failure_log = f"Command: {' '.join(cmd)}\nExit Code: {code}\n\nSTDOUT:\n{stdout}\n\nSTDERR:\n{stderr}"
+        self.paths.reproduce_failure_md.write_text(failure_log)
+        
+        # Store in artifact store for next stages
+        self.store.set("reproduce_failure", failure_log, source_node="reproduce")
+        
+        return NodeResult(success=True)
 
     @classmethod
     def from_config(

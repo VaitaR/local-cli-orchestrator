@@ -64,6 +64,9 @@ class ImplementStage(ApplyStage):
         # Get repo context for implement stage
         repo_context = ctx.pack.read_tooling_snapshot() or ""
         verify_commands = ctx.pack.read_verify_commands() or ""
+        
+        # Get reproduction failure if available (TDD mode)
+        reproduce_failure = ctx.pack.read_reproduce_failure() or ""
 
         # Build smart context (tree-sitter tiered bundle) for target files
         smart_context = self._build_smart_context(ctx, item.files_hint)
@@ -84,6 +87,7 @@ class ImplementStage(ApplyStage):
             "file_snippets": snippets,
             "repo_context": repo_context,
             "verify_commands": verify_commands,
+            "reproduce_failure": reproduce_failure,
             "agents_context": agents_context,
             "smart_context": smart_context,
         }

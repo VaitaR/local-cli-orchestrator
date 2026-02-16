@@ -209,6 +209,11 @@ class RunPaths:
         """Path to pr_body.md artifact."""
         return self.artifacts_dir / "pr_body.md"
 
+    @property
+    def reproduce_failure_md(self) -> Path:
+        """Path to reproduce_failure.md artifact."""
+        return self.context_dir / "reproduce_failure.md"
+
     # State files
     @property
     def meta_json(self) -> Path:

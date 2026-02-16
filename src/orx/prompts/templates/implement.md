@@ -62,6 +62,16 @@ The pipeline will run these checks after your changes:
 Ensure your code passes all these gates.
 {% endif %}
 
+{% if reproduce_failure is defined and reproduce_failure %}
+## Reproduction Failure (TDD)
+
+The following test failed as expected. Your implementation MUST fix this test.
+
+```
+{{ reproduce_failure }}
+```
+{% endif %}
+
 ## Current Work Item
 
 **ID**: {{ item_id }}

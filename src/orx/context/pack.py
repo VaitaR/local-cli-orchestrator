@@ -200,6 +200,15 @@ class ContextPack:
         """Write the PR body."""
         self._write_file(self.paths.pr_body_md, content)
 
+    # Reproduction
+    def read_reproduce_failure(self) -> str | None:
+        """Read the reproduction failure log."""
+        return self._read_file(self.paths.reproduce_failure_md)
+
+    def write_reproduce_failure(self, content: str) -> None:
+        """Write the reproduction failure log."""
+        self._write_file(self.paths.reproduce_failure_md, content)
+
     # Prompts
     def read_prompt(self, stage: str) -> str | None:
         """Read a materialized prompt."""
