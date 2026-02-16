@@ -7,13 +7,24 @@ Run via:
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
-from enum import Enum
+import sys
+import time
 from pathlib import Path
 from typing import Any
 
+import structlog
 from mcp.server.fastmcp import FastMCP
+
+from orx.config import EngineType
+from orx.infra.command import CommandRunner
+from orx.pipeline.constants import DEFAULT_PIPELINE_ID
+
+# MCP stdio transport requires clean stdout (JSON-RPC only). Route logs to stderr.
+structlog.configure(logger_factory=structlog.PrintLoggerFactory(file=sys.stderr))
 
 # ---------------------------------------------------------------------------
 # Server instance
@@ -23,8 +34,9 @@ _MCP_INSTRUCTIONS = (
     "You are connected to the orx orchestrator MCP server. "
     "First call `get_operator_guide` (tool) or `operator_guide` (prompt) to load "
     "usage rules. Do NOT call start_run(task='operator_guide'). "
-    "Use `start_run` only for real coding tasks and always poll `get_run_status` "
-    "until completion."
+    "Use `start_run` for asynchronous run orchestration. "
+    "Use `execute_orx_cli` for full CLI parity (pipelines/observability/init/etc). "
+    "Always poll `get_run_status` until completion."
 )
 
 mcp = FastMCP("orx", instructions=_MCP_INSTRUCTIONS)
@@ -44,6 +56,46 @@ def _resolve_project_root() -> Path:
 
 def _runs_dir() -> Path:
     return _resolve_project_root() / "runs"
+
+
+def _list_run_ids() -> set[str]:
+    runs_root = _runs_dir()
+    if not runs_root.exists():
+        return set()
+    return {p.name for p in runs_root.iterdir() if p.is_dir() and not p.name.startswith(".")}
+
+
+def _wait_for_new_run_id(existing: set[str], timeout_s: float = 8.0) -> str | None:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        current = _list_run_ids()
+        created = sorted(current - existing, reverse=True)
+        if created:
+            return created[0]
+        time.sleep(0.2)
+    return None
+
+
+def _resolve_optional_path(path_value: str | None, root: Path) -> Path | None:
+    if path_value is None:
+        return None
+    candidate = Path(path_value)
+    if not candidate.is_absolute():
+        candidate = root / candidate
+    return candidate.resolve()
+
+
+def _clip(text: str, max_chars: int = 8000) -> str:
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars] + "\n... (truncated)"
+
+
+def _quiet_call(func: Any, *args: Any, **kwargs: Any) -> Any:
+    """Call function while suppressing stdout (protect MCP stdio transport)."""
+    sink = io.StringIO()
+    with contextlib.redirect_stdout(sink):
+        return func(*args, **kwargs)
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -90,16 +142,6 @@ def _read_operator_guide(max_chars: int | None = None) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Enums for typed tool arguments
-# ---------------------------------------------------------------------------
-
-class PipelineChoice(str, Enum):
-    standard = "standard"
-    fast_fix = "fast_fix"
-    plan_only = "plan_only"
-
-
-# ---------------------------------------------------------------------------
 # Tools
 # ---------------------------------------------------------------------------
 
@@ -110,65 +152,128 @@ def get_operator_guide() -> str:
 
 
 @mcp.tool()
+def execute_orx_cli(
+    args: list[str],
+    timeout_seconds: int = 120,
+    background: bool = False,
+    cwd: str | None = None,
+) -> dict[str, Any]:
+    """Execute arbitrary orx CLI command (full CLI parity).
+
+    Examples:
+      - execute_orx_cli(["pipelines", "list", "--json"])
+      - execute_orx_cli(["observability", "validate", "--run-id", "<id>", "--json"])
+      - execute_orx_cli(["run", "--model", "gpt-5.2", "fix bug"], background=True)
+    """
+    if not args:
+        return {"error": "args must contain at least one CLI argument"}
+
+    root = _resolve_project_root()
+    workdir = _resolve_optional_path(cwd, root) or root
+    timeout = max(1, min(timeout_seconds, 7200))
+
+    cmd = ["orx", *args]
+    runner = CommandRunner()
+
+    if background:
+        existing = _list_run_ids()
+        proc = _quiet_call(
+            runner.start_process,
+            cmd,
+            cwd=workdir,
+            start_new_session=True,
+        )
+        run_id: str | None = None
+        if args and args[0] == "run":
+            run_id = _wait_for_new_run_id(existing, timeout_s=8.0)
+        return {
+            "status": "started",
+            "pid": str(proc.pid),
+            "run_id": run_id,
+            "command": cmd,
+            "cwd": str(workdir),
+        }
+
+    returncode, stdout, stderr = _quiet_call(
+        runner.run_capture,
+        cmd,
+        cwd=workdir,
+        timeout=timeout,
+        check=False,
+    )
+
+    parsed_json: dict[str, Any] | list[Any] | None = None
+    with contextlib.suppress(json.JSONDecodeError):
+        parsed = json.loads(stdout)
+        if isinstance(parsed, dict | list):
+            parsed_json = parsed
+
+    return {
+        "returncode": returncode,
+        "stdout": _clip(stdout),
+        "stderr": _clip(stderr),
+        "json": parsed_json,
+        "command": cmd,
+        "cwd": str(workdir),
+    }
+
+
+@mcp.tool()
 def start_run(
     task: str,
-    pipeline: PipelineChoice = PipelineChoice.standard,
+    pipeline: str = DEFAULT_PIPELINE_ID,
+    config_path: str | None = None,
+    engine: EngineType | None = None,
+    model: str | None = None,
     base_branch: str | None = None,
+    legacy_fsm: bool = False,
+    dry_run: bool = False,
 ) -> dict[str, str]:
     """Start a new orx run asynchronously.
 
     Returns immediately with run_id and queued status.
     Poll get_run_status() to track progress.
     """
-    import subprocess
-
     root = _resolve_project_root()
-    cmd = ["orx", "run", "--dir", str(root), "--pipeline", pipeline.value]
+    if legacy_fsm and pipeline != DEFAULT_PIPELINE_ID:
+        return {
+            "error": "--legacy-fsm cannot be combined with non-default pipeline",
+        }
+
+    cmd = ["orx", "run", "--dir", str(root)]
+
+    resolved_config = _resolve_optional_path(config_path, root)
+    if resolved_config:
+        cmd.extend(["--config", str(resolved_config)])
+    if engine:
+        cmd.extend(["--engine", engine.value])
+    if model:
+        cmd.extend(["--model", model])
     if base_branch:
         cmd.extend(["--base-branch", base_branch])
+    if legacy_fsm:
+        cmd.append("--legacy-fsm")
+    else:
+        cmd.extend(["--pipeline", pipeline])
+    if dry_run:
+        cmd.append("--dry-run")
     cmd.append(task)
 
-    proc = subprocess.Popen(
+    existing = _list_run_ids()
+    runner = CommandRunner()
+    proc = _quiet_call(
+        runner.start_process,
         cmd,
         cwd=root,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
         start_new_session=True,
-        text=True,
     )
-
-    # Try to capture run_id from early output (orx prints it quickly)
-    run_id: str | None = None
-    if proc.stdout:
-        import select
-        import sys
-
-        # Wait up to 5s for first output line that contains a run id
-        timeout = 5.0
-        if sys.platform != "win32":
-            import time
-
-            deadline = time.monotonic() + timeout
-            while time.monotonic() < deadline:
-                ready, _, _ = select.select([proc.stdout], [], [], 0.5)
-                if ready:
-                    line = proc.stdout.readline()
-                    if not line:
-                        break
-                    # orx prints "Run ID: <id>" or similar
-                    if "run" in line.lower() and "_" in line:
-                        # Extract something that looks like a run id (YYYYMMDD_HHMMSS_hex)
-                        for token in line.split():
-                            if len(token) >= 20 and "_" in token:
-                                run_id = token.strip().rstrip(".")
-                                break
-                    if run_id:
-                        break
+    run_id = _wait_for_new_run_id(existing, timeout_s=8.0)
 
     return {
         "run_id": run_id or "pending",
         "status": "queued",
         "pid": str(proc.pid),
+        "command": " ".join(cmd),
     }
 
 
@@ -232,8 +337,6 @@ def get_run_status(run_id: str) -> dict[str, Any]:
 @mcp.tool()
 def resume_run(run_id: str) -> dict[str, str]:
     """Resume a paused or interrupted run."""
-    import subprocess
-
     root = _resolve_project_root()
     run_dir = _runs_dir() / run_id
     if not run_dir.is_dir():
@@ -245,11 +348,11 @@ def resume_run(run_id: str) -> dict[str, str]:
         return {"error": f"Cannot resume: run is {current_stage}"}
 
     cmd = ["orx", "resume", run_id, "--dir", str(root)]
-    subprocess.Popen(
+    runner = CommandRunner()
+    _quiet_call(
+        runner.start_process,
         cmd,
         cwd=root,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
         start_new_session=True,
     )
 
@@ -453,17 +556,17 @@ def new_task() -> str:
         sections.append("")
 
     # Git info
-    import subprocess
     try:
-        branch = subprocess.run(
+        cmd = CommandRunner()
+        returncode, stdout, _ = _quiet_call(
+            cmd.run_capture,
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
             cwd=root,
-            capture_output=True,
-            text=True,
             timeout=5,
+            check=False,
         )
-        if branch.returncode == 0:
-            sections.append(f"## Current Branch: `{branch.stdout.strip()}`\n")
+        if returncode == 0:
+            sections.append(f"## Current Branch: `{stdout.strip()}`\n")
     except Exception:
         pass
 

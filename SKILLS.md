@@ -17,6 +17,7 @@
 | **PYTHON VERSION LOCK** | Use Python **3.11 or 3.12 only**. Do not run with 3.9/3.10. Prefer `python3.11` in commands. |
 | **BOOTSTRAP FIRST** | On session start call `get_operator_guide` (tool) or `operator_guide` (prompt). |
 | **NEVER RUN GUIDE AS TASK** | Do not call `start_run(task="operator_guide")`; it launches a full pipeline run. |
+| **CLI PARITY TOOL** | Use `execute_orx_cli` for capabilities not covered by dedicated MCP tools. |
 
 ---
 
@@ -54,6 +55,7 @@ start_run(task, pipeline)
 
 1. **Call** `start_run(task="…", pipeline="standard")`.
    - Use `pipeline="fast_fix"` for small bugs; `"standard"` for features.
+   - For explicit model selection, pass `engine` and `model`.
 2. **Record** the returned `run_id`.
 
 ### Monitoring
@@ -85,7 +87,8 @@ Some pipeline nodes are interactive (human-in-the-loop). When `status == "paused
 
 | Tool | Purpose | Key Args |
 |------|---------|----------|
-| `start_run` | Launch a new orx run | `task` (str), `pipeline` (enum), `base_branch` (opt) |
+| `start_run` | Launch a new orx run (async) | `task`, `pipeline`, `config_path`, `engine`, `model`, `base_branch`, `legacy_fsm`, `dry_run` |
+| `execute_orx_cli` | Run arbitrary `orx` CLI command (full parity) | `args` (list[str]), `timeout_seconds`, `background`, `cwd` |
 | `get_operator_guide` | Load full operator instructions | — |
 | `get_run_status` | Status + metadata (no logs) | `run_id` |
 | `resume_run` | Continue paused/interrupted run | `run_id` |
@@ -94,6 +97,14 @@ Some pipeline nodes are interactive (human-in-the-loop). When `status == "paused
 | `list_pipelines` | Available pipeline definitions | — |
 
 > **Note:** All arguments are strictly typed via JSON Schema — the MCP server enforces valid values.
+
+Examples:
+- Select model directly:
+  `start_run(task="Fix flaky test", engine="codex", model="gpt-5.2", pipeline="fast_fix")`
+- Call CLI-only capabilities:
+  `execute_orx_cli(args=["pipelines", "show", "standard", "--json"])`
+- Validate observability bundle:
+  `execute_orx_cli(args=["observability", "validate", "--run-id", "<id>", "--json"])`
 
 ---
 
