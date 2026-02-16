@@ -119,6 +119,7 @@ class RunState:
     tty_segment_index: int = 0
     observability_session_id: str | None = None
     paused_after_node: str | None = None
+    paused_pipeline_id: str | None = None
     stage_statuses: dict[str, StageStatus] = field(default_factory=dict)
     last_failure_evidence: dict[str, str] = field(default_factory=dict)
     created_at: str = field(default_factory=lambda: datetime.now(tz=UTC).isoformat())
@@ -137,6 +138,7 @@ class RunState:
             "tty_segment_index": self.tty_segment_index,
             "observability_session_id": self.observability_session_id,
             "paused_after_node": self.paused_after_node,
+            "paused_pipeline_id": self.paused_pipeline_id,
             "stage_statuses": {k: v.to_dict() for k, v in self.stage_statuses.items()},
             "last_failure_evidence": self.last_failure_evidence,
             "created_at": self.created_at,
@@ -161,6 +163,7 @@ class RunState:
             tty_segment_index=data.get("tty_segment_index", 0),
             observability_session_id=data.get("observability_session_id"),
             paused_after_node=data.get("paused_after_node"),
+            paused_pipeline_id=data.get("paused_pipeline_id"),
             stage_statuses=stage_statuses,
             last_failure_evidence=data.get("last_failure_evidence", {}),
             created_at=data.get("created_at", datetime.now(tz=UTC).isoformat()),
@@ -393,17 +396,19 @@ class StateManager:
         self.state.last_failure_evidence = {}
         self.save()
 
-    def mark_paused(self, after_node: str) -> None:
+    def mark_paused(self, after_node: str, pipeline_id: str | None = None) -> None:
         """Mark the run as paused after an interactive node.
 
         Args:
             after_node: The node ID that completed before pausing.
+            pipeline_id: The pipeline ID that was running when paused.
         """
         self.state.current_stage = Stage.PAUSED
         self.state.paused_after_node = after_node
+        self.state.paused_pipeline_id = pipeline_id
         self.state.pid = None
         self.save()
-        logger.info("Run paused", after_node=after_node)
+        logger.info("Run paused", after_node=after_node, pipeline_id=pipeline_id)
 
     def is_paused(self) -> bool:
         """Check if the run is paused.

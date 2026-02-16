@@ -6,8 +6,10 @@ Your goal is to create a **reproduction script** or a **new test case** that dem
 ## Task
 {{ task }}
 
+{% if repo_context is defined and repo_context %}
 ## Repository Context
 {{ repo_context }}
+{% endif %}
 
 ## Instructions
 

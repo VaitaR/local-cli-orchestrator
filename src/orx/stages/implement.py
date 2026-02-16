@@ -64,7 +64,7 @@ class ImplementStage(ApplyStage):
         # Get repo context for implement stage
         repo_context = ctx.pack.read_tooling_snapshot() or ""
         verify_commands = ctx.pack.read_verify_commands() or ""
-        
+
         # Get reproduction failure if available (TDD mode)
         reproduce_failure = ctx.pack.read_reproduce_failure() or ""
 

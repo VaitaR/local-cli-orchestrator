@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -296,7 +297,7 @@ class PipelineRunner:
                         node_id=node.id,
                     )
                     if self.state:
-                        self.state.mark_paused(after_node=node.id)
+                        self.state.mark_paused(after_node=node.id, pipeline_id=pipeline.id)
 
                     result.paused = True
                     result.paused_after_node = node.id
@@ -596,29 +597,27 @@ class PipelineRunner:
 
     def _verify_reproduce_stage(
         self,
-        node: NodeDefinition,
-        context: dict[str, Any],
-        exec_ctx: ExecutionContext,
+        _node: NodeDefinition,  # noqa: ARG002
+        _context: dict[str, Any],  # noqa: ARG002
+        _exec_ctx: ExecutionContext,  # noqa: ARG002
     ) -> NodeResult:
         """Verify that the reproduction stage produced a failing test.
 
         Args:
-            node: The reproduce node.
-            context: Input context.
-            exec_ctx: Execution context.
+            _node: The reproduce node (unused).
+            _context: Input context (unused).
+            _exec_ctx: Execution context (unused).
 
         Returns:
             NodeResult indicating success (test failed) or failure (test passed/missing).
         """
         # 1. Find the reproduction script
-        # We look for reproduce_issue.py or tests/test_reproduce_issue.py
-        # or verify what file was created.
         worktree = self.workspace.worktree_path
         candidates = [
             worktree / "reproduce_issue.py",
             worktree / "tests" / "test_reproduce_issue.py",
         ]
-        
+
         # Also check changed files in workspace if possible
         try:
             changed = self.workspace.get_changed_files()
@@ -636,44 +635,37 @@ class PipelineRunner:
             if cand.exists():
                 target_file = cand
                 break
-        
+
         if not target_file:
             return NodeResult(
                 success=False,
                 error="Reproduction script not found (expected reproduce_issue.py)",
             )
 
-        # 2. Run the test
-        # Use pytest if it's a test file, or python if it's a script
-        cmd = ["pytest", str(target_file)] if "test" in target_file.name or "pytest" in context.get("repo_context", "") else ["python", str(target_file)]
-        
-        # We assume pytest for consistency if available, otherwise python
-        # Check if it's a pytest file
+        # 2. Run the test — pytest for test files, python for scripts
         if target_file.name.startswith("test_") or target_file.name.endswith("_test.py"):
             cmd = ["pytest", str(target_file)]
         else:
-             # If it's a plain script, run with python
-             cmd = ["python3", str(target_file)]
+            cmd = [sys.executable, str(target_file)]
 
         logger.info("Running reproduction test", command=cmd)
-        
+
         code, stdout, stderr = self.cmd.run_capture(cmd, cwd=worktree)
-        
-        # 3. Check exit code
-        # We EXPECT failure (code != 0)
+
+        # 3. Check exit code — we EXPECT failure (code != 0)
         if code == 0:
             return NodeResult(
                 success=False,
                 error=f"Reproduction test {target_file.name} PASSED, but expected FAILURE (Fail-to-Pass)",
             )
-        
+
         # 4. Save failure output
         failure_log = f"Command: {' '.join(cmd)}\nExit Code: {code}\n\nSTDOUT:\n{stdout}\n\nSTDERR:\n{stderr}"
         self.paths.reproduce_failure_md.write_text(failure_log)
-        
+
         # Store in artifact store for next stages
         self.store.set("reproduce_failure", failure_log, source_node="reproduce")
-        
+
         return NodeResult(success=True)
 
     @classmethod

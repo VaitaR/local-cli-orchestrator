@@ -969,11 +969,18 @@ class Runner:
         from orx.pipeline import PipelineRegistry, PipelineRunner
 
         paused_after = self.state.state.paused_after_node
-        log = logger.bind(run_id=self.paths.run_id, resume_after=paused_after)
+        # Use the pipeline_id that was stored when pausing, fall back to default
+        pipeline_id = (
+            self.state.state.paused_pipeline_id
+            or self.default_pipeline_id
+            or "standard"
+        )
+        log = logger.bind(run_id=self.paths.run_id, resume_after=paused_after, pipeline=pipeline_id)
         log.info("Resuming paused pipeline")
 
         # Clear paused state
         self.state.state.paused_after_node = None
+        self.state.state.paused_pipeline_id = None
         self.state.state.current_stage = Stage.INIT  # Will be updated by pipeline
         self.state.save()
 
@@ -986,9 +993,6 @@ class Runner:
 
         # Rebuild repo context pack if missing
         self._build_repo_context()
-
-        # Find the pipeline ID (use default)
-        pipeline_id = self.default_pipeline_id or "standard"
 
         registry = PipelineRegistry.load()
         pipeline = registry.get(pipeline_id)
@@ -1007,7 +1011,20 @@ class Runner:
             if node.id == paused_after:
                 found_paused = True
 
+        if not found_paused:
+            # The paused node was not found in the pipeline (e.g. pipeline changed)
+            log.error(
+                "Paused node not found in pipeline",
+                paused_after=paused_after,
+                pipeline_id=pipeline_id,
+            )
+            self.state.mark_stage_failed(
+                f"Cannot resume: paused node '{paused_after}' not found in pipeline '{pipeline_id}'"
+            )
+            return False
+
         if not resume_node_id:
+            # Paused node was the last node — pipeline is complete
             log.info("No nodes remaining after paused node, completing")
             self.state.transition_to(Stage.DONE)
             self.state.mark_stage_completed()

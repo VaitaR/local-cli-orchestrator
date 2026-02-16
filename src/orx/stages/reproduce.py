@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 from orx.context.backlog import WorkItem
-from orx.context.snippets import compact_text
 from orx.stages.base import ApplyStage, StageContext
 
 
@@ -26,27 +25,25 @@ class ReproduceStage(ApplyStage):
         """Name of the prompt template."""
         return "reproduce"
 
-    def get_template_context(self, ctx: StageContext, item: WorkItem) -> dict[str, Any]:
+    def get_template_context(self, ctx: StageContext, _item: WorkItem) -> dict[str, Any]:
         """Get context variables for the template.
 
         Args:
             ctx: Stage context.
-            item: Current work item (though reproduce usually runs once per task).
+            _item: Current work item (unused; reproduce runs once per task).
 
         Returns:
             Dictionary of template variables.
         """
         task = ctx.pack.read_task() or ""
-        task_summary = compact_text(task, max_lines=40)
 
         # Get repo context
         repo_context = ctx.pack.read_tooling_snapshot() or ""
-        
+
         # We can also include existing tests to help match style
         # But for now, minimal context is better to avoid confusion
-        
+
         return {
             "task": task,
-            "task_summary": task_summary,
             "repo_context": repo_context,
         }
