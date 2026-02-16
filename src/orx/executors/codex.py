@@ -92,6 +92,12 @@ class CodexExecutor(BaseExecutor):
     ) -> tuple[list[str], dict[str, str | None]]:
         """Build the codex command line.
 
+        When a companion ``<prompt_stem>_system.md`` file exists next to
+        *prompt_path*, its content is prepended to the prompt file so that
+        every pipeline stage starts with an identical static prefix.
+        OpenAI automatically caches matching prompt prefixes, reducing
+        per-request cost.
+
         Args:
             prompt_path: Path to the prompt file.
             cwd: Working directory.
@@ -142,12 +148,48 @@ class CodexExecutor(BaseExecutor):
         # Add extra args
         cmd.extend(self.extra_args)
 
+        # --- Context caching: prepend system context for prefix caching ---
+        effective_prompt = self._maybe_prepend_system_context(prompt_path)
+
         # Add the prompt content via file reference
         # Codex expects the prompt as the final argument or via stdin
         # We use @ prefix to read from file
-        cmd.append(f"@{prompt_path}")
+        cmd.append(f"@{effective_prompt}")
 
         return cmd, resolved
+
+    def _maybe_prepend_system_context(self, prompt_path: Path) -> Path:
+        """Prepend system context to prompt for OpenAI prefix caching.
+
+        If a ``<stem>_system.md`` file exists next to *prompt_path*, creates
+        a ``<stem>_combined.md`` with system context first.
+
+        Args:
+            prompt_path: Path to the dynamic prompt file.
+
+        Returns:
+            Path to use as the prompt (combined or original).
+        """
+        system_path = prompt_path.parent / f"{prompt_path.stem}_system.md"
+        if not system_path.exists():
+            return prompt_path
+
+        system_content = system_path.read_text()
+        if not system_content.strip():
+            return prompt_path
+
+        user_content = prompt_path.read_text() if prompt_path.exists() else ""
+        combined = f"{system_content}\n\n---\n\n{user_content}"
+
+        combined_path = prompt_path.parent / f"{prompt_path.stem}_combined.md"
+        combined_path.write_text(combined)
+
+        logger.debug(
+            "Created combined prompt with system prefix for caching",
+            system_len=len(system_content),
+            user_len=len(user_content),
+        )
+        return combined_path
 
     def resolve_invocation(
         self,

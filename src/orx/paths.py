@@ -250,6 +250,9 @@ class RunPaths:
         working directory due to sandbox restrictions. This method copies
         the prompt into the worktree where it can be accessed.
 
+        Also copies the companion ``<stage>_system.md`` file when it exists
+        so that executors can pick it up transparently for context caching.
+
         Args:
             stage: The stage name.
 
@@ -263,6 +266,13 @@ class RunPaths:
         dst_dir.mkdir(parents=True, exist_ok=True)
         dst = dst_dir / f"{stage}.md"
         shutil.copy2(src, dst)
+
+        # Copy system prompt if it exists (context caching)
+        system_src = self.prompts_dir / f"{stage}_system.md"
+        if system_src.exists():
+            system_dst = dst_dir / f"{stage}_system.md"
+            shutil.copy2(system_src, system_dst)
+
         return dst
 
     def log_path(self, name: str, suffix: str = ".log") -> Path:

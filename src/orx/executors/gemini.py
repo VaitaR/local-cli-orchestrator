@@ -99,6 +99,12 @@ class GeminiExecutor(BaseExecutor):
     ) -> tuple[list[str], dict[str, Any]]:
         """Build the gemini command line.
 
+        When a companion ``<prompt_stem>_system.md`` file exists next to
+        *prompt_path*, its content is prepended to the prompt file.  This
+        ensures every stage prompt starts with an identical static prefix,
+        activating Gemini's implicit prefix-caching and reducing
+        per-request cost significantly.
+
         Args:
             prompt_path: Path to the prompt file.
             model_selector: Optional model selection configuration.
@@ -114,6 +120,9 @@ class GeminiExecutor(BaseExecutor):
             thinking_budget = model_selector.thinking_budget
         elif self.default_thinking_budget is not None:
             thinking_budget = self.default_thinking_budget
+
+        # --- Context caching: prepend system context for prefix caching ---
+        effective_prompt = self._maybe_prepend_system_context(prompt_path)
 
         cmd = [self.binary]
 
@@ -138,12 +147,48 @@ class GeminiExecutor(BaseExecutor):
 
         # Add prompt file as positional argument
         # The --prompt flag is deprecated; use positional arg with @ prefix
-        cmd.append(f"@{prompt_path}")
+        cmd.append(f"@{effective_prompt}")
 
         # Include thinking_budget in resolved info for logging
         resolved["thinking_budget"] = thinking_budget
 
         return cmd, resolved
+
+    def _maybe_prepend_system_context(self, prompt_path: Path) -> Path:
+        """Prepend system context to prompt file for prefix caching.
+
+        If a ``<stem>_system.md`` file exists next to *prompt_path*, creates
+        a ``<stem>_combined.md`` that starts with the system context followed
+        by the stage prompt.  Returns the combined file path, or the original
+        if no system context is found.
+
+        Args:
+            prompt_path: Path to the dynamic prompt file.
+
+        Returns:
+            Path to use as the prompt (combined or original).
+        """
+        system_path = prompt_path.parent / f"{prompt_path.stem}_system.md"
+        if not system_path.exists():
+            return prompt_path
+
+        system_content = system_path.read_text()
+        if not system_content.strip():
+            return prompt_path
+
+        user_content = prompt_path.read_text() if prompt_path.exists() else ""
+        combined = f"{system_content}\n\n---\n\n{user_content}"
+
+        combined_path = prompt_path.parent / f"{prompt_path.stem}_combined.md"
+        combined_path.write_text(combined)
+
+        logger.debug(
+            "Created combined prompt with system prefix for caching",
+            system_len=len(system_content),
+            user_len=len(user_content),
+            combined_path=str(combined_path),
+        )
+        return combined_path
 
     def resolve_invocation(
         self,

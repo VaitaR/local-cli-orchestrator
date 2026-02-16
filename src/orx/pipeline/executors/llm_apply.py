@@ -152,6 +152,9 @@ class LLMApplyNodeExecutor:
     ) -> Path:
         """Render the prompt template.
 
+        When context caching is enabled, static context is rendered to a
+        separate ``<stage>_system.md`` file for provider-side caching.
+
         Args:
             node: Node definition.
             context: Input context.
@@ -167,11 +170,22 @@ class LLMApplyNodeExecutor:
         # Determine template name
         template_name = node.template.replace(".md", "") if node.template else node.id
 
-        # Render to prompts directory
-        prompt_path = exec_ctx.paths.prompt_path(template_name)
-        exec_ctx.renderer.render_to_file(template_name, prompt_path, **template_context)
+        # Render to prompts directory (with or without context split)
+        caching_enabled = exec_ctx.config.context_caching.enabled
+        if caching_enabled:
+            exec_ctx.renderer.render_with_context_split(
+                template_name,
+                exec_ctx.paths.prompts_dir,
+                **template_context,
+            )
+            # render_with_context_split already writes the files
+        else:
+            prompt_path = exec_ctx.paths.prompt_path(template_name)
+            exec_ctx.renderer.render_to_file(
+                template_name, prompt_path, **template_context
+            )
 
-        # Copy to worktree
+        # Copy to worktree (also copies <stage>_system.md when present)
         worktree_prompt = exec_ctx.paths.copy_prompt_to_worktree(template_name)
 
         return worktree_prompt

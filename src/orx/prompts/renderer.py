@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,37 @@ logger = structlog.get_logger()
 
 # Template directory is relative to this module
 TEMPLATES_DIR = Path(__file__).parent / "templates"
+
+# Context keys that contain static (cacheable) content.
+# These do not change between stages within a single run.
+STATIC_CONTEXT_KEYS = frozenset(
+    {
+        "agents_context",
+        "architecture_overview",
+        "architecture",
+        "project_context",
+        "repo_context",
+        "verify_commands",
+        "definition_of_done",
+    }
+)
+
+
+@dataclass
+class RenderedPrompt:
+    """A rendered prompt with optional system/user split for caching.
+
+    When context caching is enabled, the prompt is split into:
+    - system_prompt_path: Static context (AGENTS.md, ARCHITECTURE.md, etc.)
+    - prompt_path: Dynamic, stage-specific content only
+
+    Executors that support system prompts (e.g. Claude Code via
+    ``--system-prompt``) use both files. Others prepend the system
+    content to the main prompt for prefix-caching benefits.
+    """
+
+    prompt_path: Path
+    system_prompt_path: Path | None = None
 
 
 class PromptRenderer:
@@ -84,6 +116,60 @@ class PromptRenderer:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(content)
         logger.debug("Wrote prompt to file", path=str(out_path))
+
+    def render_with_context_split(
+        self,
+        template_name: str,
+        out_dir: Path,
+        **context: Any,
+    ) -> RenderedPrompt:
+        """Render a template with static/dynamic split for context caching.
+
+        Static context (AGENTS.md, ARCHITECTURE.md, repo context, etc.) is
+        rendered to a separate ``<name>_system.md`` file.  The stage template
+        is rendered *without* those variables so it contains only the dynamic,
+        per-stage content.
+
+        Executors that support a dedicated system-prompt field (Claude Code)
+        will pass the two files separately.  Others prepend the system content
+        to the main prompt to benefit from prefix caching.
+
+        Args:
+            template_name: Name of the template (without .md extension).
+            out_dir: Directory to write prompt files.
+            **context: Variables to pass to the template.
+
+        Returns:
+            RenderedPrompt with paths to both files.
+        """
+        log = logger.bind(template=template_name)
+        log.debug("Rendering prompt with context split")
+
+        # Separate static vs. dynamic context
+        static_ctx = {k: v for k, v in context.items() if k in STATIC_CONTEXT_KEYS and v}
+        dynamic_ctx = {k: v for k, v in context.items() if k not in STATIC_CONTEXT_KEYS}
+
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        # Render system (static) context
+        system_path: Path | None = None
+        if static_ctx and self.template_exists("system_context"):
+            system_path = out_dir / f"{template_name}_system.md"
+            system_content = self.render("system_context", **static_ctx)
+            system_path.write_text(system_content)
+            log.debug(
+                "System context rendered",
+                path=str(system_path),
+                length=len(system_content),
+            )
+
+        # Render main prompt with only dynamic context
+        prompt_path = out_dir / f"{template_name}.md"
+        main_content = self.render(template_name, **dynamic_ctx)
+        prompt_path.write_text(main_content)
+        log.debug("Dynamic prompt rendered", path=str(prompt_path), length=len(main_content))
+
+        return RenderedPrompt(prompt_path=prompt_path, system_prompt_path=system_path)
 
     def list_templates(self) -> list[str]:
         """List available template names.
