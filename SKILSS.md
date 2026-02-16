@@ -1,305 +1,177 @@
-# orx — Agent Operating Contract (Usage Only)
+# SKILLS.md — orx Operator (MCP Edition)
 
-**Scope:** This document is only for an LLM agent to **use** `orx` inside a target git repository. It is **not** a guide for modifying `orx` itself.
-
-**Source of truth:** `README.md`, `ARCHITECTURE.md`, and observed CLI behavior.
-
----
-
-## 1) Hard Rules (MUST / MUST NOT)
-
-### MUST
-- Run `orx` against a **git repository root** (it uses git worktrees). Prefer: `cd <repo>` and run there, or pass `--dir <repo>`.
-- Treat `runs/<run_id>/` and `.worktrees/<run_id>/` as **runtime artifacts**.
-- Keep secrets out of prompts and logs; use placeholders and refer to secret names/paths.
-- Ensure `runs/<run_id>/artifacts/patch.diff` is produced by **`git diff`** (this is how `orx` ships changes).
-- Prefer small, explicit tasks with a clear scope.
-- When passing a task file (`@task.md`), prefer an **absolute path** to avoid cwd vs `--dir` confusion.
-
-### MUST NOT
-- Do not run `orx` in a directory that is not a git repo.
-- Do not hand-edit `runs/<run_id>/artifacts/patch.diff`.
-- Do not ask the executor to modify sensitive files if guardrails are enabled (defaults include patterns like `*.env*`, `*secrets*`, `.git/*`, `*.pem`, `*.key`).
+**Role:** You are the operator of the **orx** orchestration engine via the Model Context Protocol (MCP).
+**Goal:** Complete coding tasks by delegating execution to orx pipelines and monitoring their progress through MCP tools and resources — never touch the filesystem directly.
 
 ---
 
-## 2) What `orx` Does (Current Contract)
+## 1. Operating Rules
 
-### 2.1 CLI Commands
+| Rule | Why |
+|------|-----|
+| **NO FILESYSTEM TOUCHING** | Never manually read/write files in `runs/` or `.worktrees/`. Use MCP tools and resources only. |
+| **ASYNC EXECUTION** | `start_run` returns immediately. You MUST poll `get_run_status` to track progress. |
+| **CONTEXT ECONOMY** | Do not read full logs unless `get_run_status` reports a failure. |
+| **SECRETS** | Keep secrets out of task descriptions. Use placeholder names only. |
+| **GIT REQUIRED** | `orx` operates on git repos. The MCP server must point at a repo root (`ORX_PROJECT_ROOT`). |
 
-| Command | Purpose | Key flags | Notes |
-|---|---|---|---|
-| `orx init` | Create `orx.yaml` | `--dir`, `--engine`, `--force` | Writes config into `--dir` |
-| `orx run` | Start a new run | `--dir`, `--config`, `--engine`, `--base-branch`, `--dry-run`, `--pipeline`, `--legacy-fsm` | Task is a string or `@file.md` |
-| `orx resume <run_id>` | Resume a paused/interrupted run | `--dir`, `--config`, `--dry-run` | Cannot resume `done`/`failed` |
-| `orx status [run_id]` | Show run status | `--dir`, `--json`, `--follow` | Without id: last 10 runs |
-| `orx clean <run_id\|all>` | Remove artifacts/worktrees | `--dir`, `--force` | `all` deletes `runs/` and `.worktrees/` |
-| `orx pipelines list` | List available pipelines | | Built-in + user-defined |
-| `orx pipelines show <id>` | Show pipeline definition | | Displays node graph |
-| `orx pipelines create <file>` | Create user pipeline | | YAML definition |
-| `orx pipelines delete <id>` | Delete user pipeline | | Cannot delete built-in |
-| `orx observability validate` | Validate run events | `--run-id` | Schema + monotonic step_ids |
-| `orx observability export` | Export events | `--run-id`, `--mode redacted` | Redacted export |
+---
 
-**FACT:** `orx run @task.md` resolves `task.md` relative to the current working directory, **not** relative to `--dir`. If you are not in the repo root, use an absolute path: `@/abs/path/task.md`.
+## 2. Workflow
 
-### 2.2 Execution Model
+### Start → Poll → Act
 
-**Pipeline Engine (default):**
+```
+start_run(task, pipeline)
+        │
+        ▼
+   ┌─── poll get_run_status(run_id) ◄──┐
+   │              │                     │
+   │    success ──┤── failed ──┐        │
+   │              │            │        │
+   │    paused ───┤       read logs     │
+   │       │      │       debug_run     │
+   │   review     │       prompt        │
+   │   artifacts  │            │        │
+   │       │      │    start new run    │
+   │  resume_run  │                     │
+   │       └──────┴─────────────────────┘
+   │
+   ▼
+  done → read diff, review artifacts
+```
 
-`orx run` uses the pipeline engine by default. Three built-in pipelines:
+### Starting Work
 
-- **`standard`** (default): Plan → Spec → Decompose → Implement (MAP with verify-fix loop) → Review → Ship
-- **`fast_fix`**: Implement → Verify → Review → Ship (skip planning for small fixes)
-- **`plan_only`**: Plan only
+1. **Call** `start_run(task="…", pipeline="standard")`.
+   - Use `pipeline="fast_fix"` for small bugs; `"standard"` for features.
+2. **Record** the returned `run_id`.
 
-Select with `--pipeline <id>`: `orx run --pipeline fast_fix "fix the typo"`
+### Monitoring
 
-**Interactive pause/resume:** Some pipeline nodes can be marked `interactive: true`. After such a node completes, the run pauses for human review. Use `orx resume <run_id>` to continue.
+- **Poll** `get_run_status(run_id)` until `status` is one of: `success`, `failed`, `paused`.
+- The response contains `stage`, `stages` map, `metrics`, and `last_error` — no logs.
 
-**Reproduce stage (Fail-to-Pass):** The pipeline can include a `reproduce` node that creates a failing test first, verifies it fails, then implements the fix.
+### Handling Paused Runs
 
-**Review loop:** The review stage can iterate up to 3 times if the reviewer requests changes.
+Some pipeline nodes are interactive (human-in-the-loop). When `status == "paused"`:
+1. Read artifacts to understand what was produced: resource `orx://runs/{id}/artifacts/plan.md`, etc.
+2. If satisfied, call `resume_run(run_id)`.
+3. Continue polling.
 
-**Legacy FSM:** Available via `orx run --legacy-fsm`. Original sequential state machine:
+### Debugging Failures
 
-1. `plan` (executor text mode)
-2. `spec` (executor text mode)
-3. `decompose` (executor text mode → produces `backlog.yaml`)
-4. `implement_item` loop over backlog items:
-   - `implement` (executor apply mode)
-   - capture `patch.diff` via `git diff`
-   - guardrails check
-   - `verify` (quality gates)
-   - on gate failure: `fix` (executor apply mode) + retry up to `run.max_fix_attempts`
-5. `review` (executor text mode → produces `review.md` and `pr_body.md` artifacts)
-6. `ship` (final `patch.diff`, optional commit/push/PR)
-7. `knowledge_update` (executor text mode → non-fatal updates to `AGENTS.md`/`ARCHITECTURE.md`, can be disabled)
+1. Check `get_run_status` → look at `last_error` and `stages` map.
+2. Use the **`debug_run`** prompt — it assembles status, error evidence, and log tails into a single context block.
+3. If you need raw data: resource `orx://runs/{id}/logs/pytest.log` (last 50 lines).
+4. Start a new run with an improved task description.
 
-NOTE: Executor/model selection can be overridden per stage via `executors.*` + `stages.*` in `orx.yaml`.
+### Cancellation
 
-ASSUMPTION: stage naming and ordering follow `Runner` + `StateManager` implementation.
+- Call `cancel_run(run_id)` to SIGTERM the running process.
 
-### 2.3 Executors (CLI agent adapters)
+---
 
-| `engine.type` | External binary | Text stages | Apply stages | Command shape |
-|---|---|---|---|---|
-| `codex` | `codex` | `run_text` | `run_apply` | Text: `codex exec --sandbox read-only --cd <worktree> ... @<prompt.md>`; Apply: `codex exec --full-auto --cd <worktree> ... @<prompt.md>` |
-| `gemini` | `gemini` | `run_text` | `run_apply` | `gemini [--model <model>] --yolo --approval-mode auto_edit --output-format <fmt> --prompt @<prompt.md>` |
-| `claude_code` | `claude` | `run_text` | `run_apply` | `claude -p --output-format json [--system-prompt <ctx>] [--tools <restricted>] @<prompt>` (NEW) |
-| `copilot` | `copilot` | `run_text` | `run_apply` | `copilot --prompt @<file> [--deny-tool write/shell] [--allow-all-tools]` (NEW) |
-| `cursor` | `agent` / `cursor agent` | `run_text` | `run_apply` | `agent -p --output-format json [--force] [--workspace <dir>]` (NEW) |
-| `fake` | none | deterministic | deterministic | Used for tests / dry simulations |
+## 3. MCP Tools Reference
 
-**Important:** Text stages are intended to be **text-only** (no shell/tool execution). For Codex this is enforced via `--sandbox read-only`, for Claude Code via `--tools` restriction, for Copilot via `--deny-tool write/shell`.
+| Tool | Purpose | Key Args |
+|------|---------|----------|
+| `start_run` | Launch a new orx run | `task` (str), `pipeline` (enum), `base_branch` (opt) |
+| `get_run_status` | Status + metadata (no logs) | `run_id` |
+| `resume_run` | Continue paused/interrupted run | `run_id` |
+| `cancel_run` | SIGTERM running process | `run_id` |
+| `list_runs` | Recent runs summary | `limit` (default 5) |
+| `list_pipelines` | Available pipeline definitions | — |
 
-**Context caching:** When enabled, static context (AGENTS.md, ARCHITECTURE.md, repo context) is split into a companion `<stage>_system.md` file. Claude Code passes it via `--system-prompt` for Anthropic prompt caching. Other executors prepend the content to the user prompt for provider-side prefix caching.
+> **Note:** All arguments are strictly typed via JSON Schema — the MCP server enforces valid values.
 
-### 2.4 Quality Gates
+---
 
-Built-in gate names: `ruff`, `pytest`, `docker`. Any other `gates[].name` is treated as a **generic gate** (custom command).
+## 4. MCP Resources Reference
 
-| Gate | Default | Skip behavior | Logs | Evidence in fix-loop |
-|---|---|---|---|---|
-| `ruff` | `ruff check .` | never | `runs/<id>/logs/ruff.log` | yes (tail) |
-| `pytest` | `pytest -q` | if no tests found or exit code `5` | `runs/<id>/logs/pytest.log` | yes (tail) |
-| `docker` | `docker build ...` | if no `Dockerfile` | `runs/<id>/logs/docker.log` | TODO: not included |
-| *(generic)* | *(custom)* | never (unless your command exits 0) | `runs/<id>/logs/<name>.log` | not included by default |
+| URI Pattern | Content | MIME |
+|-------------|---------|------|
+| `orx://runs/{run_id}/state` | Full `state.json` | application/json |
+| `orx://runs/{run_id}/diff` | Current `patch.diff` | text/x-diff |
+| `orx://runs/{run_id}/logs/{name}` | Last 50 lines of log | text/plain |
+| `orx://runs/{run_id}/artifacts/{name}` | Artifact content (plan.md, spec.md, etc.) | text/markdown |
 
-Generic gate example:
+---
 
-```yaml
-gates:
-  - name: helm-lint
-    command: make
-    args: ["helm-lint"]
-    required: true
+## 5. MCP Prompts Reference
+
+| Prompt | Purpose |
+|--------|---------|
+| `new_task` | Loads project context + available pipelines; prepares you to formulate a task |
+| `debug_run` | Assembles failed run's status, logs, diff into one context block for analysis |
+
+---
+
+## 6. Pipelines Quick Reference
+
+| Pipeline | When to Use | Stages |
+|----------|-------------|--------|
+| `standard` | Features, refactors | Plan → Spec → Decompose → Implement (MAP) → Review → Ship |
+| `fast_fix` | Bug fixes, small changes | Implement → Verify → Review → Ship |
+| `plan_only` | Exploration, planning | Plan |
+
+---
+
+## 7. Task Authoring Tips
+
+A good task description includes:
+- **Goal** (1–3 sentences)
+- **Constraints** (what must NOT change)
+- **Verification** (which gates/commands must pass)
+
+```
+Fix the flaky test in test_runner.py::test_resume_from_paused.
+Constraint: do not change the public API of StateManager.
+Must pass: pytest, ruff.
 ```
 
 ---
 
-## 3) Configuration (`orx.yaml`) — What to Set
+## 8. Setup
 
-Minimal practical fields:
+### MCP Server Registration
 
-- `engine.type`: `codex | gemini | claude_code | copilot | cursor | fake`
-- `engine.binary`: legacy path/name of the primary CLI binary (prefer `executors.<name>.bin`)
-- `engine.timeout`: seconds (applies to executor calls)
-- `executors.*`: per-executor binary + default model settings (preferred for routed stages)
-- `stages.*`: per-stage executor/model overrides
-- `git.base_branch`: base branch used for the worktree
-- `gates`: list of gate configs
-- `guardrails`: forbidden patterns/paths + file count limit
-- `run.max_fix_attempts`: fix-loop attempts per work item
-- `run.per_item_verify`: `fast` (recommended) or `full`
-- `run.auto_fix_ruff`: auto-run `ruff --fix` on ruff failures and retry
-- `run.max_backlog_items`: target max number of work items (reduces apply invocations)
-- `run.coalesce_backlog_items`: merge items if the decomposition returns too many
+**Claude Desktop / Cursor / any MCP client:**
 
-**New configuration sections:**
-- `observability.*`: Enable/disable capture channels (process, filesystem, LLM, TTY)
-- `context_caching.enabled`: Enable context caching prompt splitting (default: `true`)
-- `knowledge.*`: Configure self-improvement (files, markers, limits, gatekeeping)
-
-Semantics (important for speed/quality):
-- `run.per_item_verify: fast` runs a **fast gate set** for intermediate items (ruff + targeted pytest) and automatically switches to **full gates** on the **last item**.
-- Targeted pytest selection uses `files_hint` first, then falls back to changed test files; it can skip pytest if no targets are found and `run.fast_verify_skip_pytest_if_no_targets: true`.
-- `run.max_backlog_items` is used as a *hint* to the decompose prompt and as an upper bound for optional post-processing via `run.coalesce_backlog_items`.
-
-Example (safe-ish defaults for running locally):
-
-```yaml
-version: "1.0"
-engine:
-  type: codex
-  enabled: true
-  binary: codex
-  extra_args: []
-  timeout: 600
-
-git:
-  base_branch: main
-  remote: origin
-  auto_commit: false
-  auto_push: false
-  create_pr: false
-  pr_draft: true
-
-gates:
-  - name: ruff
-    enabled: true
-    command: ruff
-    args: ["check", "."]
-    required: true
-  - name: pytest
-    enabled: true
-    command: pytest
-    args: ["-q"]
-    required: true
-
-guardrails:
-  enabled: true
-  forbidden_patterns: ["*.env", "*.env.*", "*secrets*", "*.pem", "*.key", ".git/*"]
-  forbidden_paths: [".env", ".env.local", ".env.production", "secrets.yaml", "secrets.json"]
-  max_files_changed: 50
-
-run:
-  max_fix_attempts: 3
-  parallel_items: false
-  stop_on_first_failure: false
-  per_item_verify: fast
-  fast_verify_max_pytest_targets: 6
-  fast_verify_skip_pytest_if_no_targets: true
-  auto_fix_ruff: true
-  max_backlog_items: 4
-  coalesce_backlog_items: true
+```json
+{
+  "mcpServers": {
+    "orx": {
+      "command": "orx-mcp",
+      "env": {
+        "ORX_PROJECT_ROOT": "/path/to/your/repo"
+      }
+    }
+  }
+}
 ```
 
-Optional per-stage executor/model routing:
+Or via `python -m`:
 
-```yaml
-executors:
-  codex:
-    bin: codex
-    default:
-      model: gpt-5.2
-      reasoning_effort: medium
-    profiles:
-      review: deep-review
-  gemini:
-    bin: gemini
-    default:
-      model: gemini-3-flash
-      output_format: json
-
-stages:
-  plan:
-    executor: gemini
-    model: gemini-3-pro
-  implement:
-    executor: codex
-    model: gpt-5.2-codex
-    reasoning_effort: medium
+```json
+{
+  "mcpServers": {
+    "orx": {
+      "command": "python",
+      "args": ["-m", "orx.mcp"],
+      "env": {
+        "ORX_PROJECT_ROOT": "/path/to/your/repo"
+      }
+    }
+  }
+}
 ```
 
-**Known limitations:**
-- `fallback_engine` exists in config, but TODO: not used by the runner.
-- `fallback` policy exists in config, but is not automatically applied by `Runner` yet (helper exists: `ModelRouter.apply_fallback()`).
-- `run.parallel_items` exists in config, but TODO: not implemented (loop is sequential).
+### Prerequisites
 
----
-
-## 4) How to Run (Agent Playbooks)
-
-### 4.1 Start a run
-
-Preflight (recommended):
-- `git rev-parse --is-inside-work-tree`
-- `git rev-parse <base_branch>`
-- Verify required binaries exist (`codex`/`gemini`/`claude`/`copilot`, plus gate commands).
-- Optional power tools check: `rg`, `fd`, `jq`, `tree` (orx warns if missing).
-
-Run:
-- `orx init` (once per repo)
-- `orx run -b <base_branch> "<task text>"`
-- or `orx run -b <base_branch> @/abs/path/task.md`
-  - If you must use `--dir`, also use an absolute `@` task path: `orx run --dir /repo -b main @/abs/task.md`
-- Select pipeline: `orx run --pipeline fast_fix "fix typo"`
-- Use legacy FSM: `orx run --legacy-fsm "task"`
-
-After starting:
-- Record the `Run ID` printed by `orx`.
-- Inspect `runs/<run_id>/artifacts/patch.diff` and `runs/<run_id>/logs/`.
-- For time breakdowns, open `runs/<run_id>/metrics/run.json` (and `metrics/stages.jsonl`).
-- For detailed event tracing, inspect `runs/<run_id>/observability/events.jsonl`.
-
-### 4.2 Resume a run
-
-- `orx status <run_id>`
-- If stage is `paused` (interactive pipeline node): `orx resume <run_id>` — continues from next node.
-- If stage is not `done` or `failed` (interrupted): `orx resume <run_id>` — resumes from checkpoint.
-
-**If stage is `failed`:** start a new run (TODO: no supported "resume failed").
-
-### 4.3 Monitor a run
-
-- `orx status <run_id> --follow` — live status monitoring.
-- `orx status <run_id> --json` — machine-readable status.
-- Validate run events: `orx observability validate --run-id <run_id>`
-- Export events: `orx observability export --run-id <run_id> --mode redacted`
-
-### 4.3 Clean up
-
-- `orx clean <run_id>`
-- `orx clean all --force` (dangerous: deletes all runs and worktrees)
-
----
-
-## 5) Task Authoring (What to Put in `task.md`)
-
-A good `task.md` should include:
-- Goal (1–3 sentences)
-- Constraints (what MUST NOT change)
-- Expected outputs (files, commands, artifacts)
-- Verification steps (which gates/commands must pass)
-- Environment assumptions (base branch, deployment target, secret names, etc.)
-
-Template:
-
-```md
-## Goal
-...
-
-## Constraints
-- Do not touch: ...
-- Scope is limited to: ...
-
-## Verification
-- Must pass: ...
-
-## Notes
-- Secrets are provided as: <secret name / env var names> (no values)
-```
+- `orx` CLI installed and on PATH
+- Git repository with `orx.yaml` (run `orx init` once)
+- MCP SDK: `pip install orx[mcp]`
 
 ---
 
