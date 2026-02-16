@@ -43,15 +43,18 @@ The following errors need to be fixed:
 ```
 {% endif %}
 
+{% include 'exploration_tools.md' %}
+
 ## Instructions
 
 1. **Analyze the task** to understand what needs to be done
-2. **Identify affected files** using the repo structure
+2. **Search first**: Use `fd` and `rg` to locate affected files
 3. **Read files in batches**: Use ARCHITECTURE.md module map to identify ALL related files upfront. Read them together in one batch, not one-by-one.
 4. **Implement the changes** according to the task description
 5. **Create or update tests** as needed
 
 **FILE READING STRATEGY** (CRITICAL):
+- Use `fd` to find files, `rg` to search inside them
 - Identify the full file set needed upfront
 - Read ALL needed files in ONE batch call
 - Do NOT read files one at a time in separate tool calls

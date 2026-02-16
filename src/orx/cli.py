@@ -12,6 +12,7 @@ import typer
 
 from orx import __version__
 from orx.config import EngineType, OrxConfig
+from orx.infra.command import check_dependencies
 from orx.paths import RunPaths
 from orx.pipeline import PipelineRegistry
 from orx.pipeline.constants import DEFAULT_PIPELINE_ID
@@ -217,6 +218,20 @@ def run(
             typer.echo("Pipeline: legacy_fsm")
         elif selected_pipeline:
             typer.echo(f"Pipeline: {selected_pipeline}")
+
+        # Check CLI power tools availability
+        dep_report = check_dependencies()
+        if dep_report.missing_tools:
+            typer.echo("")
+            typer.echo(
+                typer.style(
+                    "Warning: some CLI power tools are missing:",
+                    fg=typer.colors.YELLOW,
+                )
+            )
+            for t in dep_report.missing_tools:
+                typer.echo(f"  ✗ {t.name} — {t.install_hint}")
+            typer.echo("  Agent will still work but may be less efficient.")
         typer.echo("")
 
         success = runner.run(

@@ -40,6 +40,16 @@ The following is a tree-sitter-extracted map of all files and their top-level de
 - Review recent learnings for common pitfalls
 {% endif %}
 
+## Available CLI Tools for Implementation
+
+The agent will have these tools available during implementation stages:
+- `rg` (ripgrep) — fast code search: `rg -n "pattern" src/`
+- `fd` — fast file finder: `fd -t f "pattern"`
+- `jq` — JSON processor: `jq '.key' file.json`
+- `tree` — directory listing: `tree -L 2`
+
+Plan steps that leverage these tools for efficient codebase exploration.
+
 ## Instructions
 
 1. Analyze the task requirements carefully

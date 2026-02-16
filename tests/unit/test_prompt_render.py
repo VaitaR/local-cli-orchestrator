@@ -23,6 +23,7 @@ class TestPromptRenderer:
         assert "implement" in templates
         assert "fix" in templates
         assert "review" in templates
+        assert "exploration_tools" in templates
 
     def test_template_exists(self) -> None:
         """Test template existence check."""
@@ -217,3 +218,70 @@ def test_render_prompt_convenience() -> None:
     )
 
     assert "Quick task" in content
+
+
+class TestExplorationToolsInTemplates:
+    """Verify exploration tools section is included in agent-facing templates."""
+
+    def test_implement_includes_exploration_tools(self) -> None:
+        renderer = PromptRenderer()
+        content = renderer.render(
+            "implement",
+            task_summary="Build feature",
+            spec_highlights="",
+            item_id="W001",
+            item_title="Task",
+            item_objective="Objective",
+            item_notes="",
+            acceptance=["Done"],
+            files_hint=["src/app.py"],
+            file_snippets=[],
+        )
+        assert "Exploration Tools" in content
+        assert "rg" in content
+        assert "fd" in content
+
+    def test_implement_direct_includes_exploration_tools(self) -> None:
+        renderer = PromptRenderer()
+        content = renderer.render(
+            "implement_direct",
+            task="Build feature",
+        )
+        assert "Exploration Tools" in content
+        assert "rg" in content
+        assert "fd" in content
+
+    def test_fix_includes_exploration_tools(self) -> None:
+        renderer = PromptRenderer()
+        content = renderer.render(
+            "fix",
+            task_summary="Fix feature",
+            spec_highlights="",
+            item_id="W001",
+            item_title="Fix",
+            item_objective="Fix it",
+            acceptance=["Fixed"],
+            attempt=1,
+            ruff_failed=False,
+            ruff_log="",
+            pytest_failed=False,
+            pytest_log="",
+            diff_empty=False,
+            patch_diff="",
+            files_hint=[],
+            file_snippets=[],
+        )
+        assert "Exploration Tools" in content
+        assert "rg" in content
+        assert "fd" in content
+
+    def test_plan_mentions_cli_tools(self) -> None:
+        renderer = PromptRenderer()
+        content = renderer.render(
+            "plan",
+            task="Plan something",
+            project_context="",
+        )
+        assert "rg" in content
+        assert "fd" in content
+        assert "jq" in content

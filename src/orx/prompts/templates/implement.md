@@ -94,14 +94,18 @@ Ensure your code passes all these gates.
 {% endfor %}
 {% endif %}
 
+{% include 'exploration_tools.md' %}
+
 ## Instructions
 
-1. **Read files in batches**: Use ARCHITECTURE.md module map to identify ALL related files upfront. Read them together in one batch, not one-by-one.
-2. Implement the work item according to the acceptance criteria
-3. Create or update tests for the new functionality
-4. Follow the project's coding standards
+1. **Search before reading**: Use `rg` and `fd` to locate relevant code before opening files
+2. **Read files in batches**: Use ARCHITECTURE.md module map to identify ALL related files upfront. Read them together in one batch, not one-by-one.
+3. Implement the work item according to the acceptance criteria
+4. Create or update tests for the new functionality
+5. Follow the project's coding standards
 
 **FILE READING STRATEGY** (CRITICAL):
+- Use `fd` to find files, `rg` to search inside them
 - Look at "Files Hint" + module map → identify the full file set
 - Read ALL needed files in ONE batch call
 - Do NOT read files one at a time in separate tool calls
