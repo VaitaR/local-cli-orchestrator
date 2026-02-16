@@ -1,16 +1,16 @@
 # System Architecture
 
-> **Last Updated:** 2026-02-06  
-> **Status:** v0.4 - Observability v2 Cutover
+> **Last Updated:** 2026-02-16  
+> **Status:** v0.5 - Pipeline Engine + Code Intelligence
 
 ## Overview
 
-**orx** is a local, CLI-first orchestrator that coordinates AI coding agents (Codex CLI, Gemini CLI) through a pipeline engine (`pipeline/*`, `standard` by default). A legacy FSM flow remains available via `orx run --legacy-fsm`. It manages git isolation, quality gates, fix-loops, and produces auditable artifacts.
+**orx** is a local, CLI-first orchestrator that coordinates AI coding agents (Codex CLI, Gemini CLI, Claude Code, Copilot, Cursor) through a pipeline engine (`pipeline/*`, `standard` by default). A legacy FSM flow remains available via `orx run --legacy-fsm`. It manages git isolation, quality gates, fix-loops, context caching, code intelligence, and produces auditable artifacts.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         CLI Layer                                │
-│                      (orx run/resume/status)                     │
+│            (orx run/resume/status/pipelines/observability)        │
 └─────────────────────────────────────────────────────────────────┘
                                 │
                                 ▼
@@ -18,12 +18,12 @@
 │              Runner (Pipeline Engine + Legacy FSM)              │
 │   standard/fast_fix/plan_only pipelines + legacy FSM fallback   │
 └─────────────────────────────────────────────────────────────────┘
-          │              │              │              │
-          ▼              ▼              ▼              ▼
-    ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐
-    │ Executor │  │ Context  │  │Workspace │  │  Gates   │
-    │ Adapters │  │   Pack   │  │  (Git)   │  │ (Quality)│
-    └──────────┘  └──────────┘  └──────────┘  └──────────┘
+     │          │          │          │          │          │
+     ▼          ▼          ▼          ▼          ▼          ▼
+┌────────┐┌────────┐┌────────┐┌────────┐┌────────────┐┌─────────┐
+│Executor││Context ││Work-   ││ Gates  ││Observ-     ││Intelli- │
+│Adapters││  Pack  ││space   ││(Qual.) ││ability v2  ││gence    │
+└────────┘└────────┘└────────┘└────────┘└────────────┘└─────────┘
 ```
 
 ## Core Design Principles
@@ -44,14 +44,36 @@ Entry point for all user interactions. Built with Typer.
 | Command | Purpose |
 |---------|---------|
 | `run` | Start new orchestration task |
-| `resume` | Continue interrupted run |
-| `status` | Show run status |
+| `resume` | Continue interrupted/paused run |
+| `status` | Show run status (`--follow`, `--json`) |
 | `init` | Initialize configuration |
 | `clean` | Remove run artifacts |
+| `pipelines list/show/create/delete` | Manage pipeline definitions |
+| `observability validate/export` | Validate and export run events |
 
 ### 2. Runner (Orchestration Engine)
 
 Production path uses `PipelineRunner` with built-in and custom pipelines. Legacy FSM is retained for migration/debug via `--legacy-fsm`.
+
+**Pipeline Engine (default):**
+
+Declarative, node-based execution with typed nodes:
+
+| Node Type | Purpose | Example |
+|-----------|---------|--------|
+| `LLM_TEXT` | Generate text output | plan, spec, review |
+| `LLM_APPLY` | Modify filesystem | implement, fix |
+| `MAP` | Iterate over backlog items | implement loop |
+| `GATE` | Run quality checks | verify |
+| `CUSTOM` | Custom callable | reproduce verification |
+
+Built-in pipelines:
+- **`standard`**: Plan → Spec → Decompose → Implement (MAP with verify) → Review → Ship
+- **`fast_fix`**: Implement → Verify → Review → Ship (skip planning)
+- **`plan_only`**: Plan only
+
+**Pause/Resume (interactive nodes):**
+Nodes with `interactive: true` trigger pause after completion. `orx resume <run_id>` continues from the next node. State tracks `paused_after_node` and `paused_pipeline_id`.
 
 Legacy FSM stages:
 
@@ -75,17 +97,23 @@ stateDiagram-v2
 **Responsibilities:**
 - Stage sequencing and dispatch
 - Fix-loop orchestration (retry on gate failure)
-- State checkpointing for resume
+- Review loop (up to 3 iterations with feedback)
+- Reproduce verification (Fail-to-Pass pattern)
+- State checkpointing for resume (including PAUSED state)
 - Meta.json generation (versions, timestamps)
+- Intelligence context building (tree-sitter graph + SmartBundler)
 
 ### 3. Executor Adapters
 
-Abstraction layer for CLI agent integration. All executors implement a common protocol.
+Abstraction layer for CLI agent integration. All executors extend `BaseExecutor` base class.
 
 | Executor | Backend | Mode |
 |----------|---------|------|
 | Codex | `codex exec --full-auto` | Production |
 | Gemini | `gemini --yolo --output-format json` | Production |
+| Claude Code | `claude -p --output-format json` | Production (NEW) |
+| Copilot | `copilot --prompt @<file>` | Production (NEW) |
+| Cursor | `agent -p --output-format json` | Production (NEW) |
 | Fake | Deterministic file actions | Testing |
 
 **Operation Modes:**
@@ -93,6 +121,10 @@ Abstraction layer for CLI agent integration. All executors implement a common pr
 - `run_apply`: Modify filesystem (implementation)
 
 **Model routing:** The runner uses `ModelRouter` (`src/orx/executors/router.py`) to select the executor and `ModelSelector` per stage, passing the selector via `StageContext.model_selector` into executor calls.
+
+**Centralized model registry:** `src/orx/executors/models.py` defines all available models with capabilities (context window, reasoning, tool use). Supports dynamic discovery.
+
+**Context caching:** Static context (AGENTS.md, ARCHITECTURE.md, repo context) is split into a companion `<stage>_system.md` file. Claude Code passes it via `--system-prompt` for Anthropic prompt caching; other executors prepend for provider-side prefix caching.
 
 ### 4. Quality Gates
 
@@ -166,9 +198,70 @@ src/orx/prompts/templates/
     ├── plan.md
     ├── spec.md
     ├── decompose.md
+    ├── decompose_fix.md
     ├── implement.md
+    ├── implement_direct.md
+    ├── implement_smoke.md
     ├── fix.md
-    └── review.md
+    ├── reproduce.md
+    ├── review.md
+    ├── review_smoke.md
+    ├── knowledge_agents.md
+    ├── knowledge_arch.md
+    ├── system_context.md       # Context caching: static context split
+    └── exploration_tools.md    # Power tool usage guide for agents
+```
+
+**Context caching flow:** `renderer.py` produces both `<stage>.md` (user prompt) and `<stage>_system.md` (cached system context) via the `system_context.md` template.
+
+### 9. Code Intelligence (Tree-sitter)
+
+Optional smart context assembly using tree-sitter for AST-level understanding.
+
+```
+src/orx/context/intelligence/
+├── parser.py     # RepoParser: extract definitions, imports (Python/JS/TS/TSX)
+├── skeleton.py   # SkeletonGenerator: strip bodies, keep signatures + docstrings
+├── graph.py      # RepoGraph: file-level dependency graph + compact repo map
+└── bundle.py     # SmartBundler: tiered context assembly
+```
+
+**Tiered context strategy:**
+
+| Tier | Content | Budget |
+|------|---------|--------|
+| 1 | Full source of focus files | ~50K chars |
+| 2 | Skeletons of 1st-level neighbours | ~30K chars |
+| 3 | Repo map of remaining files | ~15K chars |
+
+`SmartBundler` produces a `BundleResult` with `repo_map` and `smart_context`. The `PipelineRunner` feeds this into `ContextBuilder` which assembles per-node context (including `repo_tags` and `smart_context` variables).
+
+Gracefully degrades if `tree_sitter` is not installed.
+
+### 10. Observability v2
+
+Event-first tracing system — the canonical observability source.
+
+```
+src/orx/observability/
+├── schema.py       # ObsEvent, Correlation, SCHEMA_VERSION="2.0"
+├── correlation.py  # StepCounter (monotonic, persistent), CorrelationIds
+├── writer.py       # EventWriter (JSONL) + MetadataWriter (JSON)
+├── runtime.py      # RunObservability: session lifecycle, all event emission
+├── tty.py          # TTYRecorder: asciinema v2 cast files
+├── projector.py    # ProjectedRun: derive summaries from raw events
+├── redaction.py    # Recursive sensitive field redaction
+└── validate.py     # Event file validation (schema, monotonic step_ids)
+```
+
+**Event types:** `run.start/end`, `stage.start/end`, `llm.request/response`, `proc.exec.start/end`, `fs.patch`, `gate.approval`, `tty.segment.start/end`, `network.request/response`, `network.capture.config`, `observability.warning`
+
+**Integration with CommandRunner:** `RunObservability.make_command_observer()` hooks into `CommandRunner` via the `CommandObserver` protocol to emit `proc.exec.*` events automatically.
+
+**Validation/export:**
+```bash
+orx observability validate --run-id <id>
+orx observability export --run-id <id> --mode redacted
 ```
 
 ---
@@ -260,6 +353,7 @@ Gate Failure (ruff/pytest)
 | Testing | Pytest |
 | Type Checking | mypy (strict) |
 | Token Counting | tiktoken (with fallback) |
+| Code Intelligence | tree-sitter (optional) |
 | Dashboard | FastAPI + HTMX + Prism.js |
 
 ---
@@ -276,7 +370,7 @@ cli.py ────────────────────────�
          │                           │                           │
          ▼                           ▼                           ▼
     stages/*                    state.py                   config.py
-         │                           │
+    pipeline/*                       │
          │                           ▼
          │                       paths.py
          │                           │
@@ -284,8 +378,8 @@ cli.py ────────────────────────�
     ┌─────────┐               ┌─────────────┐               ┌───────────────┐
     │executors│               │  context/   │               │observability/ │
     │  gates  │               │  workspace/ │               │               │
-    └─────────┘               └─────────────┘               └───────────────┘
-         │                           │                           │
+    └─────────┘               │ intelligence│               └───────────────┘
+         │                    └─────────────┘                     │
          └───────────┬───────────────┴───────────────────────────┘
                      ▼
                infra/command.py
@@ -307,7 +401,7 @@ cli.py ────────────────────────�
 ```
 runs/<run_id>/
     ├── meta.json           # Versions, timestamps, summary
-    ├── state.json          # FSM state (for resume)
+    ├── state.json          # FSM/pipeline state (for resume, incl. PAUSED)
     │
     ├── context/
     │   ├── task.md
@@ -317,11 +411,15 @@ runs/<run_id>/
     │   ├── project_map.md      # Stack-only context profile
     │   ├── tooling_snapshot.md # Full tooling context
     │   ├── verify_commands.md  # Gate verification commands
+    │   ├── repo_tags.md        # Tree-sitter repo map (NEW)
+    │   ├── smart_context.md    # Tiered intelligence context (NEW)
+    │   ├── reproduce_failure.md # Reproduction failure output (NEW)
     │   ├── decisions.md
     │   └── lessons.md
     │
     ├── prompts/            # Materialized prompts
     │   ├── plan.md
+    │   ├── plan_system.md  # Context caching companion (NEW)
     │   ├── spec.md
     │   └── ...
     │
@@ -344,6 +442,10 @@ runs/<run_id>/
     │       └── redacted/
     │           └── events.redacted.jsonl
     │
+    ├── metrics/            # Legacy v1 metrics (kept for compatibility)
+    │   ├── stages.jsonl
+    │   └── run.json
+    │
     └── logs/
         ├── agent_plan.stdout.log
         ├── agent_plan.stderr.log
@@ -351,6 +453,7 @@ runs/<run_id>/
         ├── ruff.log
         ├── pytest.log
         └── ...
+```
 ```
 
 ---
@@ -560,19 +663,20 @@ Observability is now event-first and contract-driven. The canonical source is:
 - `runs/<run_id>/observability/events.jsonl`
 - `runs/<run_id>/observability/metadata.json`
 
-Legacy formats are not supported by dashboard or knowledge modules:
+Legacy formats kept for compatibility but not used by dashboard or knowledge modules:
 
 - `runs/<run_id>/events.jsonl` with `event=...`
 - `runs/<run_id>/metrics/run.json`
 - `runs/<run_id>/metrics/stages.jsonl`
 
-Current capture channels:
+Capture channels:
 
 - LLM request/response tracing (`llm.request`, `llm.response`)
-- Process execution tracing (`proc.exec.start`, `proc.exec.end`) via `CommandRunner`
-- Filesystem patch snapshots (`fs.patch`)
-- TTY segments (`tty.segment.start`, `tty.segment.end`)
+- Process execution tracing (`proc.exec.start`, `proc.exec.end`) via `CommandRunner` observer
+- Filesystem patch snapshots (`fs.patch`) with SHA256 checksums
+- TTY segments (`tty.segment.start`, `tty.segment.end`) — asciinema v2 cast files
 - Gate decisions (`gate.approval`)
+- Network capture (`network.request`, `network.response`) — `full_payload` or `metadata_only` mode
 
 Validation/export commands:
 
@@ -580,6 +684,52 @@ Validation/export commands:
 orx observability validate --run-id <id>
 orx observability export --run-id <id> --mode redacted
 ```
+
+### 10. Pipeline Engine (v0.4)
+
+Declarative node-based execution engine — the production path for `orx run`.
+
+```
+src/orx/pipeline/
+├── definition.py        # NodeType, NodeDefinition, PipelineDefinition
+├── runner.py            # PipelineRunner: pause/resume, loops, observability
+├── registry.py          # PipelineRegistry: built-in + user-defined
+├── artifacts.py         # ArtifactStore for pipeline data flow
+├── context_builder.py   # ContextBuilder: node inputs + intelligence context
+├── constants.py         # Pipeline IDs and limits
+└── executors/           # Node-type executors
+    ├── base.py          # Protocol
+    ├── llm_text.py      # Text generation
+    ├── llm_apply.py     # Filesystem modification
+    ├── map.py           # Backlog iteration
+    ├── gate.py          # Quality verification
+    └── custom.py        # Custom callables
+```
+
+**Key features:**
+- **Verify-fix loop**: Gate failures trigger fix iterations (up to `max_fix_attempts`)
+- **Review loop**: Up to 3 review iterations with executor-generated feedback
+- **Reproduce stage**: Fail-to-Pass — creates failing test, verifies it fails before implementing fix
+- **Interactive pause**: Nodes with `interactive: true` pause for human review; `orx resume` continues
+- **User-defined pipelines**: Create custom pipelines via `orx pipelines create` (YAML) or API
+
+### 11. Code Intelligence (v0.5)
+
+Tree-sitter based context assembly for smarter agent prompts.
+
+```
+src/orx/context/intelligence/
+├── parser.py     # RepoParser: Python/JS/TS/TSX definition extraction
+├── skeleton.py   # SkeletonGenerator: signatures + docstrings only
+├── graph.py      # RepoGraph: file dependency graph + compact repo map
+└── bundle.py     # SmartBundler: tiered context (full → skeleton → map)
+```
+
+Optional dependency — gracefully degrades if `tree_sitter` is not installed.
+
+### 12. Exploration Tools (Power Tools)
+
+The CLI checks for optional power tools at startup: `rg` (ripgrep), `fd`, `jq`, `tree`. When available, the `exploration_tools.md` template teaches agents to search-before-read using these tools.
 
 
 
@@ -702,6 +852,13 @@ class RunDetail(RunSummary):
 - Token usage breakdown: input/output counts with tool call tracking
 - Stage-level metrics table with model, duration, tokens, and gate status
 
+**Observability Tabs (v0.5.2 — NEW):**
+- **Timeline**: Event envelope view from `observability/events.jsonl`
+- **LLM**: Request/response detail view from `observability/llm/`
+- **Process**: Command execution events (`proc.exec.*`)
+- **Filesystem**: Patch snapshots (`fs.patch`)
+- **TTY**: Terminal recording playback (`tty/session.cast`)
+
 **Artifacts Tab (IDE-style):**
 - Two-panel layout: file explorer (280px) + code preview
 - File type icons: Python 🐍, YAML ⚙️, JSON 📋, Markdown 📝, Diff 🔀
@@ -740,9 +897,10 @@ ORX_DASHBOARD_PORT=8421
 ### Adding a New Executor
 
 1. Create `src/orx/executors/myengine.py`
-2. Implement `Executor` protocol (run_text, run_apply)
+2. Extend `BaseExecutor` (implement `run_text`, `run_apply`, `resolve_invocation`)
 3. Add to `EngineType` enum in `config.py`
-4. Register in `runner.py:_create_executor()`
+4. Register in `runner.py:_create_executor()` and `router.py:ModelRouter._create_executors()`
+5. Handle companion `<stage>_system.md` for context caching if supported
 
 ### Adding a New Gate
 
@@ -758,14 +916,40 @@ ORX_DASHBOARD_PORT=8421
 3. Create template in `prompts/templates/mystage.md`
 4. Add to `runner.py` stage dict and FSM order
 
+### Adding a New Pipeline
+
+1. Define in `src/orx/pipeline/registry.py` using `PipelineDefinition` + `NodeDefinition`
+2. Choose node types: `LLM_TEXT`, `LLM_APPLY`, `MAP`, `GATE`, `CUSTOM`
+3. For interactive nodes, set `interactive: true`
+4. Register in `PipelineRegistry._build_builtins()` or via `orx pipelines create`
+
 <!-- ORX:START ARCH -->
 ## Auto-Updated Architectural Notes
 
 ### Knowledge Module (v0.3)
-New module `src/orx/knowledge/` implements self-improvement capabilities:
+Module `src/orx/knowledge/` implements self-improvement capabilities:
 - **EvidenceCollector**: Gathers run artifacts for knowledge extraction
+- **ProblemsCollector**: Extracts problems from observability events (looping, gate failures, context bloat, premature edits)
 - **KnowledgeGuardrails**: Enforces marker scoping and change limits
 - **KnowledgeUpdater**: Coordinates AGENTS.md and ARCHITECTURE.md updates
 
 Stage order: `... → SHIP → KNOWLEDGE_UPDATE → DONE`
+
+### Pipeline Engine (v0.4)
+- Production execution path for `orx run` (default)
+- Built-in pipelines: `standard`, `fast_fix`, `plan_only`
+- Pause/resume via `interactive` nodes
+- Reproduce stage: Fail-to-Pass pattern
+
+### Code Intelligence (v0.5)
+- Tree-sitter based AST parsing (Python/JS/TS/TSX)
+- Tiered context: full source → skeleton → repo map
+- `ContextBuilder` integrates intelligence into pipeline node inputs
+- Optional dependency; system degrades gracefully
+
+### Context Caching (v0.5)
+- Static context split into `<stage>_system.md` companion files
+- Claude Code: `--system-prompt` for Anthropic caching
+- Other executors: prefix prepend for provider-side caching
+- Configured via `context_caching.enabled` in `orx.yaml`
 <!-- ORX:END ARCH -->

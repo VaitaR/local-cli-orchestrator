@@ -30,16 +30,38 @@
 | Command | Purpose | Key flags | Notes |
 |---|---|---|---|
 | `orx init` | Create `orx.yaml` | `--dir`, `--engine`, `--force` | Writes config into `--dir` |
-| `orx run` | Start a new run | `--dir`, `--config`, `--engine`, `--base-branch`, `--dry-run` | Task is a string or `@file.md` |
-| `orx resume <run_id>` | Resume a run | `--dir`, `--config`, `--dry-run` | Cannot resume `done`/`failed` |
-| `orx status [run_id]` | Show run status | `--dir`, `--json` | Without id: last 10 runs |
+| `orx run` | Start a new run | `--dir`, `--config`, `--engine`, `--base-branch`, `--dry-run`, `--pipeline`, `--legacy-fsm` | Task is a string or `@file.md` |
+| `orx resume <run_id>` | Resume a paused/interrupted run | `--dir`, `--config`, `--dry-run` | Cannot resume `done`/`failed` |
+| `orx status [run_id]` | Show run status | `--dir`, `--json`, `--follow` | Without id: last 10 runs |
 | `orx clean <run_id\|all>` | Remove artifacts/worktrees | `--dir`, `--force` | `all` deletes `runs/` and `.worktrees/` |
+| `orx pipelines list` | List available pipelines | | Built-in + user-defined |
+| `orx pipelines show <id>` | Show pipeline definition | | Displays node graph |
+| `orx pipelines create <file>` | Create user pipeline | | YAML definition |
+| `orx pipelines delete <id>` | Delete user pipeline | | Cannot delete built-in |
+| `orx observability validate` | Validate run events | `--run-id` | Schema + monotonic step_ids |
+| `orx observability export` | Export events | `--run-id`, `--mode redacted` | Redacted export |
 
 **FACT:** `orx run @task.md` resolves `task.md` relative to the current working directory, **not** relative to `--dir`. If you are not in the repo root, use an absolute path: `@/abs/path/task.md`.
 
-### 2.2 Execution Model (FSM)
+### 2.2 Execution Model
 
-`orx` runs a sequential state machine:
+**Pipeline Engine (default):**
+
+`orx run` uses the pipeline engine by default. Three built-in pipelines:
+
+- **`standard`** (default): Plan → Spec → Decompose → Implement (MAP with verify-fix loop) → Review → Ship
+- **`fast_fix`**: Implement → Verify → Review → Ship (skip planning for small fixes)
+- **`plan_only`**: Plan only
+
+Select with `--pipeline <id>`: `orx run --pipeline fast_fix "fix the typo"`
+
+**Interactive pause/resume:** Some pipeline nodes can be marked `interactive: true`. After such a node completes, the run pauses for human review. Use `orx resume <run_id>` to continue.
+
+**Reproduce stage (Fail-to-Pass):** The pipeline can include a `reproduce` node that creates a failing test first, verifies it fails, then implements the fix.
+
+**Review loop:** The review stage can iterate up to 3 times if the reviewer requests changes.
+
+**Legacy FSM:** Available via `orx run --legacy-fsm`. Original sequential state machine:
 
 1. `plan` (executor text mode)
 2. `spec` (executor text mode)
@@ -64,9 +86,14 @@ ASSUMPTION: stage naming and ordering follow `Runner` + `StateManager` implement
 |---|---|---|---|---|
 | `codex` | `codex` | `run_text` | `run_apply` | Text: `codex exec --sandbox read-only --cd <worktree> ... @<prompt.md>`; Apply: `codex exec --full-auto --cd <worktree> ... @<prompt.md>` |
 | `gemini` | `gemini` | `run_text` | `run_apply` | `gemini [--model <model>] --yolo --approval-mode auto_edit --output-format <fmt> --prompt @<prompt.md>` |
+| `claude_code` | `claude` | `run_text` | `run_apply` | `claude -p --output-format json [--system-prompt <ctx>] [--tools <restricted>] @<prompt>` (NEW) |
+| `copilot` | `copilot` | `run_text` | `run_apply` | `copilot --prompt @<file> [--deny-tool write/shell] [--allow-all-tools]` (NEW) |
+| `cursor` | `agent` / `cursor agent` | `run_text` | `run_apply` | `agent -p --output-format json [--force] [--workspace <dir>]` (NEW) |
 | `fake` | none | deterministic | deterministic | Used for tests / dry simulations |
 
-**Important:** Text stages are intended to be **text-only** (no shell/tool execution). For Codex this is enforced via `--sandbox read-only`.
+**Important:** Text stages are intended to be **text-only** (no shell/tool execution). For Codex this is enforced via `--sandbox read-only`, for Claude Code via `--tools` restriction, for Copilot via `--deny-tool write/shell`.
+
+**Context caching:** When enabled, static context (AGENTS.md, ARCHITECTURE.md, repo context) is split into a companion `<stage>_system.md` file. Claude Code passes it via `--system-prompt` for Anthropic prompt caching. Other executors prepend the content to the user prompt for provider-side prefix caching.
 
 ### 2.4 Quality Gates
 
@@ -95,7 +122,7 @@ gates:
 
 Minimal practical fields:
 
-- `engine.type`: `codex | gemini | fake`
+- `engine.type`: `codex | gemini | claude_code | copilot | cursor | fake`
 - `engine.binary`: legacy path/name of the primary CLI binary (prefer `executors.<name>.bin`)
 - `engine.timeout`: seconds (applies to executor calls)
 - `executors.*`: per-executor binary + default model settings (preferred for routed stages)
@@ -108,6 +135,11 @@ Minimal practical fields:
 - `run.auto_fix_ruff`: auto-run `ruff --fix` on ruff failures and retry
 - `run.max_backlog_items`: target max number of work items (reduces apply invocations)
 - `run.coalesce_backlog_items`: merge items if the decomposition returns too many
+
+**New configuration sections:**
+- `observability.*`: Enable/disable capture channels (process, filesystem, LLM, TTY)
+- `context_caching.enabled`: Enable context caching prompt splitting (default: `true`)
+- `knowledge.*`: Configure self-improvement (files, markers, limits, gatekeeping)
 
 Semantics (important for speed/quality):
 - `run.per_item_verify: fast` runs a **fast gate set** for intermediate items (ruff + targeted pytest) and automatically switches to **full gates** on the **last item**.
@@ -204,25 +236,37 @@ stages:
 Preflight (recommended):
 - `git rev-parse --is-inside-work-tree`
 - `git rev-parse <base_branch>`
-- Verify required binaries exist (`codex`/`gemini`, plus gate commands).
+- Verify required binaries exist (`codex`/`gemini`/`claude`/`copilot`, plus gate commands).
+- Optional power tools check: `rg`, `fd`, `jq`, `tree` (orx warns if missing).
 
 Run:
 - `orx init` (once per repo)
 - `orx run -b <base_branch> "<task text>"`
 - or `orx run -b <base_branch> @/abs/path/task.md`
   - If you must use `--dir`, also use an absolute `@` task path: `orx run --dir /repo -b main @/abs/task.md`
+- Select pipeline: `orx run --pipeline fast_fix "fix typo"`
+- Use legacy FSM: `orx run --legacy-fsm "task"`
 
 After starting:
 - Record the `Run ID` printed by `orx`.
 - Inspect `runs/<run_id>/artifacts/patch.diff` and `runs/<run_id>/logs/`.
 - For time breakdowns, open `runs/<run_id>/metrics/run.json` (and `metrics/stages.jsonl`).
+- For detailed event tracing, inspect `runs/<run_id>/observability/events.jsonl`.
 
 ### 4.2 Resume a run
 
 - `orx status <run_id>`
-- If stage is not `done` or `failed`: `orx resume <run_id>`
+- If stage is `paused` (interactive pipeline node): `orx resume <run_id>` — continues from next node.
+- If stage is not `done` or `failed` (interrupted): `orx resume <run_id>` — resumes from checkpoint.
 
-**If stage is `failed`:** start a new run (TODO: no supported “resume failed”).
+**If stage is `failed`:** start a new run (TODO: no supported "resume failed").
+
+### 4.3 Monitor a run
+
+- `orx status <run_id> --follow` — live status monitoring.
+- `orx status <run_id> --json` — machine-readable status.
+- Validate run events: `orx observability validate --run-id <run_id>`
+- Export events: `orx observability export --run-id <run_id> --mode redacted`
 
 ### 4.3 Clean up
 
@@ -263,33 +307,37 @@ Template:
 
 Directory layout:
 
-- `runs/<run_id>/context/` (task/plan/spec/backlog)
-- `runs/<run_id>/prompts/` (materialized prompts)
+- `runs/<run_id>/context/` (task/plan/spec/backlog + intelligence context)
+- `runs/<run_id>/prompts/` (materialized prompts + system context companions)
 - `runs/<run_id>/artifacts/` (patch diff, review, pr body)
 - `runs/<run_id>/logs/` (agent + gate logs)
-- `runs/<run_id>/metrics/` (`stages.jsonl`, `run.json`)
-- `runs/<run_id>/events.jsonl` (append-only timeline)
+- `runs/<run_id>/metrics/` (`stages.jsonl`, `run.json`) — legacy v1
+- `runs/<run_id>/observability/` — **canonical v2** (`events.jsonl`, `metadata.json`, `tty/`, `llm/`, `patches/`)
+- `runs/<run_id>/events.jsonl` (append-only timeline — legacy)
 - `runs/index.jsonl` (append-only run summaries)
 - `.worktrees/<run_id>/` (git worktree)
 
 Key files to inspect:
-- `runs/<run_id>/state.json` (current stage, resumability)
+- `runs/<run_id>/state.json` (current stage, resumability, paused state)
 - `runs/<run_id>/meta.json` (summary + tool versions)
 - `runs/<run_id>/artifacts/patch.diff` (the authoritative diff)
 - `runs/<run_id>/logs/agent_*.stderr.log` (agent failures)
 - `runs/<run_id>/logs/<gate>.log` (gate output)
-- `runs/<run_id>/metrics/run.json` (time-to-green, stage breakdown)
+- `runs/<run_id>/observability/events.jsonl` (**primary** event log — v2)
+- `runs/<run_id>/metrics/run.json` (time-to-green, stage breakdown — legacy)
 
 ---
 
 ## 7) Common Failure Modes (Fast Triage)
 
 - **Not a git repo / base branch missing**: `git rev-parse --is-inside-work-tree` / `git rev-parse <branch>`.
-- **Executor binary missing**: `codex`/`gemini` not in PATH.
+- **Executor binary missing**: `codex`/`gemini`/`claude`/`copilot` not in PATH.
 - **No output produced**: executor returned success but did not write expected stdout; inspect `runs/<id>/logs/agent_<stage>.stdout.log`.
 - **No changes produced**: `patch.diff` empty; fix-loop may retry; inspect prompts + executor logs.
 - **Guardrail violation**: too many files changed or forbidden files touched; reduce scope, tighten task constraints, adjust guardrails (carefully).
 - **Stage is `failed`**: cannot resume; start a new run and tighten constraints.
+- **Run is `paused`**: this is expected for interactive pipeline nodes; use `orx resume <run_id>` to continue.
+- **Observability validation fails**: `orx observability validate --run-id <id>` to check for schema/ordering issues.
 
 ---
 
