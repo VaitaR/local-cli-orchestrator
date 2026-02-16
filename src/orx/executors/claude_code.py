@@ -9,7 +9,14 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from orx.exceptions import ExecutorError
-from orx.executors.base import BaseExecutor, ExecResult, LogPaths, ResolvedInvocation
+from orx.executors.base import (
+    BaseExecutor,
+    ExecResult,
+    LogPaths,
+    ResolvedInvocation,
+    extract_reasoning_trace,
+    parse_orx_meta,
+)
 from orx.infra.command import CommandRunner
 
 if TYPE_CHECKING:
@@ -403,6 +410,9 @@ class ClaudeCodeExecutor(BaseExecutor):
         # Write extracted text to output file
         out_path.write_text(text)
 
+        # Parse and strip meta/thinking blocks from output
+        agent_metadata, reasoning_trace = self._strip_meta_from_output(out_path)
+
         # Build ExecResult from CommandResult
         exec_result = self._create_result(
             returncode=cmd_result.returncode,
@@ -410,7 +420,13 @@ class ClaudeCodeExecutor(BaseExecutor):
             extra=extra,
             success=(cmd_result.returncode == 0),
             invocation=invocation,
+            agent_metadata=agent_metadata,
+            reasoning_trace=reasoning_trace,
         )
+
+        # Also check for reasoning_content in Claude's JSON output
+        if not reasoning_trace and extra.get("reasoning_content"):
+            exec_result.reasoning_trace = str(extra["reasoning_content"])
 
         logger.info(
             "Claude Code text mode completed",
@@ -500,6 +516,19 @@ class ClaudeCodeExecutor(BaseExecutor):
             success=(cmd_result.returncode == 0),
             invocation=invocation,
         )
+
+        # For apply mode, try to extract meta from stdout text content
+        text_content, _ = self._parse_output(logs.stdout)
+        if text_content:
+            cleaned, meta = parse_orx_meta(text_content)
+            cleaned, trace = extract_reasoning_trace(cleaned)
+            if meta is not None:
+                exec_result.agent_metadata = meta
+            if trace:
+                exec_result.reasoning_trace = trace
+        # Also check for reasoning_content in Claude's JSON output
+        if not exec_result.reasoning_trace and extra.get("reasoning_content"):
+            exec_result.reasoning_trace = str(extra["reasoning_content"])
 
         logger.info(
             "Claude Code apply mode completed",

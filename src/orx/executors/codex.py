@@ -318,12 +318,17 @@ class CodexExecutor(BaseExecutor):
                     invocation=invocation,
                 )
 
+            # Parse and strip meta/thinking blocks from output
+            agent_metadata, reasoning_trace = self._strip_meta_from_output(out_path)
+
             log.info("Codex text mode completed successfully")
             return self._create_result(
                 returncode=0,
                 logs=logs,
                 success=True,
                 invocation=invocation,
+                agent_metadata=agent_metadata,
+                reasoning_trace=reasoning_trace,
             )
 
         except Exception as e:

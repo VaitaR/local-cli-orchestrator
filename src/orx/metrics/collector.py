@@ -422,6 +422,31 @@ class MetricsCollector:
         self._current_stage_data["prompt_chars"] = prompt_chars
         self._current_stage_data["output_chars"] = output_chars
 
+    def record_agent_meta(
+        self,
+        *,
+        confidence: float | None = None,
+        context_gap: bool | None = None,
+    ) -> None:
+        """Record agent self-reflection metadata for the current stage.
+
+        Args:
+            confidence: Agent's confidence (0.0-1.0).
+            context_gap: Whether the agent reported missing context.
+        """
+        if confidence is not None:
+            self._current_stage_data["confidence"] = confidence
+        if context_gap is not None:
+            self._current_stage_data["context_gap"] = context_gap
+
+    def record_tokens_per_loc(self, tokens_per_loc: float) -> None:
+        """Record token efficiency metric.
+
+        Args:
+            tokens_per_loc: Tokens per line of code changed.
+        """
+        self._current_stage_data["tokens_per_loc"] = tokens_per_loc
+
     def record_success(self) -> None:
         """Record current stage as successful and save metrics."""
         self._finalize_stage(StageStatus.SUCCESS)
@@ -539,6 +564,9 @@ class MetricsCollector:
             ),
             prompt_chars=self._current_stage_data.get("prompt_chars"),
             output_chars=self._current_stage_data.get("output_chars"),
+            confidence=self._current_stage_data.get("confidence"),
+            context_gap=self._current_stage_data.get("context_gap"),
+            tokens_per_loc=self._current_stage_data.get("tokens_per_loc"),
         )
 
         self._stage_metrics.append(metrics)

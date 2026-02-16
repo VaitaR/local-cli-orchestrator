@@ -346,6 +346,9 @@ class StageMetrics(BaseModel):
     verify_duration_ms: int | None = None
     prompt_chars: int | None = None
     output_chars: int | None = None
+    confidence: float | None = None
+    context_gap: bool | None = None
+    tokens_per_loc: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -405,6 +408,12 @@ class StageMetrics(BaseModel):
             data["prompt_chars"] = self.prompt_chars
         if self.output_chars is not None:
             data["output_chars"] = self.output_chars
+        if self.confidence is not None:
+            data["confidence"] = self.confidence
+        if self.context_gap is not None:
+            data["context_gap"] = self.context_gap
+        if self.tokens_per_loc is not None:
+            data["tokens_per_loc"] = round(self.tokens_per_loc, 2)
 
         return data
 

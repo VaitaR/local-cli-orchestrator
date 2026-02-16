@@ -2,12 +2,144 @@
 
 from __future__ import annotations
 
+import json
+import re
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+import structlog
+
 if TYPE_CHECKING:
     from orx.config import ModelSelector
+
+logger = structlog.get_logger()
+
+
+class ToolEfficacy(str, Enum):
+    """How helpful tools were during the stage."""
+
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
+
+@dataclass
+class AgentMeta:
+    """Structured self-reflection metadata from the agent.
+
+    Parsed from <orx_meta>...</orx_meta> tags in LLM output.
+
+    Attributes:
+        confidence: Agent's confidence in its solution (0.0-1.0).
+        context_gap: Whether agent felt context was missing.
+        missing_info: Specific context gaps if context_gap is True.
+        tool_efficacy: How helpful the tools were.
+        reasoning_summary: Brief reasoning for the approach taken.
+    """
+
+    confidence: float = 0.0
+    context_gap: bool = False
+    missing_info: list[str] = field(default_factory=list)
+    tool_efficacy: str = "high"
+    reasoning_summary: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to JSON-safe dict."""
+        data: dict[str, Any] = {
+            "confidence": self.confidence,
+            "context_gap": self.context_gap,
+            "tool_efficacy": self.tool_efficacy,
+        }
+        if self.missing_info:
+            data["missing_info"] = self.missing_info
+        if self.reasoning_summary:
+            data["reasoning_summary"] = self.reasoning_summary
+        return data
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> AgentMeta:
+        """Create from a parsed dictionary."""
+        confidence = data.get("confidence", 0.0)
+        if isinstance(confidence, int | float):
+            confidence = max(0.0, min(1.0, float(confidence)))
+        else:
+            confidence = 0.0
+
+        missing_info_raw = data.get("missing_info", [])
+        missing_info = (
+            [str(x) for x in missing_info_raw]
+            if isinstance(missing_info_raw, list)
+            else []
+        )
+
+        tool_efficacy = str(data.get("tool_efficacy", "high"))
+        if tool_efficacy not in {"high", "medium", "low"}:
+            tool_efficacy = "high"
+
+        return cls(
+            confidence=confidence,
+            context_gap=bool(data.get("context_gap", False)),
+            missing_info=missing_info,
+            tool_efficacy=tool_efficacy,
+            reasoning_summary=str(data.get("reasoning_summary", "")),
+        )
+
+
+# Regex for extracting <orx_meta>...</orx_meta> block from LLM output
+_ORX_META_RE = re.compile(
+    r"<orx_meta>\s*(\{.*?\})\s*</orx_meta>",
+    re.DOTALL,
+)
+
+# Regex for extracting <thinking>...</thinking> or <scratchpad>...</scratchpad>
+_THINKING_RE = re.compile(
+    r"<(?:thinking|scratchpad)>(.*?)</(?:thinking|scratchpad)>",
+    re.DOTALL,
+)
+
+
+def parse_orx_meta(text: str) -> tuple[str, AgentMeta | None]:
+    """Extract and remove <orx_meta> block from LLM output.
+
+    Args:
+        text: Raw LLM output.
+
+    Returns:
+        Tuple of (cleaned_text, AgentMeta or None).
+    """
+    match = _ORX_META_RE.search(text)
+    if not match:
+        return text, None
+
+    try:
+        data = json.loads(match.group(1))
+        meta = AgentMeta.from_dict(data)
+        # Remove the full <orx_meta>...</orx_meta> block from output
+        cleaned = text[: match.start()] + text[match.end() :]
+        return cleaned.strip(), meta
+    except (json.JSONDecodeError, TypeError, KeyError):
+        logger.warning("Failed to parse <orx_meta> block", raw=match.group(0)[:200])
+        return text, None
+
+
+def extract_reasoning_trace(text: str) -> tuple[str, str]:
+    """Extract <thinking>/<scratchpad> blocks from LLM output.
+
+    Args:
+        text: Raw LLM output.
+
+    Returns:
+        Tuple of (cleaned_text, reasoning_trace).
+        reasoning_trace is empty string if no thinking blocks found.
+    """
+    traces: list[str] = []
+    cleaned = text
+    for match in reversed(list(_THINKING_RE.finditer(text))):
+        traces.insert(0, match.group(1).strip())
+        cleaned = cleaned[: match.start()] + cleaned[match.end() :]
+    return cleaned.strip(), "\n\n".join(traces)
 
 
 @dataclass
@@ -52,6 +184,8 @@ class ExecResult:
         success: Whether the execution succeeded.
         error_message: Error message if failed.
         invocation: The resolved invocation used (for logging/meta).
+        agent_metadata: Structured self-reflection from the agent.
+        reasoning_trace: Chain-of-thought content extracted from response.
     """
 
     returncode: int
@@ -61,6 +195,8 @@ class ExecResult:
     success: bool = True
     error_message: str = ""
     invocation: ResolvedInvocation | None = None
+    agent_metadata: AgentMeta | None = None
+    reasoning_trace: str = ""
 
     @property
     def failed(self) -> bool:
@@ -536,6 +672,8 @@ class BaseExecutor:
         success: bool = True,
         error_message: str = "",
         invocation: ResolvedInvocation | None = None,
+        agent_metadata: AgentMeta | None = None,
+        reasoning_trace: str = "",
     ) -> ExecResult:
         """Create an ExecResult with consistent structure."""
         return ExecResult(
@@ -546,7 +684,41 @@ class BaseExecutor:
             success=success,
             error_message=error_message,
             invocation=invocation,
+            agent_metadata=agent_metadata,
+            reasoning_trace=reasoning_trace,
         )
+
+    def _strip_meta_from_output(self, out_path: Path) -> tuple[AgentMeta | None, str]:
+        """Parse and strip <orx_meta> and <thinking> blocks from output file.
+
+        Reads the output file, extracts agent metadata and reasoning trace,
+        then rewrites the file without those blocks.
+
+        Args:
+            out_path: Path to the output file.
+
+        Returns:
+            Tuple of (AgentMeta or None, reasoning_trace string).
+        """
+        if not out_path.exists():
+            return None, ""
+
+        raw = out_path.read_text(encoding="utf-8")
+        cleaned, meta = parse_orx_meta(raw)
+        cleaned, trace = extract_reasoning_trace(cleaned)
+
+        # Rewrite output file without meta/thinking blocks
+        if meta is not None or trace:
+            out_path.write_text(cleaned, encoding="utf-8")
+
+        if meta and meta.context_gap:
+            logger.warning(
+                "Agent reported context gap",
+                missing_info=meta.missing_info,
+                confidence=meta.confidence,
+            )
+
+        return meta, trace
 
     def _dry_run_result(self, logs: LogPaths) -> ExecResult:
         """Create a dry-run result."""

@@ -9,7 +9,12 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from orx.exceptions import ExecutorError
-from orx.executors.base import BaseExecutor, ExecResult, LogPaths, ResolvedInvocation
+from orx.executors.base import (
+    BaseExecutor,
+    ExecResult,
+    LogPaths,
+    ResolvedInvocation,
+)
 from orx.infra.command import CommandResult, CommandRunner
 
 if TYPE_CHECKING:
@@ -371,6 +376,9 @@ class CursorExecutor(BaseExecutor):
         # Write extracted text to output file
         out_path.write_text(text)
 
+        # Parse and strip meta/thinking blocks from output
+        agent_metadata, reasoning_trace = self._strip_meta_from_output(out_path)
+
         # Create ExecResult from CommandResult
         success = cmd_result.returncode == 0
         result = ExecResult(
@@ -379,6 +387,8 @@ class CursorExecutor(BaseExecutor):
             stderr_path=logs.stderr,
             extra=extra,
             success=success,
+            agent_metadata=agent_metadata,
+            reasoning_trace=reasoning_trace,
         )
 
         logger.info(

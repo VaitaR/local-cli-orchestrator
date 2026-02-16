@@ -94,6 +94,8 @@ class _RuntimeCommandObserver:
                 "stdout_path": str(event.stdout_path) if event.stdout_path else None,
                 "stderr_path": str(event.stderr_path) if event.stderr_path else None,
                 "error": event.error,
+                "result_size_bytes": event.result_size_bytes,
+                "is_useful": event.is_useful,
             },
             correlation=correlation,
         )
@@ -358,6 +360,28 @@ class RunObservability:
         if cost_usd is None:
             cost_usd = extra.get("total_cost_usd")
 
+        # Extract agent_meta from ExecResult
+        agent_meta_dict: dict[str, Any] | None = None
+        if result.agent_metadata is not None:
+            agent_meta_dict = result.agent_metadata.to_dict()
+            if result.agent_metadata.context_gap:
+                logger.warning(
+                    "Agent reported context gap",
+                    stage=stage,
+                    missing_info=result.agent_metadata.missing_info,
+                    confidence=result.agent_metadata.confidence,
+                )
+
+        # Save reasoning trace to separate file if present
+        reasoning_trace: str | None = None
+        reasoning_trace_path: str | None = None
+        if result.reasoning_trace:
+            reasoning_trace = result.reasoning_trace
+            trace_file = self._write_llm_blob(
+                prefix="trace", call_id=corr.call_id, content=reasoning_trace
+            )
+            reasoning_trace_path = str(trace_file)
+
         payload = {
             "stage": stage,
             "item_id": item_id,
@@ -378,6 +402,9 @@ class RunObservability:
             "session_id": extra.get("session_id"),
             "result_type": extra.get("type"),
             "result_subtype": extra.get("subtype"),
+            "agent_meta": agent_meta_dict,
+            "reasoning_trace": reasoning_trace,
+            "reasoning_trace_path": reasoning_trace_path,
         }
 
         self.emit(

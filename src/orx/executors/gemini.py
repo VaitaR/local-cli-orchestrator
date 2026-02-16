@@ -365,12 +365,18 @@ class GeminiExecutor(BaseExecutor):
                 )
 
             log.info("Gemini text mode completed successfully")
+
+            # Parse and strip meta/thinking blocks from output
+            agent_metadata, reasoning_trace = self._strip_meta_from_output(out_path)
+
             return self._create_result(
                 returncode=0,
                 logs=logs,
                 extra=extra,
                 success=True,
                 invocation=invocation,
+                agent_metadata=agent_metadata,
+                reasoning_trace=reasoning_trace,
             )
 
         except Exception as e:

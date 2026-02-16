@@ -232,6 +232,9 @@ def _build_metrics_context(
                 "llm_duration": float(stage_metric.get("llm_duration_ms") or 0)
                 / 1000.0,
                 "gates": stage_metric.get("gates", []),
+                "confidence": stage_metric.get("confidence"),
+                "context_gap": stage_metric.get("context_gap"),
+                "tokens_per_loc": stage_metric.get("tokens_per_loc"),
             }
         )
 

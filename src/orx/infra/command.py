@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import shutil
 import subprocess
@@ -164,6 +165,8 @@ class CommandExecutionEnd:
     stdout_path: Path | None
     stderr_path: Path | None
     error: str | None = None
+    result_size_bytes: int = 0
+    is_useful: bool = True
 
 
 class CommandObserver(Protocol):
@@ -284,6 +287,14 @@ class CommandRunner:
         """Notify observers about command completion."""
         if not self._observers:
             return
+
+        # Compute result_size_bytes and is_useful heuristic
+        result_size_bytes = 0
+        if stdout_path and stdout_path.exists():
+              with contextlib.suppress(OSError):
+                  result_size_bytes = stdout_path.stat().st_size
+        is_useful = returncode == 0 and result_size_bytes > 0
+
         event = CommandExecutionEnd(
             command_id=command_id,
             command=command,
@@ -293,6 +304,8 @@ class CommandRunner:
             stdout_path=stdout_path,
             stderr_path=stderr_path,
             error=error,
+            result_size_bytes=result_size_bytes,
+            is_useful=is_useful,
         )
         for observer in self._observers:
             try:

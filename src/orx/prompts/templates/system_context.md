@@ -53,3 +53,29 @@ Ensure code passes all these gates.
 
 {{ definition_of_done }}
 {% endif %}
+
+## Self-Reflection (Required)
+
+At the very end of your response, YOU MUST output a JSON block wrapped in `<orx_meta>...</orx_meta>` tags. This block describes your confidence and any context gaps. It will be automatically stripped from artifacts.
+
+Format:
+```
+<orx_meta>
+{
+  "confidence": 0.85,
+  "context_gap": false,
+  "missing_info": [],
+  "tool_efficacy": "high",
+  "reasoning_summary": "Brief one-sentence summary of your approach"
+}
+</orx_meta>
+```
+
+Field definitions:
+- **confidence** (float 0.0-1.0): How confident you are in your solution.
+- **context_gap** (bool): Set to `true` if you lacked important context.
+- **missing_info** (list[str]): What was missing, if `context_gap` is true.
+- **tool_efficacy** ("high"/"medium"/"low"): How helpful the available tools were.
+- **reasoning_summary** (string): One sentence explaining your approach.
+
+This metadata is critical for the orchestrator to assess output quality and improve future runs. Always include it, even if confidence is high.

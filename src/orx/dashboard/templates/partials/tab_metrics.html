@@ -69,6 +69,7 @@
                     <th>Duration</th>
                     <th>Tokens</th>
                     <th>Tool Calls</th>
+                    <th>Confidence</th>
                     <th>Status</th>
                     <th>Details</th>
                 </tr>
@@ -113,6 +114,22 @@
                     <td>
                         {% if stage.tool_calls %}
                         {{ stage.tool_calls }}
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if stage.confidence is not none %}
+                        {% if stage.confidence >= 0.8 %}
+                        <span class="badge badge-success" title="Confidence: {{ (stage.confidence * 100) | round(0) }}%">{{ (stage.confidence * 100) | round(0) }}%</span>
+                        {% elif stage.confidence >= 0.5 %}
+                        <span class="badge badge-warning" title="Confidence: {{ (stage.confidence * 100) | round(0) }}%">{{ (stage.confidence * 100) | round(0) }}%</span>
+                        {% else %}
+                        <span class="badge badge-fail" title="Confidence: {{ (stage.confidence * 100) | round(0) }}%">{{ (stage.confidence * 100) | round(0) }}%</span>
+                        {% endif %}
+                        {% if stage.context_gap %}
+                        <br><small class="text-warning" title="Agent reported missing context">⚠️ context gap</small>
+                        {% endif %}
                         {% else %}
                         <span class="text-muted">-</span>
                         {% endif %}
