@@ -168,6 +168,60 @@ class LocalWorker:
 
             return self._cancel_job(job)
 
+    def resume_run(self, run_id: str) -> None:
+        """Resume a paused run (human-in-the-loop).
+
+        Spawns an `orx resume <run_id>` subprocess.
+
+        Args:
+            run_id: Run identifier to resume.
+
+        Raises:
+            ValueError: If run_id is invalid.
+            RuntimeError: If queue is full.
+        """
+        if not run_id.strip():
+            msg = "Run ID cannot be empty"
+            raise ValueError(msg)
+
+        if self._queue.qsize() >= self.config.max_concurrency * 2:
+            msg = "Queue is full, try again later"
+            raise RuntimeError(msg)
+
+        base_dir = self._resolve_repo_path(None)
+
+        cmd = [self.config.orx_bin, "resume", run_id, "--dir", str(base_dir)]
+
+        env = os.environ.copy()
+
+        try:
+            process = self._cmd.start_process(
+                cmd,
+                cwd=base_dir,
+                env=env,
+                start_new_session=True,
+            )
+
+            job = RunJob(
+                run_id=run_id,
+                task="(resume)",
+                process=process,
+                started_at=time.time(),
+            )
+
+            with self._lock:
+                self._active_jobs[run_id] = job
+
+            self._log.info(
+                "Resume started",
+                run_id=run_id,
+                pid=process.pid,
+                cmd=" ".join(cmd),
+            )
+        except Exception as e:
+            self._log.error("Failed to resume run", run_id=run_id, error=str(e))
+            raise
+
     def _cancel_job(self, job: RunJob) -> bool:
         """Cancel a specific job.
 

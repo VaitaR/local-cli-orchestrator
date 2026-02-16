@@ -183,6 +183,16 @@ class RunPaths:
         """Path to verify_commands.md (repo context pack)."""
         return self.context_dir / "verify_commands.md"
 
+    @property
+    def repo_tags_md(self) -> Path:
+        """Path to repo_tags.md (tree-sitter generated repo map)."""
+        return self.context_dir / "repo_tags.md"
+
+    @property
+    def smart_context_md(self) -> Path:
+        """Path to smart_context.md (tree-sitter tiered bundle)."""
+        return self.context_dir / "smart_context.md"
+
     # Artifact files
     @property
     def patch_diff(self) -> Path:
@@ -198,6 +208,11 @@ class RunPaths:
     def pr_body_md(self) -> Path:
         """Path to pr_body.md artifact."""
         return self.artifacts_dir / "pr_body.md"
+
+    @property
+    def reproduce_failure_md(self) -> Path:
+        """Path to reproduce_failure.md artifact."""
+        return self.context_dir / "reproduce_failure.md"
 
     # State files
     @property
@@ -250,6 +265,9 @@ class RunPaths:
         working directory due to sandbox restrictions. This method copies
         the prompt into the worktree where it can be accessed.
 
+        Also copies the companion ``<stage>_system.md`` file when it exists
+        so that executors can pick it up transparently for context caching.
+
         Args:
             stage: The stage name.
 
@@ -263,6 +281,13 @@ class RunPaths:
         dst_dir.mkdir(parents=True, exist_ok=True)
         dst = dst_dir / f"{stage}.md"
         shutil.copy2(src, dst)
+
+        # Copy system prompt if it exists (context caching)
+        system_src = self.prompts_dir / f"{stage}_system.md"
+        if system_src.exists():
+            system_dst = dst_dir / f"{stage}_system.md"
+            shutil.copy2(system_src, system_dst)
+
         return dst
 
     def log_path(self, name: str, suffix: str = ".log") -> Path:

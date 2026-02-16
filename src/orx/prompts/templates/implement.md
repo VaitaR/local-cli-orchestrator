@@ -29,6 +29,14 @@ You are implementing a specific work item from the backlog.
 {{ repo_context }}
 {% endif %}
 
+{% if smart_context is defined and smart_context %}
+## Smart Context (dependency signatures)
+
+The following shows the real source code and signatures of relevant files, extracted via tree-sitter analysis. **Use these real signatures** — do NOT invent methods, parameters, or classes that are not shown here.
+
+{{ smart_context }}
+{% endif %}
+
 {% if error_logs is defined and error_logs %}
 ## Previous Errors to Fix
 
@@ -52,6 +60,16 @@ The pipeline will run these checks after your changes:
 {{ verify_commands }}
 
 Ensure your code passes all these gates.
+{% endif %}
+
+{% if reproduce_failure is defined and reproduce_failure %}
+## Reproduction Failure (TDD)
+
+The following test failed as expected. Your implementation MUST fix this test.
+
+```
+{{ reproduce_failure }}
+```
 {% endif %}
 
 ## Current Work Item
@@ -86,14 +104,18 @@ Ensure your code passes all these gates.
 {% endfor %}
 {% endif %}
 
+{% include 'exploration_tools.md' %}
+
 ## Instructions
 
-1. **Read files in batches**: Use ARCHITECTURE.md module map to identify ALL related files upfront. Read them together in one batch, not one-by-one.
-2. Implement the work item according to the acceptance criteria
-3. Create or update tests for the new functionality
-4. Follow the project's coding standards
+1. **Search before reading**: Use `rg` and `fd` to locate relevant code before opening files
+2. **Read files in batches**: Use ARCHITECTURE.md module map to identify ALL related files upfront. Read them together in one batch, not one-by-one.
+3. Implement the work item according to the acceptance criteria
+4. Create or update tests for the new functionality
+5. Follow the project's coding standards
 
 **FILE READING STRATEGY** (CRITICAL):
+- Use `fd` to find files, `rg` to search inside them
 - Look at "Files Hint" + module map → identify the full file set
 - Read ALL needed files in ONE batch call
 - Do NOT read files one at a time in separate tool calls

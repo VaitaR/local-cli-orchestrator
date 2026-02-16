@@ -7,6 +7,8 @@ from typing import Any
 import structlog
 
 from orx.context.backlog import WorkItem
+from orx.context.intelligence.bundle import SmartBundler
+from orx.context.intelligence.graph import RepoGraph
 from orx.context.sections import (
     extract_agents_context,
     extract_error_files,
@@ -63,6 +65,12 @@ class ImplementStage(ApplyStage):
         repo_context = ctx.pack.read_tooling_snapshot() or ""
         verify_commands = ctx.pack.read_verify_commands() or ""
 
+        # Get reproduction failure if available (TDD mode)
+        reproduce_failure = ctx.pack.read_reproduce_failure() or ""
+
+        # Build smart context (tree-sitter tiered bundle) for target files
+        smart_context = self._build_smart_context(ctx, item.files_hint)
+
         # Extract key patterns from AGENTS.md (module boundaries, gotchas)
         worktree = ctx.workspace.worktree_path
         agents_context = extract_agents_context(worktree)
@@ -79,8 +87,26 @@ class ImplementStage(ApplyStage):
             "file_snippets": snippets,
             "repo_context": repo_context,
             "verify_commands": verify_commands,
+            "reproduce_failure": reproduce_failure,
             "agents_context": agents_context,
+            "smart_context": smart_context,
         }
+
+    @staticmethod
+    def _build_smart_context(ctx: StageContext, target_files: list[str]) -> str:
+        """Build tree-sitter smart context for target files.
+
+        Non-fatal: returns empty string on failure.
+        """
+        try:
+            worktree = ctx.workspace.worktree_path
+            graph = RepoGraph.build(worktree)
+            bundler = SmartBundler(worktree, graph)
+            result = bundler.bundle(target_files)
+            return result.smart_context
+        except Exception as e:
+            logger.warning("Failed to build smart context", error=str(e))
+            return ""
 
 
 class FixStage(ApplyStage):

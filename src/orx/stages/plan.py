@@ -39,6 +39,9 @@ class PlanStage(TextOutputStage):
         task = ctx.pack.read_task() or ""
         project_context = ctx.pack.read_project_map() or ""
 
+        # Use tree-sitter repo tags if available (richer than static map)
+        repo_tags = ctx.pack.read_repo_tags() or ""
+
         # Extract key sections from AGENTS.md and ARCHITECTURE.md
         worktree = ctx.workspace.worktree_path
         agents_context = extract_agents_context(worktree)
@@ -47,6 +50,7 @@ class PlanStage(TextOutputStage):
         return {
             "task": task,
             "project_context": project_context,
+            "repo_tags": repo_tags,
             "agents_context": agents_context,
             "architecture_overview": architecture_overview,
         }

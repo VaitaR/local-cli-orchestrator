@@ -76,6 +76,7 @@ class NodeDefinition(BaseModel):
     config: NodeConfig = Field(default_factory=NodeConfig)
     description: str = ""
     skip_on_resume: bool = False
+    interactive: bool = False
 
     @field_validator("inputs", "outputs")
     @classmethod

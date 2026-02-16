@@ -129,6 +129,10 @@ class BaseStage(ABC):
         Also copies the prompt to the worktree for sandboxed executors
         (like Gemini CLI) that cannot read files outside their working directory.
 
+        When context caching is enabled (``config["context_caching"]["enabled"]``),
+        static context is split into a separate ``<template>_system.md`` file so
+        executors can leverage provider-side prompt caching.
+
         Args:
             ctx: Stage context.
             template_name: Name of the template.
@@ -137,17 +141,28 @@ class BaseStage(ABC):
         Returns:
             Path to the prompt file inside the worktree (for executor access).
         """
-        # Render and save to prompts directory (for archival)
-        prompt_path = ctx.paths.prompt_path(template_name)
-        ctx.renderer.render_to_file(template_name, prompt_path, **context)
+        # Check if context caching is enabled (default: True)
+        caching_cfg = ctx.config.get("context_caching", {})
+        caching_enabled = caching_cfg.get("enabled", True) if isinstance(caching_cfg, dict) else True
+
+        if caching_enabled:
+            ctx.renderer.render_with_context_split(
+                template_name,
+                ctx.paths.prompts_dir,
+                **context,
+            )
+        else:
+            prompt_path = ctx.paths.prompt_path(template_name)
+            ctx.renderer.render_to_file(template_name, prompt_path, **context)
 
         # Copy to worktree for sandboxed executor access
+        # (also copies <template>_system.md when present)
         worktree_prompt = ctx.paths.copy_prompt_to_worktree(template_name)
         logger.debug(
             "Copied prompt to worktree",
             template=template_name,
-            src=str(prompt_path),
             dst=str(worktree_prompt),
+            context_caching=caching_enabled,
         )
         return worktree_prompt
 

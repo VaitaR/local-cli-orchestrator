@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import threading
 import time
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import IO, Protocol
@@ -19,6 +20,105 @@ import structlog
 from orx.exceptions import CommandError
 
 logger = structlog.get_logger()
+
+# CLI tools that the agent can use for codebase exploration.
+# Each entry: (binary_name, description, install_hint)
+POWER_TOOLS: list[tuple[str, str, str]] = [
+    ("rg", "ripgrep – fast code search", "brew install ripgrep  /  apt install ripgrep"),
+    ("fd", "fd – fast file finder", "brew install fd  /  apt install fd-find"),
+    ("jq", "jq – JSON processor", "brew install jq  /  apt install jq"),
+    ("tree", "tree – directory listing", "brew install tree  /  apt install tree"),
+]
+
+
+@dataclass
+class ToolStatus:
+    """Availability status of a single CLI tool.
+
+    Attributes:
+        name: Binary/command name.
+        available: Whether the tool was found on PATH.
+        path: Resolved absolute path if available.
+        description: Human-readable description.
+        install_hint: How to install the tool.
+    """
+
+    name: str
+    available: bool
+    path: str | None
+    description: str
+    install_hint: str
+
+
+@dataclass
+class DependencyReport:
+    """Report of CLI tool availability.
+
+    Attributes:
+        tools: Per-tool status entries.
+    """
+
+    tools: list[ToolStatus] = field(default_factory=list)
+
+    @property
+    def available_tools(self) -> list[ToolStatus]:
+        """Return only tools that are available."""
+        return [t for t in self.tools if t.available]
+
+    @property
+    def missing_tools(self) -> list[ToolStatus]:
+        """Return only tools that are missing."""
+        return [t for t in self.tools if not t.available]
+
+    @property
+    def all_available(self) -> bool:
+        """True if every checked tool is available."""
+        return all(t.available for t in self.tools)
+
+    def summary(self) -> str:
+        """Return a human-readable summary."""
+        lines: list[str] = []
+        for t in self.tools:
+            icon = "✓" if t.available else "✗"
+            detail = t.path if t.available else f"install: {t.install_hint}"
+            lines.append(f"  {icon} {t.name:6s} ({t.description}) — {detail}")
+        return "\n".join(lines)
+
+
+def check_dependencies(
+    extra_tools: list[tuple[str, str, str]] | None = None,
+) -> DependencyReport:
+    """Check availability of CLI power tools on the current system.
+
+    Probes each tool via ``shutil.which`` (no subprocess spawned).
+
+    Args:
+        extra_tools: Additional (name, desc, install_hint) tuples to check.
+
+    Returns:
+        DependencyReport with per-tool status.
+    """
+    tools_to_check = list(POWER_TOOLS) + (extra_tools or [])
+    report = DependencyReport()
+    for name, description, install_hint in tools_to_check:
+        resolved = shutil.which(name)
+        report.tools.append(
+            ToolStatus(
+                name=name,
+                available=resolved is not None,
+                path=resolved,
+                description=description,
+                install_hint=install_hint,
+            )
+        )
+    if report.missing_tools:
+        logger.warning(
+            "Some CLI power tools are missing",
+            missing=[t.name for t in report.missing_tools],
+        )
+    else:
+        logger.debug("All CLI power tools available")
+    return report
 
 
 @dataclass

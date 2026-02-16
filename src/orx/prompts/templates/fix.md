@@ -99,16 +99,20 @@ Ensure your fixes pass all these gates.
 ```
 {% endif %}
 
+{% include 'exploration_tools.md' %}
+
 ## Instructions
 
 1. Analyze the failure evidence above
-2. Identify the root cause of the failure
-3. **Read files in batches**: If you need context, find ALL related files and read them together
-4. Make targeted fixes to address the issues
-5. Ensure all acceptance criteria are met
-6. If a lint error is trivial (I001/UP/unused import), fix it immediately
+2. Use `rg` to search for error-related symbols in the codebase
+3. Identify the root cause of the failure
+4. **Read files in batches**: If you need context, find ALL related files and read them together
+5. Make targeted fixes to address the issues
+6. Ensure all acceptance criteria are met
+7. If a lint error is trivial (I001/UP/unused import), fix it immediately
 
 **FILE READING STRATEGY** (CRITICAL):
+- Use `rg` to search for patterns from error messages
 - From error logs, identify which files need context
 - Read ALL needed files in ONE batch call
 - Do NOT make sequential single-file read calls

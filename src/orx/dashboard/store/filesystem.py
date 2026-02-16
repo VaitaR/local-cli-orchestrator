@@ -226,6 +226,8 @@ class FileSystemRunStore:
                 for stage in projected.stages
             ):
                 status = RunStatus.FAIL
+            elif projected.status in {"paused"}:
+                status = RunStatus.PAUSED
             elif projected.end_ts is None:
                 status = RunStatus.RUNNING
             else:

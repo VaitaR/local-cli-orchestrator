@@ -150,6 +150,31 @@ class ContextPack:
         """Check if verify_commands.md exists."""
         return self.paths.verify_commands_md.exists()
 
+    # Intelligence context (tree-sitter)
+    def read_repo_tags(self) -> str | None:
+        """Read the tree-sitter generated repo tags map."""
+        return self._read_file(self.paths.repo_tags_md)
+
+    def write_repo_tags(self, content: str) -> None:
+        """Write the tree-sitter generated repo tags map."""
+        self._write_file(self.paths.repo_tags_md, content)
+
+    def repo_tags_exists(self) -> bool:
+        """Check if repo_tags.md exists."""
+        return self.paths.repo_tags_md.exists()
+
+    def read_smart_context(self) -> str | None:
+        """Read the tree-sitter generated smart context bundle."""
+        return self._read_file(self.paths.smart_context_md)
+
+    def write_smart_context(self, content: str) -> None:
+        """Write the tree-sitter generated smart context bundle."""
+        self._write_file(self.paths.smart_context_md, content)
+
+    def smart_context_exists(self) -> bool:
+        """Check if smart_context.md exists."""
+        return self.paths.smart_context_md.exists()
+
     # Artifacts
     def read_patch_diff(self) -> str | None:
         """Read the patch diff."""
@@ -174,6 +199,15 @@ class ContextPack:
     def write_pr_body(self, content: str) -> None:
         """Write the PR body."""
         self._write_file(self.paths.pr_body_md, content)
+
+    # Reproduction
+    def read_reproduce_failure(self) -> str | None:
+        """Read the reproduction failure log."""
+        return self._read_file(self.paths.reproduce_failure_md)
+
+    def write_reproduce_failure(self, content: str) -> None:
+        """Write the reproduction failure log."""
+        self._write_file(self.paths.reproduce_failure_md, content)
 
     # Prompts
     def read_prompt(self, stage: str) -> str | None:

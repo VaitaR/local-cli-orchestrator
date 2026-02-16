@@ -117,6 +117,12 @@ class ClaudeCodeExecutor(BaseExecutor):
     ) -> tuple[list[str], dict[str, Any]]:
         """Build the claude command line.
 
+        When a companion ``<prompt_stem>_system.md`` file exists next to
+        *prompt_path*, its content is passed via ``--system-prompt``.
+        This enables Anthropic prompt-caching: the system prompt is an
+        exact-match prefix that the API can cache across pipeline stages,
+        reducing cost by ~90% and latency to first token.
+
         Args:
             prompt_path: Path to the prompt file.
             cwd: Working directory.
@@ -142,6 +148,19 @@ class ClaudeCodeExecutor(BaseExecutor):
         # Model selection
         if resolved["model"]:
             cmd.extend(["--model", resolved["model"]])
+
+        # --- Context caching: system prompt (static context) ---------
+        system_prompt_path = prompt_path.parent / f"{prompt_path.stem}_system.md"
+        has_system_prompt = system_prompt_path.exists()
+        if has_system_prompt:
+            system_content = system_prompt_path.read_text()
+            if system_content.strip():
+                cmd.extend(["--system-prompt", system_content])
+                logger.debug(
+                    "Using cached system prompt",
+                    system_prompt=str(system_prompt_path),
+                    length=len(system_content),
+                )
 
         # Prompt from file (read content and pass as argument)
         # Claude Code expects prompt as positional argument BEFORE other options

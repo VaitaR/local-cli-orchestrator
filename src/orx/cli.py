@@ -12,6 +12,7 @@ import typer
 
 from orx import __version__
 from orx.config import EngineType, OrxConfig
+from orx.infra.command import check_dependencies
 from orx.paths import RunPaths
 from orx.pipeline import PipelineRegistry
 from orx.pipeline.constants import DEFAULT_PIPELINE_ID
@@ -217,6 +218,20 @@ def run(
             typer.echo("Pipeline: legacy_fsm")
         elif selected_pipeline:
             typer.echo(f"Pipeline: {selected_pipeline}")
+
+        # Check CLI power tools availability
+        dep_report = check_dependencies()
+        if dep_report.missing_tools:
+            typer.echo("")
+            typer.echo(
+                typer.style(
+                    "Warning: some CLI power tools are missing:",
+                    fg=typer.colors.YELLOW,
+                )
+            )
+            for t in dep_report.missing_tools:
+                typer.echo(f"  ✗ {t.name} — {t.install_hint}")
+            typer.echo("  Agent will still work but may be less efficient.")
         typer.echo("")
 
         success = runner.run(
@@ -226,11 +241,31 @@ def run(
         )
 
         if success:
-            typer.echo("")
-            typer.echo(
-                typer.style("Run completed successfully!", fg=typer.colors.GREEN)
-            )
-            typer.echo(f"Artifacts: {runner.paths.run_dir}")
+            # Check if the run paused (human-in-the-loop)
+            try:
+                runner.state.load()
+                if runner.state.is_paused():
+                    typer.echo("")
+                    typer.echo(
+                        typer.style(
+                            f"Run paused after node '{runner.state.state.paused_after_node}'. "
+                            "Edit artifacts and run 'orx resume' to continue.",
+                            fg=typer.colors.YELLOW,
+                        )
+                    )
+                    typer.echo(f"Artifacts: {runner.paths.run_dir}")
+                else:
+                    typer.echo("")
+                    typer.echo(
+                        typer.style("Run completed successfully!", fg=typer.colors.GREEN)
+                    )
+                    typer.echo(f"Artifacts: {runner.paths.run_dir}")
+            except Exception:
+                typer.echo("")
+                typer.echo(
+                    typer.style("Run completed successfully!", fg=typer.colors.GREEN)
+                )
+                typer.echo(f"Artifacts: {runner.paths.run_dir}")
         else:
             typer.echo("")
             typer.echo(typer.style("Run failed.", fg=typer.colors.RED))
@@ -309,17 +344,32 @@ def resume(
             dry_run=dry_run,
         )
 
+        state = runner.state.load()
         typer.echo(f"Resuming run: {run_id}")
-        typer.echo(f"Current stage: {runner.state.load().current_stage.value}")
+        typer.echo(f"Current stage: {state.current_stage.value}")
+        if state.paused_after_node:
+            typer.echo(f"Paused after node: {state.paused_after_node}")
         typer.echo("")
 
         success = runner.resume()
 
         if success:
-            typer.echo("")
-            typer.echo(
-                typer.style("Run completed successfully!", fg=typer.colors.GREEN)
-            )
+            # Check if the run paused again
+            runner.state.load()
+            if runner.state.is_paused():
+                typer.echo("")
+                typer.echo(
+                    typer.style(
+                        f"Run paused after node '{runner.state.state.paused_after_node}'. "
+                        "Edit artifacts and run 'orx resume' to continue.",
+                        fg=typer.colors.YELLOW,
+                    )
+                )
+            else:
+                typer.echo("")
+                typer.echo(
+                    typer.style("Run completed successfully!", fg=typer.colors.GREEN)
+                )
         else:
             typer.echo("")
             typer.echo(typer.style("Run failed.", fg=typer.colors.RED))

@@ -532,6 +532,23 @@ class ObservabilityConfig(BaseModel):
     tty: ObservabilityTTYConfig = Field(default_factory=ObservabilityTTYConfig)
 
 
+class ContextCachingConfig(BaseModel):
+    """Configuration for prompt context caching.
+
+    When enabled, static context (AGENTS.md, ARCHITECTURE.md, repo context)
+    is rendered to a separate system-prompt file.  Executors that support
+    a dedicated system-prompt field (e.g. Claude Code) pass it via
+    ``--system-prompt``, enabling Anthropic's prompt-caching.  Other
+    executors prepend the content to the user prompt so that the common
+    prefix triggers provider-side prefix caching (Gemini, OpenAI).
+
+    Attributes:
+        enabled: Whether context-caching prompt splitting is active.
+    """
+
+    enabled: bool = True
+
+
 class OrxConfig(BaseModel):
     """Complete orx configuration.
 
@@ -577,6 +594,9 @@ class OrxConfig(BaseModel):
     run: RunConfig = Field(default_factory=RunConfig)
     knowledge: KnowledgeConfig = Field(default_factory=KnowledgeConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
+    context_caching: ContextCachingConfig = Field(
+        default_factory=ContextCachingConfig
+    )
 
     @field_validator("gates")
     @classmethod

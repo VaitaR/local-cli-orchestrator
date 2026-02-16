@@ -123,6 +123,48 @@ async def cancel_run(request: Request, run_id: str) -> Any:
     )
 
 
+@router.post("/runs/{run_id}/resume")
+async def resume_run(request: Request, run_id: str) -> Any:
+    """Resume a paused orx run (human-in-the-loop).
+
+    Returns:
+        JSON with resume status.
+    """
+    store = request.app.state.store
+    worker = request.app.state.worker
+
+    run = store.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    if not run.can_resume:
+        return JSONResponse(
+            {
+                "status": "not_paused",
+                "run_id": run_id,
+                "message": "Run is not paused",
+            },
+            status_code=409,
+        )
+
+    try:
+        worker.resume_run(run_id)
+        return JSONResponse(
+            {
+                "status": "resumed",
+                "run_id": run_id,
+                "message": "Run resume initiated",
+            }
+        )
+    except (ValueError, RuntimeError) as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        logger.error("Failed to resume run", run_id=run_id, error=str(e))
+        raise HTTPException(
+            status_code=500, detail=f"Failed to resume run: {e}"
+        ) from e
+
+
 @router.post("/runs/{run_id}/restart")
 async def restart_run(request: Request, run_id: str) -> Any:
     """Restart a failed or completed orx run.
