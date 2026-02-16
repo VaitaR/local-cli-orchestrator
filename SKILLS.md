@@ -14,6 +14,7 @@
 | **CONTEXT ECONOMY** | Do not read full logs unless `get_run_status` reports a failure. |
 | **SECRETS** | Keep secrets out of task descriptions. Use placeholder names only. |
 | **GIT REQUIRED** | `orx` operates on git repos. The MCP server must point at a repo root (`ORX_PROJECT_ROOT`). |
+| **PYTHON VERSION LOCK** | Use Python **3.11 or 3.12 only**. Do not run with 3.9/3.10. Prefer `python3.11` in commands. |
 
 ---
 
@@ -87,14 +88,14 @@ Some pipeline nodes are interactive (human-in-the-loop). When `status == "paused
 
 ---
 
-## 4. MCP Resources Reference
+## 4. MCP Resource Templates Reference
 
 | URI Pattern | Content | MIME |
 |-------------|---------|------|
-| `orx://runs/{run_id}/state` | Full `state.json` | application/json |
-| `orx://runs/{run_id}/diff` | Current `patch.diff` | text/x-diff |
-| `orx://runs/{run_id}/logs/{name}` | Last 50 lines of log | text/plain |
-| `orx://runs/{run_id}/artifacts/{name}` | Artifact content (plan.md, spec.md, etc.) | text/markdown |
+| `orx://runs/{run_id}/state` | Full `state.json` | text payload (JSON string) |
+| `orx://runs/{run_id}/diff` | Current `patch.diff` | text payload (diff content) |
+| `orx://runs/{run_id}/logs/{log_name}` | Last 50 lines of log | text payload |
+| `orx://runs/{run_id}/artifacts/{filename}` | Artifact content (plan.md, spec.md, etc.) | text payload |
 
 ---
 
@@ -157,7 +158,7 @@ Or via `python -m`:
 {
   "mcpServers": {
     "orx": {
-      "command": "python",
+      "command": "python3.11",
       "args": ["-m", "orx.mcp"],
       "env": {
         "ORX_PROJECT_ROOT": "/path/to/your/repo"
@@ -169,9 +170,11 @@ Or via `python -m`:
 
 ### Prerequisites
 
+- Python `3.11` or `3.12` only (project supports `>=3.11,<3.13`)
+- Verify interpreter: `python3.11 --version` (or `python3.12 --version`)
 - `orx` CLI installed and on PATH
 - Git repository with `orx.yaml` (run `orx init` once)
-- MCP SDK: `pip install orx[mcp]`
+- MCP SDK install (recommended): `python3.11 -m pip install 'orx[mcp]'`
 
 ---
 
