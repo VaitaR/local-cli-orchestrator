@@ -15,6 +15,8 @@
 | **SECRETS** | Keep secrets out of task descriptions. Use placeholder names only. |
 | **GIT REQUIRED** | `orx` operates on git repos. The MCP server must point at a repo root (`ORX_PROJECT_ROOT`). |
 | **PYTHON VERSION LOCK** | Use Python **3.11 or 3.12 only**. Do not run with 3.9/3.10. Prefer `python3.11` in commands. |
+| **BOOTSTRAP FIRST** | On session start call `get_operator_guide` (tool) or `operator_guide` (prompt). |
+| **NEVER RUN GUIDE AS TASK** | Do not call `start_run(task="operator_guide")`; it launches a full pipeline run. |
 
 ---
 
@@ -41,6 +43,12 @@ start_run(task, pipeline)
    ▼
   done → read diff, review artifacts
 ```
+
+### First Step (Mandatory)
+
+1. Call `get_operator_guide` (tool) or `operator_guide` (prompt).
+2. Read rules and pipeline options.
+3. Only then call `start_run` with a real engineering task.
 
 ### Starting Work
 
@@ -78,6 +86,7 @@ Some pipeline nodes are interactive (human-in-the-loop). When `status == "paused
 | Tool | Purpose | Key Args |
 |------|---------|----------|
 | `start_run` | Launch a new orx run | `task` (str), `pipeline` (enum), `base_branch` (opt) |
+| `get_operator_guide` | Load full operator instructions | — |
 | `get_run_status` | Status + metadata (no logs) | `run_id` |
 | `resume_run` | Continue paused/interrupted run | `run_id` |
 | `cancel_run` | SIGTERM running process | `run_id` |
@@ -96,6 +105,7 @@ Some pipeline nodes are interactive (human-in-the-loop). When `status == "paused
 | `orx://runs/{run_id}/diff` | Current `patch.diff` | text payload (diff content) |
 | `orx://runs/{run_id}/logs/{log_name}` | Last 50 lines of log | text payload |
 | `orx://runs/{run_id}/artifacts/{filename}` | Artifact content (plan.md, spec.md, etc.) | text payload |
+| `orx://guide/skills` | Full operator guide (`SKILLS.md`) | text payload |
 
 ---
 
@@ -103,6 +113,7 @@ Some pipeline nodes are interactive (human-in-the-loop). When `status == "paused
 
 | Prompt | Purpose |
 |--------|---------|
+| `operator_guide` | Loads full operator guide (first call at session start) |
 | `new_task` | Loads project context + available pipelines; prepares you to formulate a task |
 | `debug_run` | Assembles failed run's status, logs, diff into one context block for analysis |
 

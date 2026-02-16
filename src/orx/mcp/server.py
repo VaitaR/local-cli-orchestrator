@@ -21,8 +21,10 @@ from mcp.server.fastmcp import FastMCP
 
 _MCP_INSTRUCTIONS = (
     "You are connected to the orx orchestrator MCP server. "
-    "First call prompt `operator_guide` to load usage rules, then use "
-    "`start_run` and poll with `get_run_status` until completion."
+    "First call `get_operator_guide` (tool) or `operator_guide` (prompt) to load "
+    "usage rules. Do NOT call start_run(task='operator_guide'). "
+    "Use `start_run` only for real coding tasks and always poll `get_run_status` "
+    "until completion."
 )
 
 mcp = FastMCP("orx", instructions=_MCP_INSTRUCTIONS)
@@ -100,6 +102,12 @@ class PipelineChoice(str, Enum):
 # ---------------------------------------------------------------------------
 # Tools
 # ---------------------------------------------------------------------------
+
+@mcp.tool()
+def get_operator_guide() -> str:
+    """Return the full operator guide for MCP clients."""
+    return _read_operator_guide()
+
 
 @mcp.tool()
 def start_run(
@@ -346,7 +354,7 @@ def list_pipelines() -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 @mcp.resource("orx://guide/skills")
-def get_operator_guide() -> str:
+def get_operator_guide_resource() -> str:
     """Operator guide used by MCP agents to understand workflow."""
     return _read_operator_guide()
 

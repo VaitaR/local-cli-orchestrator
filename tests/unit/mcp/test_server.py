@@ -48,4 +48,16 @@ def test_mcp_instructions_reference_operator_guide() -> None:
     """Server-level MCP instructions should direct clients to operator_guide."""
     instructions = mcp_server.mcp.instructions
     assert instructions is not None
-    assert "operator_guide" in instructions
+    assert "get_operator_guide" in instructions
+    assert "Do NOT call start_run(task='operator_guide')" in instructions
+
+
+def test_get_operator_guide_tool_returns_content(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Tool should expose guide text directly to clients."""
+    monkeypatch.setenv("ORX_PROJECT_ROOT", str(tmp_path))
+    (tmp_path / "SKILLS.md").write_text("# SKILLS\nfrom tool")
+
+    content = mcp_server.get_operator_guide()
+    assert "from tool" in content
