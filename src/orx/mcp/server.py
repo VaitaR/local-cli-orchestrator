@@ -19,7 +19,13 @@ from mcp.server.fastmcp import FastMCP
 # Server instance
 # ---------------------------------------------------------------------------
 
-mcp = FastMCP("orx")
+_MCP_INSTRUCTIONS = (
+    "You are connected to the orx orchestrator MCP server. "
+    "First call prompt `operator_guide` to load usage rules, then use "
+    "`start_run` and poll with `get_run_status` until completion."
+)
+
+mcp = FastMCP("orx", instructions=_MCP_INSTRUCTIONS)
 
 
 # ---------------------------------------------------------------------------
@@ -55,6 +61,30 @@ def _tail(path: Path, lines: int = 50) -> str:
         return "\n".join(all_lines[-lines:])
     except OSError:
         return ""
+
+
+def _read_operator_guide(max_chars: int | None = None) -> str:
+    """Read operator guide from SKILLS.md (or legacy SKILSS.md)."""
+    root = _resolve_project_root()
+    for filename in ("SKILLS.md", "SKILSS.md"):
+        path = root / filename
+        if not path.exists():
+            continue
+        try:
+            content = path.read_text()
+        except OSError:
+            continue
+
+        if max_chars is not None and len(content) > max_chars:
+            return content[:max_chars] + "\n\n... (truncated)"
+        return content
+
+    return (
+        "# orx MCP Operator Guide\n\n"
+        "Guide file not found in project root. "
+        "Use start_run(task=..., pipeline=...) and poll get_run_status(run_id) "
+        "until status is success, failed, or paused."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -315,6 +345,12 @@ def list_pipelines() -> list[dict[str, Any]]:
 # Resources
 # ---------------------------------------------------------------------------
 
+@mcp.resource("orx://guide/skills")
+def get_operator_guide() -> str:
+    """Operator guide used by MCP agents to understand workflow."""
+    return _read_operator_guide()
+
+
 @mcp.resource("orx://runs/{run_id}/state")
 def get_run_state(run_id: str) -> str:
     """Full state.json for a run."""
@@ -360,6 +396,12 @@ def get_artifact(run_id: str, filename: str) -> str:
 # ---------------------------------------------------------------------------
 
 @mcp.prompt()
+def operator_guide() -> str:
+    """Load full operator guide for this MCP server."""
+    return _read_operator_guide()
+
+
+@mcp.prompt()
 def new_task() -> str:
     """Prepare context for starting a new orx task.
 
@@ -393,6 +435,13 @@ def new_task() -> str:
             content = content[:2000] + "\n\n... (truncated)"
         sections.append("## Project Rules (from AGENTS.md)\n")
         sections.append(content)
+        sections.append("")
+
+    # SKILLS.md summary (operator workflow for MCP clients)
+    guide = _read_operator_guide(max_chars=1500)
+    if guide.strip():
+        sections.append("## Operator Workflow (from SKILLS.md)\n")
+        sections.append(guide)
         sections.append("")
 
     # Git info
