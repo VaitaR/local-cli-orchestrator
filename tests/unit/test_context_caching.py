@@ -145,6 +145,8 @@ class TestStaticContextKeys:
             "architecture",
             "project_context",
             "repo_context",
+            "repo_tags",
+            "smart_context",
             "verify_commands",
             "definition_of_done",
         }

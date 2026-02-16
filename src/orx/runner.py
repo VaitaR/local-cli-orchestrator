@@ -17,6 +17,8 @@ import structlog
 
 from orx.config import EngineConfig, EngineType, ModelSelector, OrxConfig
 from orx.context.backlog import Backlog, WorkItem, WorkItemStatus
+from orx.context.intelligence.bundle import SmartBundler
+from orx.context.intelligence.graph import RepoGraph
 from orx.context.pack import ContextPack
 from orx.context.repo_context import RepoContextBuilder
 from orx.exceptions import GuardrailError
@@ -645,6 +647,42 @@ class Runner:
         except Exception as e:
             # Non-fatal: log warning and continue
             log.warning("Failed to build repo context pack", error=str(e))
+
+        # Build tree-sitter intelligence graph
+        self._build_intelligence_context(force_rebuild=force_rebuild)
+
+    def _build_intelligence_context(self, *, force_rebuild: bool = False) -> None:
+        """Build tree-sitter intelligence context (repo tags + smart context).
+
+        Non-fatal: failures are logged and the run continues with
+        fallback to the static project map.
+
+        Args:
+            force_rebuild: If True, rebuild even if files exist.
+        """
+        log = logger.bind(run_id=self.paths.run_id)
+
+        if not force_rebuild and self.pack.repo_tags_exists():
+            log.debug("Intelligence context already exists, reusing")
+            return
+
+        try:
+            graph = RepoGraph.build(self.workspace.worktree_path)
+
+            # Build and write repo tags map (for plan stage)
+            bundler = SmartBundler(self.workspace.worktree_path, graph)
+            repo_tags = bundler.build_repo_map()
+            if repo_tags:
+                self.pack.write_repo_tags(repo_tags)
+
+            log.info(
+                "Intelligence context built",
+                files_parsed=len(graph.analyses),
+                edges=sum(len(v) for v in graph.edges_out.values()),
+                tags_size=len(repo_tags),
+            )
+        except Exception as e:
+            log.warning("Failed to build intelligence context", error=str(e))
 
     def run(
         self,

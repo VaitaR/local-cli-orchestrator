@@ -29,6 +29,14 @@ You are implementing a specific work item from the backlog.
 {{ repo_context }}
 {% endif %}
 
+{% if smart_context is defined and smart_context %}
+## Smart Context (dependency signatures)
+
+The following shows the real source code and signatures of relevant files, extracted via tree-sitter analysis. **Use these real signatures** — do NOT invent methods, parameters, or classes that are not shown here.
+
+{{ smart_context }}
+{% endif %}
+
 {% if error_logs is defined and error_logs %}
 ## Previous Errors to Fix
 

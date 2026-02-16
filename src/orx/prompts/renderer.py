@@ -23,6 +23,8 @@ STATIC_CONTEXT_KEYS = frozenset(
         "architecture",
         "project_context",
         "repo_context",
+        "repo_tags",
+        "smart_context",
         "verify_commands",
         "definition_of_done",
     }

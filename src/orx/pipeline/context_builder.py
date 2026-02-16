@@ -164,6 +164,7 @@ class ContextBuilder:
             "verify_commands": self._extract_verify_commands,
             "agents_context": lambda: extract_agents_context(self._worktree),
             "architecture": lambda: extract_architecture_overview(self._worktree),
+            "repo_tags": self._extract_repo_tags,
         }
 
     def _extract_repo_map(self) -> str | None:
@@ -200,4 +201,17 @@ class ContextBuilder:
             return result.verify_commands
         except Exception as e:
             logger.warning("Failed to extract verify_commands", error=str(e))
+            return None
+
+    def _extract_repo_tags(self) -> str | None:
+        """Extract tree-sitter generated repo tags map."""
+        from orx.context.intelligence.bundle import SmartBundler
+        from orx.context.intelligence.graph import RepoGraph
+
+        try:
+            graph = RepoGraph.build(self._worktree)
+            bundler = SmartBundler(self._worktree, graph)
+            return bundler.build_repo_map()
+        except Exception as e:
+            logger.warning("Failed to extract repo_tags", error=str(e))
             return None

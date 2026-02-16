@@ -183,6 +183,16 @@ class RunPaths:
         """Path to verify_commands.md (repo context pack)."""
         return self.context_dir / "verify_commands.md"
 
+    @property
+    def repo_tags_md(self) -> Path:
+        """Path to repo_tags.md (tree-sitter generated repo map)."""
+        return self.context_dir / "repo_tags.md"
+
+    @property
+    def smart_context_md(self) -> Path:
+        """Path to smart_context.md (tree-sitter tiered bundle)."""
+        return self.context_dir / "smart_context.md"
+
     # Artifact files
     @property
     def patch_diff(self) -> Path:

@@ -12,6 +12,16 @@ You are a software architect planning the implementation of a coding task.
 {{ project_context }}
 {% endif %}
 
+{% if repo_tags is defined and repo_tags %}
+## Repository Map (definitions & structure)
+
+The following is a tree-sitter-extracted map of all files and their top-level definitions (classes, functions, interfaces). Use this to understand the real codebase structure. Do NOT invent methods or classes that are not listed here.
+
+```
+{{ repo_tags }}
+```
+{% endif %}
+
 {% if architecture_overview is defined and architecture_overview %}
 ## Architecture Overview
 
